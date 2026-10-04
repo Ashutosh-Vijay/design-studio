@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>spike</groupId><artifactId>als-spike</artifactId><version>0.1</version>
+  <repositories><repository><id>temp</id><url>https://repository-master.mulesoft.org/nexus/content/repositories/releases/</url></repository></repositories>
+  <dependencies><dependency><groupId>org.mule.als</groupId><artifactId>als-server_2.12</artifactId><version>7.1.6-0</version></dependency></dependencies>
+</project>

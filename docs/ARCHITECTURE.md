@@ -173,11 +173,32 @@ ALS 7.1.6 is pinned to **AMF 5.9.2** (plus AMF modules for GraphQL, MCP and agen
 - AMF, ALS and the custom validator are **Apache 2.0** (MuleSoft, Inc.), so bundling them is fine with the notice kept.
 - Their GitHub repos (aml-org) were **archived** in 2026, but MuleSoft still publishes AMF to its Nexus (5.15.0 on 2026-10-02). Expect binaries, not public issues or fixes.
 
-**Open question (M0.5 proof test):** should ALS run in the sidecar and power completion, hover, outline, go-to-definition, references, rename and the extract refactorings over LSP? There\x27s an official CodeMirror LSP client. If ALS is fast enough on the corpus specs, it replaces much of the language work planned in section 5. It would also behave exactly like Design Center, and the refactorings come free. The risks:
-- its speed on 5,000-line specs;
-- its edits (refactorings rewrite text: check they keep formatting, per M0.2);
-- the older AMF;
-- no public fixes.
+**M0.5 result (2026-10-05): don't adopt ALS for the editor; keep it as a reference.**
+
+Code: `spikes/m0-5-als/run.mjs`. ALS 7.1.6 (73 jars, 61 MB, AMF 5.9.2), `org.mulesoft.als.server.lsp4j.Main`, run on `crm-sapi` (2,202 lines). Two setup lessons:
+- **Talk over a socket** (`--port N --listen`). ALS writes its debug logs to stdout, about 600 lines per run, which corrupts LSP over stdio.
+- **Declare the main file first:** `workspace/executeCommand` `didChangeConfiguration` with `{mainPath, folder, dependencies}`. Without it, cross-file features silently fail: references 0, a rename that edits only the declaration (which would break the spec), definition 6.4 s.
+
+| Feature | Result with the main file declared |
+|---|---|
+| Start, then first diagnostics | 1.3 s, then 4.7 s (whole project), correct (0 problems) |
+| Outline | 0.44 s, 1,630 symbols |
+| Definition | 0.16 s, correct file and line |
+| References and rename of a library type | correct across files (1 reference; rename edits both files, as in M0.2) |
+| Code actions | 0.2 to 0.3 s: "Delete declaration (Cascade)", "Extract to Declaration", "Extract resource type". The extract edit touched 6 lines |
+| **Re-check after an edit** | **3.0 s**, against 0.38 s for our parse-only tier (M0.1) |
+| **Completion after `type:`** | 13 built-in types only. In an empty `type:` it offers the 36 library aliases (`shipmentsLib.`) but took **3.3 s** after an edit; after `alias.` it gave 0 items in this test |
+| Hover on a type reference | generic keyword text ("Defines a data type"), not the type |
+
+**Why not adopt it:**
+- The everyday loop (typing, completion, errors) is where ALS is slow: about 3 s per edit for re-checks and completion, against an instant local completion and a 0.4 s parse tier in our design.
+- ALS pins AMF 5.9.2, and our checks use 5.15. Two AMF versions can't share one JVM classpath, so ALS would need a second JVM (memory, start-up and 61 MB more).
+- The repo is archived, with no public fixes, and it needs workarounds (socket instead of stdio, explicit main-file setup).
+
+**What we take from it:**
+- **The refactoring list** sets the target for our own splice-based edits (M2): extract to declaration (type), extract resource type, extract trait, extract to library or fragment, delete declaration with cascade.
+- **It's a test oracle:** for references and rename, compare our results against ALS's on the corpus in tests.
+- **Revisit** only if MuleSoft ships a newer ALS on AMF 5.15+ with faster completion.
 
 ## 5. Webview
 
