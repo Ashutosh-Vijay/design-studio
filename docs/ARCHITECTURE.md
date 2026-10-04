@@ -8,7 +8,7 @@ Status: **agreed design before M1** (2026-10-05). Built on the facts proven in M
 
 ```
 ┌──────────────── Tauri app ─────────────────────────────────────────────┐
-│  Webview (React + TypeScript + Monaco)                                 │
+│  Webview (React + TypeScript + code editor, chosen in M0.4)            │
 │   - UI, editors, tree, problems, forms, graph                          │
 │   - edit operations (pure TS, return text edits)                       │
 │   - fast YAML parse for positions (`yaml` CST)                         │
@@ -217,7 +217,36 @@ Copied in, not shared as a package (two solo repos, so copying is simpler than a
 
 ## 8. Tech choices
 
-- **Shell and UI:** Tauri 2, React and TypeScript, Vite, Tailwind, Monaco, `yaml` 2.x, `jsonc-parser` for OAS JSON.
+### 8.1 Why Tauri (not Electron, not Flutter)
+- **Tauri:** a small shell using the system webview (WebView2, Chromium-based, on Windows), low memory, and it reuses all of DataWeave Studio's Rust, sidecar, updater, Store and CI work.
+  - Risk: webview differences on macOS and Linux, which DataWeave Studio already ships through.
+- **Electron:** identical rendering everywhere, but it adds about 100 MB and much more memory, and the backend, updater and packaging would be redone. It stays the fallback only if a webview problem proves unworkable.
+- **Flutter:** no mature code editor for multi-thousand-line YAML with completions, and no reuse. A poor fit for an editor-first app.
+
+### 8.2 Editor: Monaco or CodeMirror 6, decided by M0.4
+
+DataWeave Studio's Monaco bugs came from its design, not from bad luck:
+- **Global per-language providers:** every editor shows every editor's completions, so it needed a refcounted registry.
+- **Self-measured layout fighting CSS:** `min-h-0` fixes, relayout problems, and an overflow root that broke rename's Enter and Escape.
+- **Find-widget flicker and shortcut collisions.**
+
+This app will have many small editors (form fields, examples, inspector), which makes the global-provider problem worse.
+
+CodeMirror 6 has:
+- per-instance extensions;
+- light instances;
+- viewport rendering;
+- an incremental YAML parser (Lezer) whose syntax tree may give the cursor context directly;
+- `@codemirror/merge` for conflict views;
+- a VS Code keymap package.
+
+Its costs: no reuse of DataWeave Studio's editor glue, more completion UI to polish ourselves, and no built-in minimap.
+
+**M0.4 (half a day):** load the 2,201-line `crm-sapi.raml` in both editors, with RAML highlighting, context-aware type completion (from a fixed outline) and AMF problem markers. Compare the feel, typing and scroll speed with a big file, ten small instances on one screen, layout behaviour inside a resizable pane, and the amount of code. The winner is recorded here.
+
+### 8.3 The rest
+
+- **Shell and UI:** Tauri 2, React and TypeScript, Vite, Tailwind, the editor from M0.4, `yaml` 2.x, `jsonc-parser` for OAS JSON.
 - **amf-server:** Java 17 and Maven with the shade plugin. Plain Java, since AMF's platform API is Java-friendly and Scala isn't needed.
 - **Rust:** serde, notify, zip, tokio. Later reqwest and keyring (M3).
 - **Windows first** (it's what I use at work); macOS and Linux builds from the same CI as DataWeave Studio.
