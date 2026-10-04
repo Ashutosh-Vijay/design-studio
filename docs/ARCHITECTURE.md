@@ -8,7 +8,7 @@ Status: **agreed design before M1** (2026-10-05). Built on the facts proven in M
 
 ```
 ┌──────────────── Tauri app ─────────────────────────────────────────────┐
-│  Webview (React + TypeScript + code editor, chosen in M0.4)            │
+│  Webview (React + TypeScript + CodeMirror 6)                           │
 │   - UI, editors, tree, problems, forms, graph                          │
 │   - edit operations (pure TS, return text edits)                       │
 │   - fast YAML parse for positions (`yaml` CST)                         │
@@ -244,9 +244,32 @@ Its costs: no reuse of DataWeave Studio's editor glue, more completion UI to pol
 
 **M0.4 (half a day):** load the 2,201-line `crm-sapi.raml` in both editors, with RAML highlighting, context-aware type completion (from a fixed outline) and AMF problem markers. Compare the feel, typing and scroll speed with a big file, ten small instances on one screen, layout behaviour inside a resizable pane, and the amount of code. The winner is recorded here.
 
+**M0.4 result (2026-10-05): CodeMirror 6.**
+
+Code: `spikes/m0-4-editor` (`bench.mjs`, `leak.mjs`). Monaco 0.52.2 (core plus YAML only) against CodeMirror 6 (view 6.43, lang-yaml 6.1). Each page has the 2,202-line `crm-sapi.raml`, type and trait completion, the two AMF markers, a breadcrumb and 10 small editors. Measured in headless Edge, three runs each.
+
+| | Monaco | CodeMirror 6 |
+|---|---|---|
+| Create the big editor | 28 to 105 ms | 14 to 29 ms |
+| Create 10 small editors | 26 to 36 ms | **5 to 6 ms** |
+| Typing (per character, including the frame) | 7.2 ms | 10.5 ms |
+| Scrolling (per 40-line jump) | 10 to 14 ms | 7 to 8.5 ms |
+| Cursor context (YAML key path) | 11 to 18 ms (re-parses the file) | **~0.01 ms** (the incremental Lezer tree) |
+| Bundle | ~3.8 MB (3.4 MB JS, worker, CSS, font) | **0.43 MB** |
+| Small editor, typing "loan" | **suggested words from the big spec** (`ordersLib`, `loanCreate`, ...) | nothing (extensions are per editor) |
+| Code for the same page | 86 lines | 85 lines |
+
+**Why CodeMirror 6:**
+- No cross-editor leaks by design; Monaco leaked the big spec's words into a form field out of the box.
+- Cursor context is effectively free from the live syntax tree. That drives completion, the breadcrumb, tree sync and which form to show on every cursor move.
+- Small editors are 6 times cheaper to create.
+- It's 9 times smaller.
+
+Typing and scrolling are well inside a 16 ms frame on both. The costs: no reuse of DataWeave Studio's Monaco glue, and the completion UI, theming and keymap get our own polish (the VS Code keymap package covers the shortcuts).
+
 ### 8.3 The rest
 
-- **Shell and UI:** Tauri 2, React and TypeScript, Vite, Tailwind, the editor from M0.4, `yaml` 2.x, `jsonc-parser` for OAS JSON.
+- **Shell and UI:** Tauri 2, React and TypeScript, Vite, Tailwind, **CodeMirror 6** (`@codemirror/lang-yaml`, autocomplete, lint, merge), `yaml` 2.x for edit positions, `jsonc-parser` for OAS JSON.
 - **amf-server:** Java 17 and Maven with the shade plugin. Plain Java, since AMF's platform API is Java-friendly and Scala isn't needed.
 - **Rust:** serde, notify, zip, tokio. Later reqwest and keyring (M3).
 - **Windows first** (it's what I use at work); macOS and Linux builds from the same CI as DataWeave Studio.

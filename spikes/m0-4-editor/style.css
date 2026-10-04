@@ -1,0 +1,13 @@
+html, body { margin: 0; height: 100%; background: #16181d; color: #d6d8de; font: 13px system-ui, sans-serif; }
+body { display: flex; flex-direction: column; }
+header { padding: 6px 10px; display: flex; gap: 14px; align-items: baseline; border-bottom: 1px solid #2a2d35; flex-wrap: wrap; }
+header a { color: #6fc3ff; }
+#crumb { font-family: ui-monospace, monospace; color: #9fe0a0; }
+#metrics { font-family: ui-monospace, monospace; color: #c9a86a; font-size: 11px; width: 100%; }
+main { flex: 1; display: flex; min-height: 0; }
+#big { flex: 0 0 62%; min-width: 200px; min-height: 0; overflow: hidden; }
+#split { width: 6px; cursor: col-resize; background: #2a2d35; }
+#small { flex: 1; overflow: auto; padding: 8px; display: grid; gap: 8px; align-content: start; }
+#small label { display: block; font-size: 11px; color: #8a8f9c; }
+.mini { height: 54px; border: 1px solid #2a2d35; border-radius: 4px; margin-top: 3px; overflow: hidden; }
+.cm-editor { height: 100%; }
