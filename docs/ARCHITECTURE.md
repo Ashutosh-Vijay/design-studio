@@ -145,6 +145,40 @@ api-designer-studio/
 
 ---
 
+### 4.1 What's inside AMF and ALS (survey, 2026-10-05)
+
+**AMF 5.15.0** (with its dependencies, 17,257 classes) is more than a parser. Useful public APIs:
+
+| API | Use in the app |
+|---|---|
+| `AMFShapePayloadValidator.validate(json)` | Check each example, and each mock request and response, against its type, with AMF's own messages and positions |
+| `JsonSchemaShapeRenderer.toJsonSchema(shape)` | "View or copy as JSON Schema" for any RAML type |
+| `RamlShapeRenderer.toRamlDatatype(shape)` | The reverse, for OAS specs |
+| `AMFElementClient.asEndpoint(unit, resourceType)`, `asOperation(unit, trait)` | Show the **effective** endpoint or method with traits and resource types applied (for example `client-id-policy` plus `correlation-headers` plus `global-errors` expanded) |
+| `UnitCache` (custom reference cache) | Reuse parsed, unchanged libraries and fragments between parses. The main lever on M0.1\x27s 2 s full validation |
+| `ParsingOptions` (`withTokens`, max YAML references, JSON complexity and depth) | Keep tokens; guard against huge or hostile specs |
+| `PipelineId.Default` / `Editing` / `Compatibility` / `Cache` / `Introspection` | \`Compatibility\` converts between RAML and OAS (the parking-lot export) |
+| Spec coverage | RAML 0.8 and 1.0; OAS 2.0, 3.0, 3.1 and 3.2; AsyncAPI 2.x and 3 (with Kafka, Anypoint MQ, Solace, AMQP, MQTT, IBM MQ, Pulsar and other bindings); GraphQL; gRPC; Avro; JSON Schema; AML dialects |
+
+**ALS, the AML Language Server** (`org.mule.als:als-server_2.12` 7.1.6-0 on MuleSoft\x27s Nexus, about 3,000 classes). This is the engine behind API Designer\x27s and Code Builder\x27s editor features. It\x27s a full LSP server with modules for:
+- workspace management;
+- diagnostics;
+- completion (about 360 web-API suggestion classes, path navigation, templates);
+- structure (the outline);
+- code actions, which include refactorings: **extract RAML type, extract to library, extract to fragment, extract trait, extract resource type**, delete a declaration, create a file.
+
+ALS 7.1.6 is pinned to **AMF 5.9.2** (plus AMF modules for GraphQL, MCP and agent networks), not 5.15.
+
+**Licence and status:**
+- AMF, ALS and the custom validator are **Apache 2.0** (MuleSoft, Inc.), so bundling them is fine with the notice kept.
+- Their GitHub repos (aml-org) were **archived** in 2026, but MuleSoft still publishes AMF to its Nexus (5.15.0 on 2026-10-02). Expect binaries, not public issues or fixes.
+
+**Open question (M0.5 proof test):** should ALS run in the sidecar and power completion, hover, outline, go-to-definition, references, rename and the extract refactorings over LSP? There\x27s an official CodeMirror LSP client. If ALS is fast enough on the corpus specs, it replaces much of the language work planned in section 5. It would also behave exactly like Design Center, and the refactorings come free. The risks:
+- its speed on 5,000-line specs;
+- its edits (refactorings rewrite text: check they keep formatting, per M0.2);
+- the older AMF;
+- no public fixes.
+
 ## 5. Webview
 
 **State:** a single project store, plain React context and hooks as in DataWeave Studio, with no extra state library unless it becomes painful. It holds:
