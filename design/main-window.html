@@ -1739,7 +1739,7 @@ $('projBtn').onclick = () => {
     <button class="mi" data-p="r"><span class="ico">${ic('zip', 14)}</span>store-experience-eapi<span class="sc">1 w</span></button>
     <div class="msep"></div><button class="mi" data-p="close">Close project</button>`).onclick = e => {
     const b = e.target.closest('[data-p]'); if (!b) return; closeLayer();
-    if (b.dataset.p === 'save') saveAll(); else toast(b.dataset.p === 'close' ? 'Back to the start screen (its own mockup)' : 'Opens the project. The start screen mockup covers this flow.', 'folder');
+    if (b.dataset.p === 'save') saveAll(); else if (b.dataset.p === 'close') location.href = 'start-screen.html'; else toast('Opens the system picker, then the project, like the start screen does.', 'folder');
   };
 };
 document.addEventListener('mousedown', e => { if ($('pop') && !e.target.closest('#pop') && !e.target.closest('[data-menu]')) closeLayer(); });

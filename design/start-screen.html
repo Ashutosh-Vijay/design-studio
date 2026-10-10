@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start screen mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ===== Tokens copied from DataWeave Studio src/index.css (Dusk / Paper) ===== */
+:root {
+  color-scheme: dark;
+  --accent: oklch(72% 0.15 158);
+  --accent-hover: oklch(78% 0.15 158);
+  --accent-dim: oklch(72% 0.15 158 / 0.14);
+  --accent-border: oklch(72% 0.15 158 / 0.32);
+  --accent-ink: oklch(14% 0.004 80);
+
+  --bg: oklch(14% 0.004 80);
+  --surface: oklch(17% 0.004 80);
+  --surface-2: oklch(20% 0.004 80);
+  --surface-input: oklch(20% 0.004 80);
+  --surface-3: oklch(24% 0.004 80);
+  --rail: oklch(12% 0.004 80);
+
+  --line: oklch(26% 0.004 80);
+  --line-secondary: oklch(22% 0.004 80);
+  --line-subtle: oklch(20% 0.004 80);
+
+  --content: oklch(96% 0 0);
+  --content-secondary: oklch(78% 0 0);
+  --content-muted: oklch(60% 0 0);
+  --content-faint: oklch(50% 0 0);
+  --content-ghost: oklch(38% 0 0);
+
+  --warn: oklch(80% 0.14 80);
+  --err: oklch(68% 0.18 20);
+  --ok: oklch(76% 0.15 155);
+  --violet: oklch(72% 0.14 290);
+  --cyan: oklch(75% 0.11 220);
+
+  --scrollbar-thumb: oklch(30% 0.004 80);
+  --scrollbar-thumb-hover: oklch(40% 0.004 80);
+  --selection-bg: oklch(72% 0.15 158 / 0.35);
+  --hover-overlay: oklch(100% 0 0 / 0.05);
+  --shadow: 0 12px 40px rgba(0,0,0,0.45);
+
+  /* Syntax palette from DataWeave Studio src/dataweaveTheme.ts */
+  --syn-string: #88D4A4;
+  --syn-number: #E2B36F;
+  --syn-type: #DDD3BE;
+  --syn-fn: #4EBEDE;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --left-w: 272px;
+  --right-w: 330px;
+  --bottom-h: 168px;
+}
+.light {
+  color-scheme: light;
+  --accent: oklch(55% 0.15 158);
+  --accent-hover: oklch(50% 0.15 158);
+  --accent-dim: oklch(55% 0.15 158 / 0.10);
+  --accent-border: oklch(55% 0.15 158 / 0.35);
+  --accent-ink: oklch(100% 0 0);
+
+  --bg: oklch(98% 0.003 80);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(97% 0.003 80);
+  --surface-input: oklch(100% 0 0);
+  --surface-3: oklch(94% 0.004 80);
+  --rail: oklch(96% 0.003 80);
+
+  --line: oklch(90% 0.004 80);
+  --line-secondary: oklch(94% 0.003 80);
+  --line-subtle: oklch(96% 0.003 80);
+
+  --content: oklch(20% 0 0);
+  --content-secondary: oklch(35% 0 0);
+  --content-muted: oklch(50% 0 0);
+  --content-faint: oklch(65% 0 0);
+  --content-ghost: oklch(78% 0 0);
+
+  --warn: oklch(60% 0.15 80);
+  --err: oklch(55% 0.18 20);
+  --ok: oklch(52% 0.14 155);
+  --violet: oklch(50% 0.15 290);
+  --cyan: oklch(55% 0.12 220);
+
+  --scrollbar-thumb: oklch(80% 0.004 80);
+  --scrollbar-thumb-hover: oklch(70% 0.004 80);
+  --selection-bg: oklch(55% 0.15 158 / 0.25);
+  --hover-overlay: oklch(0% 0 0 / 0.04);
+  --shadow: 0 12px 40px rgba(0,0,0,0.14);
+
+  --syn-string: #1F6537;
+  --syn-number: #8E6224;
+  --syn-type: #3D3B36;
+  --syn-fn: #0E6F87;
+}
+
+* { box-sizing: border-box; scrollbar-color: var(--scrollbar-thumb) var(--surface); }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--content);
+  font-family: var(--font-sans); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--surface); }
+::selection { background: var(--selection-bg); }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+input { font: inherit; color: inherit; }
+.mono { font-family: var(--font-mono); }
+.app { height: 100vh; display: flex; flex-direction: column; user-select: none; }
+
+/* ===== Start screen ===== */
+header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding-left: 14px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.appname { font-weight: 600; font-size: 13px; }
+.icon-btn { width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--content-faint); }
+.icon-btn:hover { background: var(--surface-2); color: var(--content); }
+.winctl { display: flex; height: 44px; }
+.winctl button { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--content-muted); }
+.winctl button:hover { background: var(--surface-2); color: var(--content); }
+.winctl button.close:hover { background: #e81123; color: #fff; }
+.kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--surface-3); color: var(--content-muted); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 6px; font-size: 12.5px; font-weight: 500;
+  border: 1px solid var(--line); color: var(--content-secondary); background: var(--surface-2); }
+.btn:hover { color: var(--content); border-color: var(--content-ghost); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.link { border: 0; background: none; color: var(--accent); padding: 0 4px; height: auto; }
+.btn.link:hover { text-decoration: underline; }
+
+.main { flex: 1; min-height: 0; display: flex; justify-content: center; overflow: auto; background: var(--bg); }
+.wrap { width: min(1080px, 100%); display: grid; grid-template-columns: 360px 1fr; gap: 48px; padding: 56px 40px 32px; align-content: start; }
+.hero h1 { margin: 18px 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -0.2px; }
+.hero p { margin: 0; color: var(--content-muted); font-size: 13px; line-height: 1.55; }
+.acts { margin-top: 26px; display: flex; flex-direction: column; gap: 8px; }
+.act { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); text-align: left; }
+.act:hover { border-color: var(--accent-border); background: color-mix(in oklch, var(--accent) 5%, var(--surface)); }
+.act .ai { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--accent); background: var(--accent-dim); }
+.act .t { font-weight: 600; font-size: 13px; }
+.act .d { font-size: 11.5px; color: var(--content-faint); margin-top: 1px; }
+.act .kbd { margin-left: auto; }
+.offline { margin-top: 18px; display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--content-faint); }
+.offline .ico { color: var(--accent); margin-top: 1px; }
+
+.recent-head { display: flex; align-items: center; gap: 10px; height: 32px; }
+.recent-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.search { margin-left: auto; display: flex; align-items: center; gap: 6px; height: 28px; width: 240px; padding: 0 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); color: var(--content-faint); }
+.search:focus-within { border-color: var(--accent-border); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 12px; color: var(--content); }
+.glabel { margin: 16px 0 6px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--content-faint); }
+.list { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.rec { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line-secondary); cursor: pointer; }
+.rec:last-child { border-bottom: 0; }
+.rec:hover { background: var(--hover-overlay); }
+.rec.focus { box-shadow: inset 2px 0 0 var(--accent); background: var(--hover-overlay); }
+.rec .ri { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--surface-2); color: var(--content-muted); border: 1px solid var(--line-secondary); }
+.rec .nm { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.rec .pth { font-family: var(--font-mono); font-size: 11px; color: var(--content-faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+.rec .meta { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 11.5px; color: var(--content-faint); }
+.rec .tools { display: flex; gap: 2px; opacity: 0; }
+.rec:hover .tools, .rec.focus .tools { opacity: 1; }
+.rec.gone { cursor: default; }
+.rec.gone .nm, .rec.gone .ri { opacity: 0.55; }
+.tag { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--content-muted); white-space: nowrap; }
+.tag.raml { color: var(--violet); border-color: color-mix(in oklch, var(--violet) 35%, transparent); }
+.tag.oas { color: var(--cyan); border-color: color-mix(in oklch, var(--cyan) 35%, transparent); }
+.tag.frag { color: var(--syn-number); border-color: color-mix(in oklch, var(--syn-number) 35%, transparent); }
+.mini-btn { width: 24px; height: 24px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: var(--content-faint); }
+.mini-btn:hover { background: var(--surface-3); color: var(--content); }
+.mini-btn.on { color: var(--accent); }
+.empty { padding: 44px 24px; text-align: center; color: var(--content-faint); }
+.empty .big { width: 44px; height: 44px; margin: 0 auto 12px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: var(--surface-2); color: var(--content-muted); }
+.empty .t { font-size: 13.5px; font-weight: 600; color: var(--content); }
+
+footer { height: 30px; flex-shrink: 0; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--rail); border-top: 1px solid var(--line); font-size: 11.5px; color: var(--content-faint); }
+footer .mono { font-size: 11px; }
+footer button { color: var(--content-faint); font-size: 11.5px; }
+footer button:hover { color: var(--content); }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--warn); border-top-color: transparent; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+.spin.acc { border-color: var(--accent); border-top-color: transparent; }
+.spin.big { width: 26px; height: 26px; border-width: 3px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.drop { position: fixed; inset: 52px 8px 38px; z-index: 40; border: 2px dashed var(--accent); border-radius: 12px; background: color-mix(in oklch, var(--accent) 8%, var(--bg)); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; color: var(--accent); font-size: 15px; font-weight: 600; pointer-events: none; }
+.drop .s { font-size: 12.5px; font-weight: 400; color: var(--content-muted); }
+
+/* dialogs */
+.modal-scrim { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.light .modal-scrim { background: rgba(0,0,0,0.18); }
+.modal { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; max-height: calc(100vh - 48px); overflow: hidden; animation: min 0.14s ease-out; }
+@keyframes min { from { transform: translateY(8px) scale(0.99); opacity: 0; } }
+.modal-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.modal-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.modal-head .sub { margin-top: 2px; font-size: 12px; color: var(--content-muted); }
+.modal-body { padding: 16px; overflow: auto; }
+.modal-foot { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.modal-foot .grow { flex: 1; font-size: 11.5px; color: var(--content-faint); }
+.field { margin-bottom: 14px; }
+.field > label, .field > .lab { display: block; margin-bottom: 5px; font-size: 11.5px; font-weight: 600; color: var(--content-secondary); }
+.inp { width: 100%; height: 30px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-input); color: var(--content); outline: 0; font-size: 12.5px; }
+.inp.mono { font-family: var(--font-mono); font-size: 12px; }
+.inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.row2 { display: flex; gap: 8px; }
+.hint { margin-top: 5px; font-size: 11.5px; color: var(--content-faint); }
+.facts { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.fact { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line-secondary); font-size: 12.5px; }
+.fact:last-child { border-bottom: 0; }
+.fact .fi { color: var(--content-faint); margin-top: 1px; display: inline-flex; }
+.fact .k { color: var(--content-faint); width: 110px; flex-shrink: 0; }
+.fact .v { flex: 1; }
+.warnbox { display: flex; gap: 10px; padding: 10px 12px; border-radius: 8px; margin-top: 12px; font-size: 12.5px; color: var(--content-secondary);
+  background: color-mix(in oklch, var(--warn) 9%, transparent); border: 1px solid color-mix(in oklch, var(--warn) 30%, transparent); }
+.warnbox .ico { color: var(--warn); display: inline-flex; margin-top: 1px; }
+.choice { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--line); text-align: left; width: 100%; margin-bottom: 8px; }
+.choice:hover { border-color: var(--content-ghost); }
+.choice.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.choice .radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--content-ghost); flex-shrink: 0; margin-top: 1px; display: flex; align-items: center; justify-content: center; }
+.choice.on .radio { border-color: var(--accent); }
+.choice.on .radio::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.choice .t { font-weight: 600; font-size: 13px; }
+.choice .d { font-size: 12px; color: var(--content-faint); margin-top: 2px; }
+.badge-rec { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--accent-dim); color: var(--accent); margin-left: 6px; }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); }
+.seg button { height: 24px; padding: 0 10px; border-radius: 4px; font-size: 11.5px; color: var(--content-faint); }
+.seg button.on { background: var(--surface); color: var(--content); font-weight: 600; }
+.seg.wide { display: flex; } .seg.wide button { flex: 1; }
+.sel { height: 30px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-input); color: var(--content); font-size: 12.5px; }
+.waiting { text-align: center; padding: 30px 20px 18px; }
+.waiting .t { margin-top: 14px; font-size: 14px; font-weight: 600; }
+.waiting .d { margin-top: 6px; font-size: 12.5px; color: var(--content-muted); }
+.proj { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line-secondary); cursor: pointer; font-size: 12.5px; }
+.proj:hover { background: var(--hover-overlay); }
+.proj.on { background: var(--accent-dim); box-shadow: inset 2px 0 0 var(--accent); }
+.proj .nm { font-weight: 600; }
+.proj .who { margin-left: auto; color: var(--content-faint); font-size: 11.5px; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+.lock { display: inline-flex; align-items: center; gap: 4px; color: var(--warn); font-size: 11px; }
+.who-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px 0 4px; border-radius: 999px; border: 1px solid var(--line); font-size: 11.5px; color: var(--content-secondary); }
+.avatar { width: 18px; height: 18px; border-radius: 50%; background: var(--violet); color: #fff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+.opening { position: fixed; inset: 0; z-index: 80; background: var(--bg); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; }
+.opening .t { font-size: 15px; font-weight: 600; }
+.steps { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--content-faint); min-width: 260px; }
+.steps div { display: flex; align-items: center; gap: 8px; }
+.steps .done { color: var(--content-secondary); }
+.steps .done .ico { color: var(--ok); display: inline-flex; }
+
+.pop { position: fixed; z-index: 50; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 12px; width: 270px; }
+.pop h5 { margin: 0 0 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--content-faint); }
+.swatches { display: flex; gap: 8px; }
+.sw { width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15); }
+.sw.on { outline: 2px solid var(--content); outline-offset: 2px; }
+.toasts { position: fixed; right: 16px; bottom: 44px; z-index: 90; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.toast { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12.5px; animation: tin 0.18s ease-out; max-width: 440px; }
+.toast .ico { color: var(--accent); display: inline-flex; }
+.toast .act { margin-left: 6px; height: 22px; padding: 0 8px; border-radius: 4px; font-size: 12px; font-weight: 600; color: var(--accent); }
+@keyframes tin { from { transform: translateY(6px); opacity: 0; } }
+.hidden { display: none !important; }
+@media (max-width: 860px) { .wrap { grid-template-columns: 1fr; gap: 28px; padding: 28px 16px; } .search { width: 160px; } .rec .pth { max-width: 220px; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <svg width="22" height="22" viewBox="0 0 24 24"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)"/>
+      <g fill="none" stroke="var(--accent-ink)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h4M7 12h3M9 7v10h3"/><circle cx="15.5" cy="12" r="1.7"/><circle cx="15.5" cy="17" r="1.7"/></g></svg>
+    <span class="appname" id="appName"></span>
+    <div style="flex:1"></div>
+    <button class="icon-btn" id="themeBtn"></button>
+    <button class="icon-btn" id="settingsBtn" title="Theme and accent"></button>
+    <div class="winctl">
+      <button title="Minimize"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg></button>
+      <button title="Maximize"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x=".5" y=".5" width="9" height="9" stroke="currentColor"/></svg></button>
+      <button class="close" title="Close"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg></button>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="wrap">
+      <section class="hero">
+        <svg width="44" height="44" viewBox="0 0 24 24"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)"/>
+          <g fill="none" stroke="var(--accent-ink)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h4M7 12h3M9 7v10h3"/><circle cx="15.5" cy="12" r="1.7"/><circle cx="15.5" cy="17" r="1.7"/></g></svg>
+        <h1>Design Center specs, on your desktop</h1>
+        <p>A desktop designer for Anypoint Design Center specs, RAML and OAS. Big specs open in seconds, and every edit is checked as you type.</p>
+        <div class="acts">
+          <button class="act" id="actFolder"><span class="ai" data-ic="folder" data-s="17"></span><span><div class="t">Open folder</div><div class="d">A spec project on this computer</div></span><span class="kbd">Ctrl O</span></button>
+          <button class="act" id="actZip"><span class="ai" data-ic="zip" data-s="17"></span><span><div class="t">Open Design Center zip</div><div class="d">The zip from Download Project or Exchange</div></span></button>
+          <button class="act" id="actPull"><span class="ai" data-ic="cloud" data-s="17"></span><span><div class="t">Pull from Design Center</div><div class="d">Sign in, pick a project, edit it here</div></span></button>
+        </div>
+        <div class="offline"><span class="ico" data-ic="check" data-s="14"></span><span>Works offline. You only sign in to pull, push and publish.</span></div>
+      </section>
+
+      <section>
+        <div class="recent-head"><h2>Recent projects</h2>
+          <label class="search"><span data-ic="search" data-s="12"></span><input id="q" placeholder="Filter recent projects" spellcheck="false"></label></div>
+        <div id="recent"></div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <span id="engine" style="display:inline-flex;align-items:center;gap:6px"></span>
+    <span class="mono">v0.1.0</span>
+    <button id="whatsNew">What's new</button>
+    <span style="flex:1"></span>
+    <span>Drop a folder or a zip anywhere on this window</span>
+  </footer>
+</div>
+<div id="dropZone" class="drop hidden"><span data-ic="folder" data-s="34"></span>Drop to open<span class="s">A spec folder, or a zip from Design Center or Exchange</span></div>
+<div id="layer"></div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+const APP_NAME = 'API Designer Studio'; // working name, one place to change it
+const IC = {
+  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  zip: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M11 6h1M11 9h1M11 12h1M10.5 15h2v3h-2z"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 0 1 0 9z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  pin: '<path d="M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+  files: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 4-6 3-11 6"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  key: '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5V21h16"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+};
+const ic = (n, s = 16, sw = 1.6) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${IC[n]}</svg>`;
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const $ = id => document.getElementById(id);
+const paintIcons = (root = document) => root.querySelectorAll('[data-ic]').forEach(el => { el.innerHTML = ic(el.dataset.ic, +el.dataset.s || 16); el.style.display = 'inline-flex'; });
+function toast(msg, icon = 'check', action) {
+  const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = `<span class="ico">${ic(icon, 15, 2)}</span><span>${esc(msg)}</span>`;
+  if (action) { const b = document.createElement('button'); b.className = 'act'; b.textContent = action.label; b.onclick = () => { t.remove(); action.run(); }; t.appendChild(b); }
+  $('toasts').appendChild(t); setTimeout(() => t.remove(), action ? 6000 : 3200);
+}
+const closeLayer = () => { $('layer').innerHTML = ''; };
+
+// ---------- Theme (same keys as the main window mockup, so the choice carries over) ----------
+const ACCENTS = [{ id: 'emerald', hue: 158, chroma: 0.15, name: 'Emerald' }, { id: 'sky', hue: 220, chroma: 0.13, name: 'Sky' }, { id: 'violet', hue: 290, chroma: 0.14, name: 'Violet' }, { id: 'amber', hue: 80, chroma: 0.14, name: 'Amber' }, { id: 'rose', hue: 20, chroma: 0.18, name: 'Rose' }];
+let pref = 'dark', accent = 'emerald';
+try { pref = localStorage.getItem('ads.theme') || 'dark'; accent = localStorage.getItem('ads.accent') || 'emerald'; } catch {}
+const isDark = () => pref === 'system' ? !matchMedia('(prefers-color-scheme: light)').matches : pref === 'dark';
+function applyTheme() {
+  const root = document.documentElement; root.classList.toggle('light', !isDark());
+  const a = ACCENTS.find(x => x.id === accent) || ACCENTS[0]; const l = isDark() ? 72 : 55, hl = isDark() ? 78 : 50;
+  root.style.setProperty('--accent', `oklch(${l}% ${a.chroma} ${a.hue})`); root.style.setProperty('--accent-hover', `oklch(${hl}% ${a.chroma} ${a.hue})`);
+  root.style.setProperty('--accent-dim', `oklch(${l}% ${a.chroma} ${a.hue} / ${isDark() ? 0.14 : 0.10})`); root.style.setProperty('--accent-border', `oklch(${l}% ${a.chroma} ${a.hue} / 0.32)`);
+  $('themeBtn').innerHTML = ic(isDark() ? 'sun' : 'moon', 15); $('themeBtn').title = isDark() ? 'Switch to Paper' : 'Switch to Dusk';
+  try { localStorage.setItem('ads.theme', pref); localStorage.setItem('ads.accent', accent); } catch {}
+  const p = $('pop'); if (p) p.innerHTML = settingsHtml();
+}
+const settingsHtml = () => `<h5>Theme</h5><div class="seg wide">${[['dark', 'Dusk'], ['light', 'Paper'], ['system', 'System']].map(([id, nm]) => `<button data-theme="${id}" class="${pref === id ? 'on' : ''}">${nm}</button>`).join('')}</div>
+  <h5 style="margin-top:14px">Accent</h5><div class="swatches">${ACCENTS.map(a => `<button class="sw${accent === a.id ? ' on' : ''}" data-accent="${a.id}" title="${a.name}" style="background:oklch(${isDark() ? 72 : 55}% ${a.chroma} ${a.hue})"></button>`).join('')}</div>`;
+$('settingsBtn').innerHTML = ic('settings', 15);
+$('settingsBtn').onclick = () => {
+  if ($('pop')) return closeLayer();
+  const r = $('settingsBtn').getBoundingClientRect();
+  $('layer').innerHTML = `<div class="pop" id="pop" style="top:${r.bottom + 4}px;right:${innerWidth - r.right}px">${settingsHtml()}</div>`;
+  $('pop').onclick = e => { const t = e.target.closest('[data-theme]'), a = e.target.closest('[data-accent]'); if (t) pref = t.dataset.theme; if (a) accent = a.dataset.accent; if (t || a) applyTheme(); };
+};
+$('themeBtn').onclick = () => { pref = isDark() ? 'light' : 'dark'; applyTheme(); };
+document.addEventListener('mousedown', e => { if ($('pop') && !e.target.closest('#pop') && !e.target.closest('#settingsBtn')) closeLayer(); });
+
+// ---------- Engine warm-up at launch (ARCHITECTURE 4: pay the class loading before anything is opened) ----------
+let engineReady = false;
+const drawEngine = () => $('engine').innerHTML = engineReady ? `<span class="dot" style="background:var(--accent)"></span>Engine ready` : `<span class="spin"></span>Warming up the engine`;
+drawEngine(); setTimeout(() => { engineReady = true; drawEngine(); }, 2200);
+
+// ---------- Recent projects (invented) ----------
+let RECENT = [
+  { id: 1, name: 'customer-orders-sapi', path: 'D:\\apis\\customer-orders-sapi', spec: 'RAML 1.0', kind: 'folder', when: 'Now', pinned: true, files: 52, problems: 2 },
+  { id: 2, name: 'payments-papi', path: 'D:\\apis\\payments-papi', spec: 'RAML 1.0', kind: 'dc', branch: 'master', when: '2 days ago', files: 31, problems: 0, ahead: 3 },
+  { id: 3, name: 'store-experience-eapi', path: 'D:\\apis\\store-experience-eapi', spec: 'RAML 1.0', kind: 'zip', zip: 'store-experience-eapi-1.0.12.zip', when: 'Last week', files: 38, problems: 0 },
+  { id: 4, name: 'common-fragments', path: 'D:\\apis\\common-fragments', spec: 'Library', kind: 'dc', branch: 'develop', when: '3 weeks ago', files: 9, problems: 0 },
+  { id: 5, name: 'inventory-api', path: 'C:\\Users\\me\\Downloads\\inventory-api', spec: 'OAS 3.0', kind: 'folder', when: 'Last month', files: 4, problems: 0, gone: true },
+];
+let focusIdx = -1;
+function drawRecent() {
+  const q = $('q').value.trim().toLowerCase();
+  const shown = RECENT.filter(r => !q || (r.name + ' ' + r.path).toLowerCase().includes(q));
+  if (!RECENT.length) {
+    $('recent').innerHTML = `<div class="list"><div class="empty"><div class="big">${ic('folder', 20)}</div><div class="t">No recent projects yet</div>
+      <div style="margin-top:4px;font-size:12.5px">Open a folder or a zip, or look around a sample API first.</div>
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:center"><button class="btn primary" data-sample>${ic('book', 14)}Open a sample API</button><button class="btn" data-restore>Bring back the demo list</button></div></div></div>`;
+    return;
+  }
+  const row = (r) => {
+    const i = shown.indexOf(r);
+    const icon = r.kind === 'zip' ? 'zip' : r.kind === 'dc' ? 'cloud' : 'folder';
+    const tag = r.spec.startsWith('OAS') ? 'oas' : r.spec === 'Library' ? 'frag' : 'raml';
+    const src = r.gone ? `<span style="color:var(--err)">Folder not found</span>`
+      : r.kind === 'dc' ? `<span style="display:inline-flex;align-items:center;gap:4px">${ic('branch', 12)}${r.branch}</span>${r.ahead ? `<span style="color:var(--accent)">${r.ahead} to push</span>` : ''}`
+      : r.kind === 'zip' ? `<span title="${esc(r.zip)}">From a zip</span>` : '';
+    const health = r.gone ? '' : r.problems ? `<span style="color:var(--err)">${r.problems} ${r.problems === 1 ? 'error' : 'errors'}</span>` : `<span style="color:var(--ok);display:inline-flex">${ic('check', 13, 2.2)}</span>`;
+    return `<div class="rec${r.gone ? ' gone' : ''}${i === focusIdx ? ' focus' : ''}" data-rec="${r.id}">
+      <span class="ri">${ic(icon, 15)}</span>
+      <span style="min-width:0"><div class="nm">${esc(r.name)}<span class="tag ${tag}">${r.spec}</span></div><div class="pth" title="${esc(r.path)}">${esc(r.path)}</div></span>
+      <span class="meta">${src}${health}<span style="min-width:70px;text-align:right">${r.when}</span>
+        <span class="tools">${r.gone ? `<button class="btn" style="height:24px;font-size:11.5px" data-locate="${r.id}">Locate…</button>` : ''}
+          <button class="mini-btn${r.pinned ? ' on' : ''}" data-pin="${r.id}" title="${r.pinned ? 'Unpin' : 'Pin to the top'}">${ic('pin', 13)}</button>
+          <button class="mini-btn" data-remove="${r.id}" title="Remove from this list. The files stay where they are.">${ic('x', 13)}</button></span></span></div>`;
+  };
+  const pinned = shown.filter(r => r.pinned), rest = shown.filter(r => !r.pinned);
+  let h = '';
+  if (!shown.length) h = `<div class="list"><div class="empty" style="padding:28px">Nothing matches "${esc(q)}".</div></div>`;
+  if (pinned.length) h += `<div class="glabel">Pinned</div><div class="list">${pinned.map(row).join('')}</div>`;
+  if (rest.length) h += `<div class="glabel">${pinned.length ? 'Recent' : ''}</div><div class="list">${rest.map(row).join('')}</div>`;
+  h += `<div style="margin-top:14px;font-size:12px;color:var(--content-faint)">New to it? <button class="btn link" data-sample>Open a sample API</button> to look around first.</div>`;
+  $('recent').innerHTML = h;
+}
+$('q').oninput = () => { focusIdx = -1; drawRecent(); };
+$('recent').onclick = e => {
+  const pin = e.target.closest('[data-pin]'); if (pin) { const r = RECENT.find(x => x.id == pin.dataset.pin); r.pinned = !r.pinned; drawRecent(); return; }
+  const rm = e.target.closest('[data-remove]'); if (rm) { const i = RECENT.findIndex(x => x.id == rm.dataset.remove); const [gone] = RECENT.splice(i, 1); drawRecent();
+    toast(`Removed ${gone.name} from the list`, 'x', { label: 'Undo', run: () => { RECENT.splice(i, 0, gone); drawRecent(); } }); return; }
+  const loc = e.target.closest('[data-locate]'); if (loc) { const r = RECENT.find(x => x.id == loc.dataset.locate); r.gone = false; r.path = 'D:\\apis\\inventory-api'; drawRecent(); toast('Found it. The project points at the new folder now.'); return; }
+  if (e.target.closest('[data-sample]')) { openProject({ name: 'sample-orders-api', files: 18, sample: true }); return; }
+  if (e.target.closest('[data-restore]')) { location.reload(); return; }
+  const rec = e.target.closest('[data-rec]'); if (rec) { const r = RECENT.find(x => x.id == rec.dataset.rec); if (r.gone) toast(`${r.path} isn't there any more. Use Locate… if it moved.`, 'alert'); else openProject(r); }
+};
+
+// ---------- Opening a project ----------
+function openProject(r) {
+  closeLayer();
+  const steps = [`Reading ${r.files} files`, r.kind === 'dc' ? 'Comparing with Design Center' : 'Finding the main file in exchange.json', engineReady ? 'Checking the spec' : 'Waiting for the engine to warm up', 'Building the API tree'];
+  $('layer').innerHTML = `<div class="opening"><span class="spin big acc"></span><div class="t">Opening ${esc(r.name)}</div><div class="steps" id="steps">${steps.map(s => `<div><span class="ico" style="display:inline-flex;width:14px"></span>${s}</div>`).join('')}</div>
+    <button class="btn" id="cancelOpen" style="margin-top:8px">Cancel</button></div>`;
+  let i = 0, timer;
+  const tick = () => {
+    const rows = $('steps').children; if (i > 0) { rows[i - 1].classList.add('done'); rows[i - 1].querySelector('.ico').innerHTML = ic('check', 13, 2.4); }
+    if (i < rows.length) { rows[i].querySelector('.ico').innerHTML = '<span class="spin acc" style="width:10px;height:10px"></span>'; i++; timer = setTimeout(tick, 380); }
+    else timer = setTimeout(() => { location.href = 'main-window.html'; }, 250);
+  };
+  tick();
+  $('cancelOpen').onclick = () => { clearTimeout(timer); closeLayer(); };
+}
+
+// ---------- Open folder ----------
+$('actFolder').onclick = () => toast('Opens the Windows folder picker. Pick customer-orders-sapi to continue the demo.', 'folder', { label: 'Pick it', run: () => openProject(RECENT[0]) });
+
+// ---------- Zip import ----------
+function openZip(fileName = 'store-experience-eapi-1.0.12.zip') {
+  const base = fileName.replace(/\.zip$/i, '');
+  $('layer').innerHTML = `<div class="modal-scrim" id="scrim"><div class="modal" style="width:min(560px, 100%)" role="dialog" aria-label="Open a Design Center zip">
+    <div class="modal-head"><div style="flex:1"><h3>Open ${esc(fileName)}</h3><div class="sub">The zip is unpacked into a folder, and you work on the folder from then on.</div></div><button class="mini-btn" data-close>${ic('x', 14)}</button></div>
+    <div class="modal-body">
+      <div class="field"><label for="zipTo">Unpack into</label><div class="row2"><input class="inp mono" id="zipTo" value="D:\\apis\\${esc(base.replace(/-\d+\.\d+\.\d+$/, ''))}" spellcheck="false"><button class="btn" id="zipBrowse">Browse…</button></div>
+        <div class="hint">A new folder. Nothing is overwritten.</div></div>
+      <div class="facts">
+        <div class="fact"><span class="fi">${ic('files', 14)}</span><span class="k">Contents</span><span class="v">38 files: 12 RAML, 24 examples, exchange.json</span></div>
+        <div class="fact"><span class="fi">${ic('check', 14)}</span><span class="k">Main file</span><span class="v mono" style="font-size:12px">store-experience-eapi.raml <span style="color:var(--content-faint);font-family:var(--font-sans)">from exchange.json</span></span></div>
+        <div class="fact"><span class="fi">${ic('cloud', 14)}</span><span class="k">Dependencies</span><span class="v">2 Exchange fragments are included, so it checks fully offline</span></div>
+      </div>
+      <div class="warnbox"><span class="ico">${ic('alert', 15)}</span><span>One file is in the zip twice: <span class="mono" style="font-size:11.5px">examples/update-store-response.json</span>. The last copy is used, like Design Center does.</span></div>
+    </div>
+    <div class="modal-foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="zipGo">Unpack and open</button></div></div></div>`;
+  $('scrim').onclick = e => { if (e.target.id === 'scrim' || e.target.closest('[data-close]')) closeLayer();
+    if (e.target.closest('#zipBrowse')) toast('Opens the Windows folder picker'); };
+  $('zipGo').onclick = () => openProject({ name: base.replace(/-\d+\.\d+\.\d+$/, ''), files: 38 });
+  $('zipGo').focus();
+}
+$('actZip').onclick = () => openZip();
+
+// ---------- Connect to Anypoint ----------
+const C = { mode: 'ours', region: 'US', byok: 'user', step: 'choose', pick: 'payments-papi' };
+const DC_PROJECTS = [
+  { name: 'payments-papi', spec: 'RAML 1.0', branch: 'master', who: 'You, 2 hours ago' },
+  { name: 'customer-orders-sapi', spec: 'RAML 1.0', branch: 'master', who: 'You, yesterday' },
+  { name: 'store-experience-eapi', spec: 'RAML 1.0', branch: 'master', who: 'Another user, 3 days ago', lock: true },
+  { name: 'inventory-api', spec: 'OAS 3.0', branch: 'master', who: 'Another user, last week' },
+  { name: 'common-fragments', spec: 'Library', branch: 'develop', who: 'You, 3 weeks ago' },
+  { name: 'shipping-events', spec: 'AsyncAPI 2.6', branch: 'master', who: 'Another user, last month', unsupported: true },
+];
+function openConnect() {
+  let body = '', foot = '', title = 'Connect to Anypoint', sub = 'Pull projects from Design Center, push your changes back, and publish to Exchange.';
+  if (C.step === 'choose') {
+    body = `<button class="choice${C.mode === 'ours' ? ' on' : ''}" data-mode="ours"><span class="radio"></span><span><div class="t">Sign in with Anypoint<span class="badge-rec">Recommended</span></div><div class="d">Your usual Anypoint login in the browser, with SSO and MFA. Nothing to set up.</div></span></button>
+      <button class="choice${C.mode === 'byok' ? ' on' : ''}" data-mode="byok"><span class="radio"></span><span><div class="t">Use your own Connected App</div><div class="d">For companies that only allow their own. An admin creates it in Access Management.</div></span></button>
+      ${C.mode === 'byok' ? `<div style="margin:6px 0 4px 28px">
+        <div class="field"><span class="lab">The app acts</span><div class="seg"><button data-byok="user" class="${C.byok === 'user' ? 'on' : ''}">On behalf of a user</button><button data-byok="app" class="${C.byok === 'app' ? 'on' : ''}">On its own behalf</button></div>
+          <div class="hint">${C.byok === 'user' ? 'You still sign in in the browser. Add http://127.0.0.1/callback as a redirect URI.' : 'No browser sign-in. Good for shared machines. Give it the Design Center Developer scope.'}</div></div>
+        <div class="row2"><div class="field" style="flex:1"><label>Client ID</label><input class="inp mono" placeholder="Paste the client ID" spellcheck="false"></div>
+          <div class="field" style="flex:1"><label>Client secret</label><input class="inp mono" type="password" placeholder="Paste the client secret"></div></div>
+        <div class="hint" style="margin-top:-8px;display:flex;gap:6px;align-items:center">${ic('key', 12)}Kept in Windows Credential Manager, never in a project file.</div></div>` : ''}
+      <div class="field" style="margin:14px 0 0;display:flex;align-items:center;gap:10px"><label style="margin:0" for="region">Region</label>
+        <select class="sel" id="region">${['US', 'EU', 'Canada', 'Japan', 'India', 'Australia'].map(r => `<option ${C.region === r ? 'selected' : ''}>${r}</option>`).join('')}</select>
+        <span class="hint" style="margin:0">Where your Anypoint organization lives.</span></div>`;
+    foot = `<span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" data-next>${C.mode === 'byok' && C.byok === 'app' ? 'Connect' : 'Continue in the browser'}</button>`;
+  } else if (C.step === 'waiting') {
+    body = `<div class="waiting"><span class="spin big acc" style="display:inline-block"></span><div class="t">Finish signing in in your browser</div>
+      <div class="d">This window carries on by itself once you're done.</div>
+      <div style="margin-top:16px;display:flex;gap:8px;justify-content:center"><button class="btn" data-copylink>${ic('link', 13)}Copy the sign-in link</button><button class="btn" data-back>Go back</button></div>
+      <div style="margin-top:22px;font-size:11.5px;color:var(--content-ghost)">Mockup only: <button class="btn link" data-fake>pretend the sign-in worked</button></div></div>`;
+    foot = `<span class="grow">Browser didn't open? Copy the link and paste it into any browser.</span><button class="btn" data-close>Cancel</button>`;
+  } else {
+    title = 'Pull from Design Center'; sub = '';
+    const p = DC_PROJECTS.find(x => x.name === C.pick);
+    body = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span class="who-chip"><span class="avatar">YO</span>you@your-company.com</span><span style="font-size:12px;color:var(--content-faint)">Your org · ${C.region}</span>
+        <label class="search" style="width:200px"><span>${ic('search', 12)}</span><input id="dcq" placeholder="Filter projects" spellcheck="false"></label></div>
+      <div class="list" style="max-height:260px;overflow:auto" id="dcList"></div>
+      <div class="field" style="margin:14px 0 0"><label for="pullTo">Pull into</label><div class="row2"><input class="inp mono" id="pullTo" value="D:\\apis\\${esc(C.pick)}" spellcheck="false"><button class="btn" data-browse>Browse…</button></div>
+        <div class="hint">${p?.lock ? 'Another user has it locked. You can still pull and edit; pushing waits until the lock is free.' : 'Pulling never locks the project. The lock is only taken while you push.'}</div></div>`;
+    foot = `<span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" data-pull>Pull and open</button>`;
+  }
+  $('layer').innerHTML = `<div class="modal-scrim" id="scrim"><div class="modal" style="width:min(600px, 100%)" role="dialog" aria-label="${title}">
+    <div class="modal-head"><div style="flex:1"><h3>${title}</h3>${sub ? `<div class="sub">${sub}</div>` : ''}</div><button class="mini-btn" data-close>${ic('x', 14)}</button></div>
+    <div class="modal-body">${body}</div><div class="modal-foot">${foot}</div></div></div>`;
+  if (C.step === 'projects') drawDc();
+  const s = $('scrim');
+  s.onclick = e => {
+    if (e.target.id === 'scrim' || e.target.closest('[data-close]')) { C.step = 'choose'; return closeLayer(); }
+    const m = e.target.closest('[data-mode]'); if (m) { C.mode = m.dataset.mode; return openConnect(); }
+    const b = e.target.closest('[data-byok]'); if (b) { C.byok = b.dataset.byok; return openConnect(); }
+    if (e.target.closest('[data-next]')) { C.step = C.mode === 'byok' && C.byok === 'app' ? 'projects' : 'waiting'; return openConnect(); }
+    if (e.target.closest('[data-back]')) { C.step = 'choose'; return openConnect(); }
+    if (e.target.closest('[data-fake]')) { C.step = 'projects'; return openConnect(); }
+    if (e.target.closest('[data-copylink]')) return toast('Sign-in link copied');
+    if (e.target.closest('[data-browse]')) return toast('Opens the Windows folder picker');
+    const pr = e.target.closest('[data-proj]'); if (pr) { const p = DC_PROJECTS.find(x => x.name === pr.dataset.proj); if (p.unsupported) return toast('AsyncAPI projects come in a later version', 'alert'); C.pick = p.name; return openConnect(); }
+    if (e.target.closest('[data-pull]')) { C.step = 'choose'; openProject({ name: C.pick, files: 31, kind: 'dc' }); }
+  };
+  s.onchange = e => { if (e.target.id === 'region') C.region = e.target.value; };
+}
+function drawDc() {
+  const q = ($('dcq')?.value || '').toLowerCase();
+  $('dcList').innerHTML = DC_PROJECTS.filter(p => p.name.includes(q)).map(p => {
+    const tag = p.spec.startsWith('OAS') ? 'oas' : p.spec === 'Library' ? 'frag' : p.spec.startsWith('Async') ? '' : 'raml';
+    return `<div class="proj${C.pick === p.name ? ' on' : ''}" data-proj="${p.name}" style="${p.unsupported ? 'opacity:0.5' : ''}"><span style="color:var(--content-faint);display:inline-flex">${ic('cloud', 14)}</span><span class="nm">${p.name}</span><span class="tag ${tag}">${p.spec}</span>
+      <span class="who">${p.lock ? `<span class="lock">${ic('lock', 12)}Locked</span>` : ''}<span style="display:inline-flex;align-items:center;gap:3px">${ic('branch', 12)}${p.branch}</span>${p.who}</span></div>`; }).join('') || '<div class="empty" style="padding:20px">No projects match.</div>';
+  $('dcq').oninput = drawDc;
+}
+$('actPull').onclick = () => { C.step = 'choose'; openConnect(); };
+
+// ---------- Drag and drop anywhere ----------
+let dragDepth = 0;
+addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; $('dropZone').classList.remove('hidden'); });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('dropZone').classList.add('hidden'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('dropZone').classList.add('hidden');
+  const f = e.dataTransfer.files[0]; if (!f) return;
+  if (/\.zip$/i.test(f.name)) openZip(f.name); else openProject({ name: f.name.replace(/\.[^.]+$/, ''), files: 24 }); });
+
+$('whatsNew').onclick = () => toast('The first preview: open, edit, check, and Duplicate as…', 'book');
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeLayer(); C.step = 'choose'; return; }
+  if ($('layer').innerHTML) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') { e.preventDefault(); $('actFolder').click(); return; }
+  if (document.activeElement === $('q') || document.activeElement === document.body) {
+    const shown = [...document.querySelectorAll('.rec')];
+    if (e.key === 'ArrowDown') { focusIdx = Math.min(focusIdx + 1, shown.length - 1); drawRecent(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { focusIdx = Math.max(focusIdx - 1, 0); drawRecent(); e.preventDefault(); }
+    else if (e.key === 'Enter' && focusIdx >= 0) { const el = document.querySelectorAll('.rec')[focusIdx]; el?.click(); }
+  }
+});
+
+$('appName').textContent = APP_NAME; document.title = APP_NAME;
+paintIcons(); applyTheme(); drawRecent();
+</script>
+</body>
+</html>
