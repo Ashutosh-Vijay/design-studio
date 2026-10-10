@@ -244,7 +244,10 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
             <div className="text-[11px] text-content-faint">Edit them on the resource.</div>
           </Sec>
         )}
-        {params(node.path, 'queryParameters', 'Query parameters', 'Add')}
+        {/* RAML allows queryParameters or queryString, not both. */}
+        {at([...node.path, 'queryString']) >= 0
+          ? <Sec title="Query string">{typeCell([...node.path, 'queryString'])}<div className="mt-1 text-[11px] text-content-faint">A type for the whole query string, so no separate query parameters.</div></Sec>
+          : params(node.path, 'queryParameters', 'Query parameters', 'Add')}
         {params(node.path, 'headers', 'Headers', 'Add')}
         {['post', 'put', 'patch'].includes(node.m) || at([...node.path, 'body']) >= 0 ? body(node.path) : null}
         <Sec title="Responses" count={codes.length || undefined}

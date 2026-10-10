@@ -112,13 +112,15 @@ export function addChild(text: string, path: Path, lines: string[], first = fals
   return insertLines(text, E, find(E, path), lines, first);
 }
 
-// Remove a node and everything under it. A parent left empty goes too (an empty key reads as null).
+// Remove a node and everything under it. A list key left empty (queryParameters:, properties:) goes too,
+// since an empty key reads as null; a method or resource left empty stays.
+const LISTS = ['queryParameters', 'headers', 'uriParameters', 'baseUriParameters', 'properties', 'body', 'responses'];
 export function remove(text: string, path: Path, pruneEmpty = true): string {
   const E = entries(text), k = find(E, path); if (k < 0) return text;
   const L = text.split('\n');
   L.splice(E[k].line, blockEnd(E, L, k) - E[k].line);
   text = L.join('\n');
-  if (pruneEmpty && path.length > 1) {
+  if (pruneEmpty && path.length > 1 && LISTS.includes(path[path.length - 2])) {
     const E2 = entries(text), p = find(E2, path.slice(0, -1));
     if (p >= 0 && !E2[p].val && kids(E2, p).length === 0 && blockEnd(E2, text.split('\n'), p) === E2[p].line + 1) return remove(text, path.slice(0, -1), true);
   }
@@ -142,8 +144,10 @@ export function setScalar(text: string, path: Path, key: string, value: string |
   const L = text.split('\n'), end = blockEnd(E, L, k);
   const lead = L[E[k].line].match(/^\s*(- )?/)![0];
   const keyText = L[E[k].line].slice(lead.length).match(/^("[^"]*"|'[^']*'|[^:#]*?)\s*:/)![0];
-  const comment = !multi && !/^[|>]/.test(E[k].val) ? (L[E[k].line].match(/\s+#.*$/)?.[0] ?? '') : '';
-  const lines = multi ? [lead + keyText + ' |', ...value.split('\n').map((l) => (l ? ' '.repeat(E[k].ind + step(E)) + l : ''))] : [lead + keyText + ' ' + q(value) + comment];
+  // A one-line value keeps whatever followed it: a comment, or trailing spaces.
+  const comment = !multi && !/^[|>]/.test(E[k].val) ? (L[E[k].line].match(/\s+#.*$|[ \t]+$/)?.[0] ?? '') : '';
+  const sep = (!/^[|>]/.test(E[k].val) && L[E[k].line].slice(lead.length + keyText.length).match(/^[ \t]+/)?.[0]) || ' ';
+  const lines = multi ? [lead + keyText + ' |', ...value.split('\n').map((l) => (l ? ' '.repeat(E[k].ind + step(E)) + l : ''))] : [lead + keyText + sep + q(value) + comment];
   L.splice(E[k].line, end - E[k].line, ...lines);
   return L.join('\n');
 }
@@ -153,7 +157,8 @@ export function renameKey(text: string, path: Path, nu: string): string {
   const E = entries(text), k = find(E, path); if (k < 0) return text;
   const L = text.split('\n'), l = L[E[k].line];
   const lead = l.match(/^\s*(- )?/)![0];
-  L[E[k].line] = lead + l.slice(lead.length).replace(/^("[^"]*"|'[^']*'|[^:#]*?)(\s*:)/, (_m, _k, colon) => nu + colon);
+  // A quoted key stays quoted the same way.
+  L[E[k].line] = lead + l.slice(lead.length).replace(/^("[^"]*"|'[^']*'|[^:#]*?)(\s*:)/, (_m, old: string, colon) => (/^["']/.test(old) ? old[0] + nu + old[0] : nu) + colon);
   return L.join('\n');
 }
 
@@ -200,13 +205,21 @@ export function setList(text: string, path: Path, items: string[]): string {
   }
   const L = text.split('\n'), v = E[k].val, end = blockEnd(E, L, k);
   if (!v) {
-    const ind = ' '.repeat(E[k].ind + step(E));
-    L.splice(E[k].line + 1, end - E[k].line - 1, ...items.map((i) => `${ind}- ${i}`));
+    // "- item" lines: keep the lines of items that stay, drop the others, add new ones after the last.
+    const body = L.slice(E[k].line + 1, end);
+    const itemOf = (l: string) => { const m = l.match(/^\s*-\s+(.*?)\s*$/); return m ? unquote(m[1]) : null; };
+    const first = body.find((l) => itemOf(l) != null);
+    const ind = first ? first.match(/^\s*/)![0] : ' '.repeat(E[k].ind + step(E));
+    const kept = body.filter((l) => { const i = itemOf(l); return i == null || items.includes(i); });
+    const have = kept.map(itemOf);
+    const last = kept.reduce((a, l, i) => (itemOf(l) != null ? i : a), -1);
+    kept.splice(last + 1, 0, ...items.filter((i) => !have.includes(i)).map((i) => `${ind}- ${i}`));
+    L.splice(E[k].line + 1, end - E[k].line - 1, ...kept);
     return L.join('\n');
   }
   const spaced = /^\[\s/.test(v) || v === '[]';
   const flow = spaced ? `[ ${items.join(', ')} ]` : `[${items.join(', ')}]`;
-  L[E[k].line] = L[E[k].line].replace(/:\s.*?(\s+#.*)?$/, (_m, c) => ': ' + flow + (c ?? ''));
+  L[E[k].line] = L[E[k].line].replace(/:\s.*?(\s+#.*|\s*)$/, (_m, c) => ': ' + flow + c);
   return L.join('\n');
 }
 
