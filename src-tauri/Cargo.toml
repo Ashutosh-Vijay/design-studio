@@ -22,3 +22,5 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 # Delete sends files to the Recycle Bin / Trash, so a mistake can be undone.
 trash = "5"
+notify = "8"
+zip = { version = "2", default-features = false, features = ["deflate"] }

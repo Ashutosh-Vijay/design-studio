@@ -86,6 +86,24 @@ export default function App() {
     }
   }
 
+  // A zip is unpacked into a new folder, and that folder is the project from then on.
+  const [zipAsk, setZipAsk] = useState<{ zip: string; dest: string } | null>(null);
+  const [pendingNotice, setPendingNotice] = useState<string | null>(null);
+  async function openZip() {
+    const zip = await openDialog({ title: 'Open a Design Center or Exchange zip', filters: [{ name: 'Zip', extensions: ['zip'] }] });
+    if (typeof zip !== 'string') return;
+    const norm = zip.replace(/\\/g, '/');
+    const dir = norm.slice(0, norm.lastIndexOf('/'));
+    const stem = norm.slice(norm.lastIndexOf('/') + 1).replace(/\.zip$/i, '').replace(/-\d+\.\d+\.\d+(-[\w.]+)?$/, '');
+    setZipAsk({ zip, dest: `${dir}/${stem}` });
+  }
+  async function unpack(zip: string, dest: string) {
+    const r = await invoke<{ root: string; files: number; duplicates: string[] }>('import_zip', { zipPath: zip, dest });
+    setZipAsk(null);
+    if (r.duplicates.length) setPendingNotice(`The zip held ${r.duplicates.length === 1 ? 'a file' : r.duplicates.length + ' files'} twice: ${r.duplicates.join(', ')}. The last copy was used, as Design Center does.`);
+    await openFolder(r.root);
+  }
+
   // App-wide keys. The editor handles its own (Ctrl S lives in the project view).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -128,15 +146,17 @@ export default function App() {
           key={project.root}
           project={project}
           onDirtyCount={setDirtyCount}
+          initialNotice={pendingNotice}
           onRefresh={async () => { const p = await invoke<Project>('open_project', { root: project.root }); setProject(p); }}
           openFileRef={openFileRef}
           settingsButton={settingsBtn('relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center text-content-faint hover:text-content-secondary')}
         />
       ) : (
-        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder}
+        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onOpenZip={openZip}
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
       )}
 
+      {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
       {settingsAt && (
         <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)} />
       )}
@@ -148,9 +168,9 @@ export default function App() {
   );
 }
 
-function StartView({ recent, opening, error, onOpen, onRemove }: {
+function StartView({ recent, opening, error, onOpen, onOpenZip, onRemove }: {
   recent: Recent[]; opening: string | null; error: string | null;
-  onOpen: (root?: string) => void; onRemove: (root: string) => void;
+  onOpen: (root?: string) => void; onOpenZip: () => void; onRemove: (root: string) => void;
 }) {
   return (
     <div className="flex-1 min-h-0 overflow-auto flex justify-center">
@@ -167,6 +187,11 @@ function StartView({ recent, opening, error, onOpen, onRemove }: {
             <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent bg-accent-dim"><Icons.Folder size={17} /></span>
             <span className="flex-1"><span className="block font-semibold">Open folder</span><span className="block text-[11.5px] text-content-faint">A spec project on this computer</span></span>
             <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-surface-3 text-content-muted">Ctrl O</span>
+          </button>
+          <button disabled={!isTauri || !!opening} onClick={onOpenZip}
+            className="mt-2 w-full flex items-center gap-3 p-3 rounded-lg border border-line bg-surface text-left hover:border-accent-border disabled:opacity-50 disabled:cursor-not-allowed">
+            <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent bg-accent-dim"><Icons.Package size={17} /></span>
+            <span className="flex-1"><span className="block font-semibold">Open Design Center zip</span><span className="block text-[11.5px] text-content-faint">The zip from Download Project or Exchange</span></span>
           </button>
           {!isTauri && <p className="mt-3 text-[12px] text-warn">Running in a plain browser. Start the app with npm run tauri dev to open folders.</p>}
           {opening && <p className="mt-3 text-[12px] text-content-faint">Opening {opening}…</p>}
@@ -208,8 +233,8 @@ function StartView({ recent, opening, error, onOpen, onRemove }: {
 // One open file: its editor state and the text on disk (with LF line endings, as the editor holds it).
 type OpenFile = { state: EditorState; disk: string };
 
-function ProjectView({ project, onDirtyCount, onRefresh, openFileRef, settingsButton }: {
-  project: Project; onDirtyCount: (n: number) => void; onRefresh: () => Promise<void>; openFileRef: MutableRefObject<(path: string) => void>; settingsButton: ReactNode;
+function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFileRef, settingsButton }: {
+  project: Project; initialNotice: string | null; onDirtyCount: (n: number) => void; onRefresh: () => Promise<void>; openFileRef: MutableRefObject<(path: string) => void>; settingsButton: ReactNode;
 }) {
   const [filter, setFilter] = useState('');
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
@@ -218,8 +243,9 @@ function ProjectView({ project, onDirtyCount, onRefresh, openFileRef, settingsBu
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [crumb, setCrumb] = useState<{ key: string; from: number }[]>([]);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
-  const [notice, setNotice] = useState<{ text: string; err: boolean } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; err: boolean; actions?: [string, () => void][] } | null>(null);
   const fail = (e: unknown) => setNotice({ text: String(e), err: true });
+  useEffect(() => { if (initialNotice) setNotice({ text: initialNotice, err: false }); }, [initialNotice]);
   const [rail, setRail] = useState<'files' | 'api'>('api');
   const [outline, setOutline] = useState<Outline | null>(null);
   const [shelf, setShelf] = useState<ShelfCtx | null>(null);
@@ -596,6 +622,76 @@ function ProjectView({ project, onDirtyCount, onRefresh, openFileRef, settingsBu
     ];
   }
 
+  // ---------- Changes on disk, and the recovery journal (M1 step 7) ----------
+  const fsTimer = useRef(0), fsPending = useRef(new Set<string>()), journaled = useRef(new Set<string>());
+
+  async function onDiskChange(paths: string[]) {
+    let listChanged = false, outlineChanged = false;
+    for (const path of paths) {
+      if (!project.files.some((f) => f.path === path)) { listChanged = true; continue; }
+      let disk: string;
+      try { disk = (await invoke<string>('read_text_file', { root: project.root, path })).replace(/\r\n/g, '\n'); }
+      catch { listChanged = true; continue; } // gone: deleted or renamed outside the app
+      const f = files.current.get(path);
+      if (!f || disk === f.disk) continue; // not open, or our own save
+      if (path === project.main || libraryFiles.current.has(path)) outlineChanged = true;
+      const current = textOf(path) ?? f.disk;
+      const load = () => {
+        f.disk = disk;
+        const state = path === activeRef.current ? view.current!.state : f.state;
+        const tr = state.update({ changes: { from: 0, to: state.doc.length, insert: disk } });
+        if (path === activeRef.current) view.current!.dispatch(tr); else f.state = tr.state;
+        setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
+      };
+      if (current === f.disk) load(); // no edits of yours: take the new version quietly
+      else setNotice({ text: `${base(path)} changed on disk, and you have unsaved edits in it.`, err: true, actions: [
+        ['Keep mine', () => { f.disk = disk; setNotice(null); }],
+        ['Load from disk', () => { load(); setNotice(null); }],
+      ] });
+    }
+    if (listChanged) await onRefresh();
+    if (outlineChanged) rebuildOutline();
+    if (listChanged || outlineChanged) scheduleRef.current();
+  }
+
+  useEffect(() => {
+    if (!isTauri) return;
+    invoke('watch_project', { root: project.root }).catch(() => {});
+    const un = listen<{ paths: string[] }>('fs-change', (e) => {
+      e.payload.paths.forEach((p) => fsPending.current.add(p));
+      clearTimeout(fsTimer.current);
+      fsTimer.current = window.setTimeout(() => { const ps = [...fsPending.current]; fsPending.current.clear(); onDiskChange(ps); }, 250);
+    });
+    // Unsaved text found from last time: offer it back.
+    invoke<{ path: string; text: string }[]>('list_recovery', { root: project.root }).then(async (list) => {
+      const real: { path: string; text: string }[] = [];
+      for (const r of list) {
+        try { const disk = (await invoke<string>('read_text_file', { root: project.root, path: r.path })).replace(/\r\n/g, '\n'); if (disk !== r.text) real.push(r); else invoke('clear_recovery', { root: project.root, path: r.path }); }
+        catch { real.push(r); }
+      }
+      if (!real.length) return;
+      setNotice({ text: `Unsaved changes from last time were kept for ${real.length === 1 ? base(real[0].path) : real.length + ' files'}.`, err: false, actions: [
+        ['Restore', async () => {
+          for (const r of real) {
+            await openFile(r.path);
+            const v = view.current!; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: r.text } });
+          }
+          setNotice(null);
+        }],
+        ['Discard', () => { real.forEach((r) => invoke('clear_recovery', { root: project.root, path: r.path })); setNotice(null); }],
+      ] });
+    });
+    // Journal unsaved text every few seconds; clear it once a file is saved or reverted.
+    const t = window.setInterval(() => {
+      for (const [path, f] of files.current) {
+        const text = textOf(path) ?? f.disk;
+        if (text !== f.disk) { invoke('write_recovery', { root: project.root, path, text }); journaled.current.add(path); }
+        else if (journaled.current.has(path)) { invoke('clear_recovery', { root: project.root, path }); journaled.current.delete(path); }
+      }
+    }, 4000);
+    return () => { un.then((f) => f()); clearInterval(t); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---------- Live errors from amf-server: a quick parse after edits, a full check when idle or on save ----------
   const amf = (op: string, args: Record<string, unknown>) => invoke<any>('amf', { op, args }); // eslint-disable-line @typescript-eslint/no-explicit-any
   const checkable = !!project.main && /\.(raml|ya?ml|json)$/i.test(project.main);
@@ -672,6 +768,7 @@ function ProjectView({ project, onDirtyCount, onRefresh, openFileRef, settingsBu
       f.disk = text;
       setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
       runCheck('validate');
+      invoke('clear_recovery', { root: project.root, path }).catch(() => {});
     } catch (e) { fail(e); }
   }
 
@@ -815,6 +912,9 @@ function ProjectView({ project, onDirtyCount, onRefresh, openFileRef, settingsBu
             <div className={`shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line bg-surface-2 text-[12px] ${notice.err ? 'text-err' : 'text-content-secondary'}`}>
               {!notice.err && <span className="text-accent flex"><Icons.Dot size={12} /></span>}
               <span className="flex-1 select-text">{notice.text}</span>
+              {notice.actions?.map(([label, run]) => (
+                <button key={label} onClick={run} className="h-6 px-2.5 rounded-md text-[12px] font-medium border border-line bg-surface text-content-secondary hover:text-content hover:border-content-ghost">{label}</button>
+              ))}
               <button onClick={() => setNotice(null)} className="text-content-faint hover:text-content"><Icons.X size={12} /></button>
             </div>
           )}
@@ -1107,6 +1207,25 @@ function DuplicateDialog({ path, canConvert, exists, onOk, onCancel }: { path: s
   );
 }
 
+
+function ZipDialog({ zip, dest, onOk, onCancel }: { zip: string; dest: string; onOk: (zip: string, dest: string) => Promise<void>; onCancel: () => void }) {
+  const [d, setD] = useState(dest);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const go = async () => { setBusy(true); setErr(null); try { await onOk(zip, d.trim()); } catch (e) { setErr(String(e)); setBusy(false); } };
+  return (
+    <Modal title={`Open ${base(zip.replace(/\\/g, '/'))}`} sub="The zip is unpacked into a folder, and you work on the folder from then on." onCancel={onCancel} width={560}
+      footer={<><button className={btn} onClick={onCancel}>Cancel</button><button className={btnPrimary} disabled={busy || !d.trim()} onClick={go}>{busy ? 'Unpacking…' : 'Unpack and open'}</button></>}>
+      <label className="block mb-1.5 text-[11.5px] font-semibold text-content-secondary">Unpack into</label>
+      <div className="flex gap-2">
+        <input className={inputCls + ' font-mono'} value={d} spellCheck={false} onChange={(e) => setD(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') go(); }} />
+        <button className={btn} onClick={async () => { const p = await openDialog({ directory: true, title: 'Pick where the project folder goes' }); if (typeof p === 'string') setD(p.replace(/\\/g, '/') + d.slice(d.lastIndexOf('/'))); }}>Browse…</button>
+      </div>
+      <div className="mt-1.5 text-[11.5px] text-content-faint">A new folder. Nothing is overwritten.</div>
+      {err && <div className="mt-3 text-[12px] text-err select-text">{err}</div>}
+    </Modal>
+  );
+}
 function SettingsPopover({ at, pref, accent, onChange, onClose }: {
   at: DOMRect; pref: ThemePref; accent: string; onChange: (p: ThemePref, a: string) => void; onClose: () => void;
 }) {
