@@ -108,7 +108,8 @@ export type ShelfCtx =
   | { kind: 'none'; label: string };
 
 const SHELF: Record<string, [string, string[]][]> = {
-  root: [['Root', ['title', 'version', 'baseUri', 'mediaType', 'protocols', 'description']], ['Docs', ['documentation']], ['Declarations', ['uses', 'types', 'traits', 'resourceTypes', 'securitySchemes', 'annotationTypes']], ['Security', ['securedBy']]],
+  // Design Center's own columns at the top level.
+  root: [['Template', ['New documentation']], ['Types and Traits', ['annotationTypes', 'resourceTypes', 'traits', 'types']], ['Root', ['baseUri', 'mediaType', 'protocols', 'version']], ['Parameters', ['baseUriParameters']], ['Docs', ['title', 'description', 'documentation']], ['Security', ['securitySchemes', 'securedBy']], ['Others', ['uses']]],
   resource: [['Methods', METHODS], ['Docs', ['description', 'displayName']], ['Types and Traits', ['is', 'type']], ['Security', ['securedBy']], ['Parameters', ['uriParameters']]],
   method: [['Docs', ['description', 'displayName']], ['Types and Traits', ['is']], ['Security', ['securedBy']], ['Parameters', ['queryParameters', 'headers', 'queryString']], ['Body', ['body']], ['Responses', ['responses']], ['Protocols', ['protocols']]],
   responses: [['Success', ['200', '201', '202', '204']], ['Client errors', ['400', '401', '403', '404', '409', '422']], ['Server errors', ['500', '502', '503']]],
@@ -138,7 +139,7 @@ export function shelfContext(text: string, line: number, col: number): ShelfCtx 
   const label = ck < 0 ? 'top level' : keyPathAt(text, E[ck].line).map((e) => e.key).join(' › ');
   if (!kind) return { kind: 'none', label };
   const have = new Set((ck < 0 ? E.filter((e) => e.ind === 0) : kids(E, ck).map((j) => E[j])).map((e) => e.key));
-  const cols = SHELF[kind].map(([title, items]) => ({ title, items: items.filter((i) => !have.has(i)) })).filter((c) => c.items.length);
+  const cols = SHELF[kind].map(([title, items]) => ({ title, items: items.filter((i) => !have.has(i) && !(i === 'New documentation' && have.has('documentation'))) })).filter((c) => c.items.length);
   return { kind: 'keys', cols, label, container: ck, E };
 }
 
@@ -162,7 +163,9 @@ export function shelfEdit(text: string, line: number, ctx: ShelfCtx, item: strin
   const E = ctx.E, ck = ctx.container;
   const first = ck >= 0 ? kids(E, ck)[0] : undefined;
   const ind = ck < 0 ? 0 : first != null ? E[first].ind : E[ck].ind + 2;
-  const keyText = ' '.repeat(ind) + item + ':' + (SCALAR_KEYS.includes(item) ? ' ' : '');
+  const keyText = item === 'New documentation'
+    ? 'documentation:\n  - title: \n    content: '
+    : ' '.repeat(ind) + item + ':' + (SCALAR_KEYS.includes(item) ? ' ' : '');
   if (!(L[line] ?? '').trim()) { const s = lineStart(line); return { from: s, to: s + L[line].length, insert: keyText, cursor: s + keyText.length }; }
   // Otherwise at the end of the container's block, so siblings stay in reading order.
   let end = L.length;

@@ -429,7 +429,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   };
   async function goToDefinition(path: string, state: EditorState, pos: number) {
     const w = wordAt(state, pos);
-    const inc = w.line.match(/!include\s+(\S+)/);
+    const inc = w.line.match(/!include\s+(\S+)/) || w.line.match(/^\s*(?:- )?[\w-]+\s*:\s*(\S+\.(?:raml|json|ya?ml|xsd|xml|md))\s*$/);
     if (inc && w.line.indexOf(inc[1]) <= pos - state.doc.lineAt(pos).from) {
       const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
       const target = inc[1].startsWith('/') ? inc[1].slice(1) : normalizePath(dir + inc[1]);
@@ -860,9 +860,9 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                 onContextMenu={(e) => { e.preventDefault(); setMenu({ path: r.path, x: e.clientX, y: e.clientY }); }}
                 className={`group/row relative flex items-center gap-1.5 h-6 pr-2 text-[12.5px] cursor-pointer ${active === r.path ? 'bg-accent-dim text-content' : 'text-content-secondary hover:bg-[var(--hover-overlay)]'}`}>
                 {active === r.path && <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent" />}
-                <span className="truncate" style={r.path === project.main ? { fontWeight: 600, color: 'var(--content)' } : undefined}>{dirty.has(r.path) ? '* ' : ''}{base(r.path)}</span>
-                <span className="ml-auto flex items-center gap-1.5">
-                  {r.path === project.main && <span className="text-[9.5px] font-semibold px-1.5 rounded border border-accent-border text-accent">Root file</span>}
+                <span className="truncate min-w-0" style={r.path === project.main ? { fontWeight: 600, color: 'var(--content)' } : undefined}>{dirty.has(r.path) ? '* ' : ''}{base(r.path)}</span>
+                <span className="ml-auto shrink-0 flex items-center gap-1.5">
+                  {r.path === project.main && <span className="text-[9.5px] font-semibold px-1.5 rounded border border-accent-border text-accent whitespace-nowrap">Root file</span>}
                   {isReadOnly(r.path) && <span className="text-content-faint flex" title="Read-only"><Icons.Lock size={12} /></span>}
                   <button title="More actions" onClick={(e) => { e.stopPropagation(); const b = e.currentTarget.getBoundingClientRect(); setMenu({ path: r.path, x: b.left, y: b.bottom + 2 }); }}
                     className="w-[18px] h-[18px] rounded flex items-center justify-center text-content-faint opacity-0 group-hover/row:opacity-100 hover:bg-surface-3 hover:text-content"><Icons.More size={13} /></button>
@@ -1017,7 +1017,7 @@ function ApiTree({ outline, rootFile, filter, selId, closed, setClosed, noRoot, 
 const SHELF_BAR: Record<string, string> = {
   Methods: 'var(--content-muted)', Docs: 'var(--cyan)', 'Types and Traits': 'var(--violet)', Security: 'var(--err)', Parameters: 'var(--cyan)', Body: 'var(--ok)',
   Responses: 'var(--warn)', Success: 'var(--ok)', 'Client errors': 'var(--warn)', 'Server errors': 'var(--err)', 'Media types': 'var(--cyan)',
-  'Types and Examples': 'var(--violet)', Root: 'var(--content-muted)', Declarations: 'var(--violet)', Protocols: 'var(--content-muted)', Headers: 'var(--cyan)', Traits: 'var(--violet)',
+  'Types and Examples': 'var(--violet)', Root: 'var(--warn)', Declarations: 'var(--violet)', Template: 'var(--content-muted)', Others: 'var(--content-faint)', Protocols: 'var(--content-muted)', Headers: 'var(--cyan)', Traits: 'var(--violet)',
 };
 // Design Center's shelf: what can go at the cursor, one click to insert.
 function Shelf({ ctx, open, setOpen, onPick, types, traits }: {

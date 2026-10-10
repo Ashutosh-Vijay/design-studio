@@ -7,6 +7,7 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, foldGutter, foldKeymap, syntaxTree, indentUnit } from '@codemirror/language';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { findWidget, openReplace } from './find';
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { yaml } from '@codemirror/lang-yaml';
 import { json } from '@codemirror/lang-json';
@@ -24,8 +25,11 @@ const theme = EditorView.theme({
   '.cm-lineNumbers .cm-gutterElement': { padding: '0 10px 0 14px' },
   '.cm-activeLine': { backgroundColor: 'var(--surface-2)' },
   '.cm-activeLineGutter': { backgroundColor: 'var(--surface-2)', color: 'var(--content-muted)' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'var(--selection-bg) !important' },
-  '.cm-selectionMatch': { backgroundColor: 'var(--accent-dim)' },
+  // Selection keeps the syntax colours readable: a light wash, stronger while the editor has focus.
+  '.cm-selectionBackground': { backgroundColor: 'var(--editor-sel-blur) !important' },
+  '&.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--editor-sel) !important' },
+  '.cm-content ::selection': { backgroundColor: 'transparent' },
+  '.cm-selectionMatch': { backgroundColor: 'transparent', outline: '1px solid var(--accent-border)', borderRadius: '2px' },
   '.cm-matchingBracket': { backgroundColor: 'var(--accent-dim)', outline: '1px solid var(--accent-border)' },
   '.cm-foldGutter .cm-gutterElement': { color: 'var(--content-ghost)', padding: '0 4px' },
   '.cm-tooltip': { backgroundColor: 'var(--surface-2)', border: '1px solid var(--line)', color: 'var(--content)', borderRadius: '6px', boxShadow: 'var(--shadow)' },
@@ -33,8 +37,8 @@ const theme = EditorView.theme({
   '.cm-completionMatchedText': { color: 'var(--accent)', textDecoration: 'none', fontWeight: '700' },
   '.cm-completionDetail': { color: 'var(--content-faint)', fontStyle: 'normal', marginLeft: '12px' },
   '.cm-panels': { backgroundColor: 'var(--surface-2)', color: 'var(--content)', borderColor: 'var(--line)' },
-  '.cm-searchMatch': { backgroundColor: 'color-mix(in oklch, var(--warn) 30%, transparent)' },
-  '.cm-searchMatch-selected': { backgroundColor: 'color-mix(in oklch, var(--warn) 55%, transparent)' },
+  '.cm-searchMatch': { backgroundColor: 'color-mix(in oklch, var(--warn) 24%, transparent)', borderRadius: '2px' },
+  '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'color-mix(in oklch, var(--warn) 45%, transparent)', outline: '1px solid var(--warn)' },
   '.cm-textfield, .cm-button': { backgroundColor: 'var(--surface-input)', color: 'var(--content)', border: '1px solid var(--line)', borderRadius: '4px', backgroundImage: 'none' },
   '.cm-lintRange-error': { backgroundImage: 'none', textDecoration: 'underline wavy var(--err)', textUnderlineOffset: '3px' },
   '.cm-lintRange-warning': { backgroundImage: 'none', textDecoration: 'underline wavy var(--warn)', textUnderlineOffset: '3px' },
@@ -100,8 +104,8 @@ export function baseExtensions(): Extension[] {
     EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
     rectangularSelection(), crosshairCursor(), highlightActiveLine(), highlightSelectionMatches(),
     indentUnit.of('  '), EditorState.tabSize.of(2),
-    syntaxHighlighting(highlight), theme,
-    keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
+    syntaxHighlighting(highlight), theme, findWidget,
+    keymap.of([{ key: 'Mod-h', run: openReplace }, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
   ];
 }
 
