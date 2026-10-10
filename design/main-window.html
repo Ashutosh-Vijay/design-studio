@@ -1,0 +1,1447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Main window mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ===== Tokens copied from DataWeave Studio src/index.css (Dusk / Paper) ===== */
+:root {
+  color-scheme: dark;
+  --accent: oklch(72% 0.15 158);
+  --accent-hover: oklch(78% 0.15 158);
+  --accent-dim: oklch(72% 0.15 158 / 0.14);
+  --accent-border: oklch(72% 0.15 158 / 0.32);
+  --accent-ink: oklch(14% 0.004 80);
+
+  --bg: oklch(14% 0.004 80);
+  --surface: oklch(17% 0.004 80);
+  --surface-2: oklch(20% 0.004 80);
+  --surface-input: oklch(20% 0.004 80);
+  --surface-3: oklch(24% 0.004 80);
+  --rail: oklch(12% 0.004 80);
+
+  --line: oklch(26% 0.004 80);
+  --line-secondary: oklch(22% 0.004 80);
+  --line-subtle: oklch(20% 0.004 80);
+
+  --content: oklch(96% 0 0);
+  --content-secondary: oklch(78% 0 0);
+  --content-muted: oklch(60% 0 0);
+  --content-faint: oklch(50% 0 0);
+  --content-ghost: oklch(38% 0 0);
+
+  --warn: oklch(80% 0.14 80);
+  --err: oklch(68% 0.18 20);
+  --ok: oklch(76% 0.15 155);
+  --violet: oklch(72% 0.14 290);
+  --cyan: oklch(75% 0.11 220);
+
+  --scrollbar-thumb: oklch(30% 0.004 80);
+  --scrollbar-thumb-hover: oklch(40% 0.004 80);
+  --selection-bg: oklch(72% 0.15 158 / 0.35);
+  --hover-overlay: oklch(100% 0 0 / 0.05);
+  --shadow: 0 12px 40px rgba(0,0,0,0.45);
+
+  /* Syntax palette from DataWeave Studio src/dataweaveTheme.ts */
+  --syn-string: #88D4A4;
+  --syn-number: #E2B36F;
+  --syn-type: #DDD3BE;
+  --syn-fn: #4EBEDE;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --left-w: 272px;
+  --right-w: 330px;
+  --bottom-h: 168px;
+}
+.light {
+  color-scheme: light;
+  --accent: oklch(55% 0.15 158);
+  --accent-hover: oklch(50% 0.15 158);
+  --accent-dim: oklch(55% 0.15 158 / 0.10);
+  --accent-border: oklch(55% 0.15 158 / 0.35);
+  --accent-ink: oklch(100% 0 0);
+
+  --bg: oklch(98% 0.003 80);
+  --surface: oklch(100% 0 0);
+  --surface-2: oklch(97% 0.003 80);
+  --surface-input: oklch(100% 0 0);
+  --surface-3: oklch(94% 0.004 80);
+  --rail: oklch(96% 0.003 80);
+
+  --line: oklch(90% 0.004 80);
+  --line-secondary: oklch(94% 0.003 80);
+  --line-subtle: oklch(96% 0.003 80);
+
+  --content: oklch(20% 0 0);
+  --content-secondary: oklch(35% 0 0);
+  --content-muted: oklch(50% 0 0);
+  --content-faint: oklch(65% 0 0);
+  --content-ghost: oklch(78% 0 0);
+
+  --warn: oklch(60% 0.15 80);
+  --err: oklch(55% 0.18 20);
+  --ok: oklch(52% 0.14 155);
+  --violet: oklch(50% 0.15 290);
+  --cyan: oklch(55% 0.12 220);
+
+  --scrollbar-thumb: oklch(80% 0.004 80);
+  --scrollbar-thumb-hover: oklch(70% 0.004 80);
+  --selection-bg: oklch(55% 0.15 158 / 0.25);
+  --hover-overlay: oklch(0% 0 0 / 0.04);
+  --shadow: 0 12px 40px rgba(0,0,0,0.14);
+
+  --syn-string: #1F6537;
+  --syn-number: #8E6224;
+  --syn-type: #3D3B36;
+  --syn-fn: #0E6F87;
+}
+
+* { box-sizing: border-box; scrollbar-color: var(--scrollbar-thumb) var(--surface); }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); color: var(--content);
+  font-family: var(--font-sans); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--surface); }
+::selection { background: var(--selection-bg); }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+input { font: inherit; color: inherit; }
+.mono { font-family: var(--font-mono); }
+.app { height: 100vh; display: flex; flex-direction: column; user-select: none; }
+
+/* ===== Header ===== */
+header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 0 0 12px;
+  background: var(--surface); border-bottom: 1px solid var(--line); }
+.brand { width: 32px; display: flex; justify-content: center; }
+.proj-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: 6px; font-weight: 600; font-size: 13px; }
+.proj-btn:hover { background: var(--surface-2); }
+.proj-btn .chev { color: var(--content-faint); }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11px;
+  border: 1px solid var(--line); color: var(--content-muted); background: var(--surface-2); }
+.palette-trigger { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; width: 340px; border-radius: 6px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--content-faint); font-size: 12.5px; }
+.palette-trigger:hover { color: var(--content-secondary); border-color: var(--content-ghost); }
+.kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--surface-3); color: var(--content-muted); }
+.icon-btn { width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--content-faint); }
+.icon-btn:hover { background: var(--surface-2); color: var(--content); }
+.icon-btn.on { color: var(--accent); }
+.ghost-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  border: 1px solid var(--line); color: var(--content-muted); }
+.ghost-btn:hover { color: var(--content); border-color: var(--content-ghost); }
+.vsep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+.winctl { display: flex; height: 44px; }
+.winctl button { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--content-muted); }
+.winctl button:hover { background: var(--surface-2); color: var(--content); }
+.winctl button.close:hover { background: #e81123; color: #fff; }
+
+/* ===== Body ===== */
+.body { flex: 1; min-height: 0; display: flex; }
+.rail { width: 48px; flex-shrink: 0; background: var(--rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 10px 0; }
+.rail-btn { position: relative; height: 36px; margin: 2px 8px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--content-faint); }
+.rail-btn:hover { color: var(--content-secondary); }
+.rail-btn.active { background: var(--surface-2); color: var(--content); }
+.rail-btn.active::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+.rail-btn .badge { position: absolute; right: 2px; top: 3px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--err);
+  color: #fff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--rail); }
+
+.side { width: var(--left-w); flex-shrink: 0; background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+.side-head { height: 36px; flex-shrink: 0; display: flex; align-items: center; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line-subtle); gap: 4px; }
+.side-head .title { flex: 1; font-size: 12.5px; font-weight: 600; }
+.mini-btn { width: 22px; height: 22px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--content-faint); }
+.mini-btn:hover { background: var(--surface-2); color: var(--content); }
+.filter { margin: 8px 8px 4px; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 6px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--content-faint); }
+.filter:focus-within { border-color: var(--accent-border); }
+.filter input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 12px; color: var(--content); }
+.tree { flex: 1; overflow: auto; padding: 2px 0 12px; }
+.sec { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px 0 6px; margin-top: 6px; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px; color: var(--content-faint); cursor: pointer; }
+.sec:hover { color: var(--content-secondary); }
+.sec .count { margin-left: auto; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--content-ghost); font-size: 11px; }
+.row { position: relative; display: flex; align-items: center; gap: 6px; height: 24px; padding-right: 8px; font-size: 12.5px; color: var(--content-secondary); cursor: pointer; white-space: nowrap; }
+.row:hover { background: var(--hover-overlay); }
+.row.sel { background: var(--accent-dim); color: var(--content); }
+.row.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+.row .twist { width: 14px; flex-shrink: 0; display: inline-flex; justify-content: center; color: var(--content-ghost); }
+.row .lbl { overflow: hidden; text-overflow: ellipsis; }
+.row .sub { color: var(--content-faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+.row .tail { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+.row .more { opacity: 0; }
+.row:hover .more, .row.sel .more { opacity: 1; }
+.res-lbl { font-family: var(--font-mono); font-size: 12px; color: var(--content); }
+.m { font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; width: 38px; height: 16px; border-radius: 3px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; letter-spacing: 0.3px; }
+.m-get { color: var(--cyan); background: color-mix(in oklch, var(--cyan) 14%, transparent); }
+.m-post { color: var(--ok); background: color-mix(in oklch, var(--ok) 14%, transparent); }
+.m-put { color: var(--warn); background: color-mix(in oklch, var(--warn) 14%, transparent); }
+.m-patch { color: var(--violet); background: color-mix(in oklch, var(--violet) 14%, transparent); }
+.m-delete { color: var(--err); background: color-mix(in oklch, var(--err) 14%, transparent); }
+.kind { font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; }
+.k-type { color: var(--syn-number); background: color-mix(in oklch, var(--syn-number) 16%, transparent); }
+.k-trait { color: var(--violet); background: color-mix(in oklch, var(--violet) 14%, transparent); }
+.k-rt { color: var(--cyan); background: color-mix(in oklch, var(--cyan) 14%, transparent); }
+.k-sec { color: var(--warn); background: color-mix(in oklch, var(--warn) 14%, transparent); }
+.k-lib { color: var(--accent); background: var(--accent-dim); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.cnt-err { font-size: 10.5px; font-weight: 600; color: var(--err); }
+.cnt-warn { font-size: 10.5px; font-weight: 600; color: var(--warn); }
+.xtag { font-size: 9.5px; font-weight: 600; padding: 0 5px; border-radius: 3px; color: var(--cyan); border: 1px solid color-mix(in oklch, var(--cyan) 35%, transparent); }
+
+.split-x { width: 5px; margin: 0 -2px; flex-shrink: 0; cursor: col-resize; position: relative; z-index: 5; }
+.split-x::after { content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.split-x:hover::after { background: var(--accent); width: 2px; left: 1.5px; }
+.split-y { height: 5px; margin: -2px 0; flex-shrink: 0; cursor: row-resize; position: relative; z-index: 5; }
+.split-y::after { content: ""; position: absolute; top: 2px; left: 0; right: 0; height: 1px; background: var(--line); }
+.split-y:hover::after { background: var(--accent); height: 2px; top: 1.5px; }
+
+/* ===== Centre ===== */
+.center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--surface); }
+.tabs { height: 36px; flex-shrink: 0; display: flex; align-items: stretch; background: var(--bg); border-bottom: 1px solid var(--line); min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex-shrink: 0; position: relative; display: flex; align-items: center; gap: 7px; padding: 0 10px 0 12px; font-size: 12.5px; color: var(--content-faint);
+  border-right: 1px solid var(--line-secondary); cursor: pointer; max-width: 280px; }
+.tab:hover { color: var(--content-secondary); }
+.tab.active { background: var(--surface); color: var(--content); }
+.tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--surface); }
+.tab.active::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); }
+.tab .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab .x { width: 16px; height: 16px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: var(--content-faint); }
+.tab .x:hover { background: var(--surface-3); color: var(--content); }
+.tab .x .d { width: 7px; height: 7px; border-radius: 50%; background: var(--content-muted); }
+.tab:hover .x.dirty .d { display: none; }
+.tab .x.dirty svg { display: none; }
+.tab:hover .x.dirty svg { display: block; }
+.tab .x:not(.dirty) { visibility: hidden; }
+.tab.active .x, .tab:hover .x { visibility: visible; }
+.ficon { font-family: var(--font-mono); font-size: 9px; font-weight: 700; width: 14px; text-align: center; flex-shrink: 0; }
+.f-raml { color: var(--violet); }
+.f-json { color: var(--syn-number); }
+.f-other { color: var(--content-faint); }
+.tabs-end { margin-left: auto; position: sticky; right: 0; background: var(--bg); display: flex; align-items: center; gap: 2px; padding: 0 8px; }
+
+.crumbs { height: 28px; flex-shrink: 0; display: flex; align-items: center; gap: 2px; padding: 0 12px; font-size: 12px; color: var(--content-faint);
+  border-bottom: 1px solid var(--line-subtle); overflow: hidden; white-space: nowrap; }
+.crumb { padding: 1px 4px; border-radius: 4px; cursor: pointer; }
+.crumb:hover { background: var(--surface-2); color: var(--content); }
+.crumb.last { color: var(--content-secondary); }
+.crumb.res { font-family: var(--font-mono); font-size: 11.5px; }
+.crumbs .sepc { color: var(--content-ghost); }
+
+.editor { flex: 1; min-height: 0; overflow: auto; position: relative; font-family: var(--font-mono); font-size: 12.5px; cursor: text; user-select: text; }
+.code { position: relative; padding: 6px 0 40vh; min-width: max-content; }
+.ln { display: flex; height: 20px; line-height: 20px; white-space: pre; }
+.ln.cur { background: var(--surface-2); }
+.ln.flash { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: var(--accent-dim); } to { background: transparent; } }
+.gut { position: sticky; left: 0; z-index: 2; width: 62px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+  padding-right: 14px; color: var(--content-ghost); background: inherit; background-color: var(--surface); user-select: none; }
+.ln.cur .gut { color: var(--content-muted); background-color: var(--surface-2); }
+.gut .gd { width: 7px; height: 7px; border-radius: 50%; }
+.txt { padding-left: 4px; position: relative; }
+.caret { position: absolute; top: 2px; width: 2px; height: 16px; background: var(--accent); animation: blink 1.06s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.t-key { color: var(--violet); }
+.t-res { color: var(--content); font-weight: 700; }
+.t-m-get { color: var(--cyan); font-weight: 700; }
+.t-m-post { color: var(--ok); font-weight: 700; }
+.t-m-put { color: var(--warn); font-weight: 700; }
+.t-m-patch { color: var(--violet); font-weight: 700; }
+.t-m-delete { color: var(--err); font-weight: 700; }
+.t-num { color: var(--syn-number); }
+.t-media { color: var(--content-secondary); }
+.t-str { color: var(--syn-string); }
+.t-plain { color: var(--content); }
+.t-type { color: var(--syn-type); }
+.t-alias { color: var(--content-muted); }
+.t-tag { color: var(--syn-fn); font-style: italic; }
+.t-path { color: var(--syn-string); text-decoration: underline dotted color-mix(in oklch, var(--syn-string) 45%, transparent); text-underline-offset: 3px; }
+.t-com { color: var(--content-faint); font-style: italic; }
+.t-hdr { color: var(--violet); font-style: italic; }
+.t-punc { color: var(--content-muted); }
+.sq-error { text-decoration: underline wavy var(--err); text-decoration-skip-ink: none; text-underline-offset: 3px; }
+.sq-warning { text-decoration: underline wavy var(--warn); text-decoration-skip-ink: none; text-underline-offset: 3px; }
+
+/* autocomplete */
+.ac { position: absolute; z-index: 20; display: flex; align-items: flex-start; gap: 4px; font-family: var(--font-sans); user-select: none; }
+.ac-list { width: 330px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); overflow: hidden; }
+.ac-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; font-size: 10.5px; color: var(--content-faint); border-bottom: 1px solid var(--line-secondary); }
+.ac-item { display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 8px; font-family: var(--font-mono); font-size: 12px; color: var(--content-secondary); cursor: pointer; }
+.ac-item.on { background: color-mix(in oklch, var(--accent) 18%, transparent); color: var(--content); }
+.ac-item .hl { color: var(--accent); font-weight: 700; }
+.ac-item .det { margin-left: auto; font-family: var(--font-sans); font-size: 11px; color: var(--content-faint); }
+.ac-foot { display: flex; gap: 10px; padding: 4px 8px; font-size: 10.5px; color: var(--content-ghost); border-top: 1px solid var(--line-secondary); }
+.ac-doc { width: 270px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); padding: 10px 12px; font-size: 12px; }
+.ac-doc .nm { font-family: var(--font-mono); font-weight: 700; color: var(--syn-type); }
+.ac-doc .props { margin-top: 8px; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; color: var(--content-secondary); }
+.ac-doc .props .opt { color: var(--content-faint); }
+
+/* problems */
+.problems { height: var(--bottom-h); flex-shrink: 0; display: flex; flex-direction: column; background: var(--surface); min-height: 0; }
+.p-head { height: 32px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line-subtle); }
+.p-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--content-secondary); display: flex; align-items: center; gap: 6px; }
+.pill { font-size: 10.5px; font-weight: 600; padding: 0 6px; border-radius: 999px; background: var(--surface-3); color: var(--content-muted); }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); }
+.seg button { height: 20px; padding: 0 8px; border-radius: 4px; font-size: 11px; color: var(--content-faint); display: inline-flex; align-items: center; gap: 5px; }
+.seg button.on { background: var(--surface); color: var(--content); font-weight: 600; }
+.p-meta { margin-left: auto; font-size: 11px; color: var(--content-faint); display: flex; align-items: center; gap: 8px; }
+.p-list { flex: 1; overflow: auto; padding: 4px 0; }
+.p-file { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 12px; font-size: 12px; color: var(--content-secondary); font-weight: 500; }
+.p-file .path { color: var(--content-faint); font-weight: 400; font-size: 11.5px; }
+.p-row { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 2px 12px 2px 30px; font-size: 12.5px; cursor: pointer; }
+.p-row:hover { background: var(--hover-overlay); }
+.p-row .msg { color: var(--content); }
+.p-row .hint { color: var(--content-faint); }
+.p-row .loc { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--content-faint); white-space: nowrap; }
+.p-row .src { font-size: 10px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--line); color: var(--content-faint); white-space: nowrap; }
+.fix-btn { height: 20px; padding: 0 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-dim); border: 1px solid var(--accent-border); white-space: nowrap; }
+.fix-btn:hover { color: var(--accent-ink); background: var(--accent); }
+.p-empty { padding: 18px 12px; color: var(--content-faint); font-size: 12.5px; display: flex; align-items: center; gap: 8px; }
+
+/* inspector */
+.insp { width: var(--right-w); flex-shrink: 0; background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+.insp-body { flex: 1; overflow: auto; padding: 14px 14px 24px; }
+.i-title { display: flex; align-items: center; gap: 8px; }
+.i-title .path { font-family: var(--font-mono); font-size: 13.5px; font-weight: 700; word-break: break-all; }
+.i-sub { margin-top: 4px; font-size: 12.5px; color: var(--content-secondary); }
+.i-loc { margin-top: 2px; font-family: var(--font-mono); font-size: 11px; color: var(--content-faint); cursor: pointer; }
+.i-loc:hover { color: var(--accent); }
+.i-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  border: 1px solid var(--line); color: var(--content-secondary); background: var(--surface-2); }
+.btn:hover { color: var(--content); border-color: var(--content-ghost); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover { background: var(--accent-hover); }
+.i-sec { margin-top: 18px; }
+.i-sec h4 { margin: 0 0 6px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--content-faint); display: flex; gap: 6px; align-items: center; }
+.i-sec h4 .count { color: var(--content-ghost); letter-spacing: 0; }
+.tchips { display: flex; flex-wrap: wrap; gap: 5px; }
+.tchip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 4px; font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--violet); background: color-mix(in oklch, var(--violet) 12%, transparent); border: 1px solid color-mix(in oklch, var(--violet) 25%, transparent); cursor: pointer; }
+.tchip:hover { border-color: var(--violet); }
+.note { margin-top: 6px; font-size: 11.5px; color: var(--content-faint); }
+.note .mono { color: var(--content-muted); font-size: 11px; }
+.kv { width: 100%; border-collapse: collapse; font-size: 12px; }
+.kv td { padding: 4px 6px 4px 0; vertical-align: top; border-bottom: 1px solid var(--line-secondary); }
+.kv tr:last-child td { border-bottom: 0; }
+.kv .k { font-family: var(--font-mono); color: var(--content); white-space: nowrap; }
+.kv .t { font-family: var(--font-mono); color: var(--syn-type); }
+.kv .o { color: var(--content-faint); font-size: 11px; text-align: right; white-space: nowrap; }
+.tref { font-family: var(--font-mono); cursor: pointer; color: var(--syn-type); }
+.tref .al { color: var(--content-muted); }
+.tref:hover { text-decoration: underline; }
+.tref.bad { color: var(--err); text-decoration: underline wavy var(--err); }
+.resp { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; background: var(--bg); }
+.resp-top { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; }
+.resp-top .tref { min-width: 0; overflow-wrap: anywhere; }
+.code-badge { font-family: var(--font-mono); font-weight: 700; font-size: 11.5px; padding: 0 6px; border-radius: 3px; }
+.c2 { color: var(--ok); background: color-mix(in oklch, var(--ok) 13%, transparent); }
+.c4 { color: var(--warn); background: color-mix(in oklch, var(--warn) 13%, transparent); }
+.c5 { color: var(--err); background: color-mix(in oklch, var(--err) 13%, transparent); }
+.media { font-family: var(--font-mono); font-size: 11px; color: var(--content-faint); }
+.ex { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 11.5px; color: var(--content-muted); cursor: pointer; }
+.ex:hover .fn { text-decoration: underline; }
+.ex .fn { font-family: var(--font-mono); font-size: 11px; color: var(--syn-string); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex.missing .fn { color: var(--err); }
+.ex .st { margin-left: auto; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.usage { display: flex; align-items: center; gap: 7px; padding: 5px 6px; margin: 0 -6px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+.usage:hover { background: var(--hover-overlay); }
+.usage .p { font-family: var(--font-mono); font-size: 11.5px; color: var(--content); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage .w { margin-left: auto; color: var(--content-faint); font-size: 11px; white-space: nowrap; }
+.i-empty { color: var(--content-faint); font-size: 12.5px; text-align: center; padding: 40px 18px; }
+
+/* status bar */
+.status { height: 26px; flex-shrink: 0; display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--rail); border-top: 1px solid var(--line);
+  font-family: var(--font-mono); font-size: 11px; color: var(--content-faint); }
+.status button { font-family: var(--font-mono); font-size: 11px; color: inherit; display: inline-flex; align-items: center; gap: 5px; }
+.status button:hover { color: var(--content-secondary); }
+.spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--warn); border-top-color: transparent; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* popovers, menus, palette, toast */
+.pop { position: fixed; z-index: 50; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; min-width: 200px; }
+.mi { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; border-radius: 4px; font-size: 12.5px; color: var(--content-secondary); text-align: left; }
+.mi:hover:not(:disabled) { background: var(--surface-3); color: var(--content); }
+.mi:disabled { color: var(--content-ghost); cursor: default; }
+.mi .sc { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--content-faint); }
+.mi .ico { color: var(--content-faint); display: inline-flex; }
+.msep { height: 1px; background: var(--line-secondary); margin: 4px 2px; }
+.mlabel { padding: 6px 8px 2px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--content-faint); }
+.settings { width: 280px; padding: 12px; }
+.settings h5 { margin: 0 0 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--content-faint); }
+.swatches { display: flex; gap: 8px; }
+.sw { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15); }
+.sw.on { outline: 2px solid var(--content); outline-offset: 2px; }
+.seg.wide { display: flex; }
+.seg.wide button { flex: 1; justify-content: center; height: 24px; }
+
+.scrim { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.35); display: flex; justify-content: center; align-items: flex-start; padding-top: 90px; }
+.light .scrim { background: rgba(0,0,0,0.12); }
+.palette { width: 600px; max-width: calc(100vw - 32px); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+.pal-in { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--content-faint); }
+.pal-in input { flex: 1; border: 0; outline: 0; background: transparent; font-size: 14px; color: var(--content); }
+.pal-list { max-height: 420px; overflow: auto; padding: 4px 6px 8px; }
+.pal-item { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: 6px; font-size: 13px; color: var(--content-secondary); cursor: pointer; }
+.pal-item.on { background: var(--accent-dim); color: var(--content); }
+.pal-item .det { margin-left: auto; font-size: 11.5px; color: var(--content-faint); font-family: var(--font-mono); }
+.pal-foot { display: flex; gap: 14px; padding: 7px 14px; border-top: 1px solid var(--line); font-size: 11px; color: var(--content-faint); }
+
+.toasts { position: fixed; right: 16px; bottom: 40px; z-index: 70; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.toast { display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line);
+  box-shadow: var(--shadow); font-size: 12.5px; animation: tin 0.18s ease-out; max-width: 420px; }
+.toast .ico { color: var(--accent); display: inline-flex; }
+@keyframes tin { from { transform: translateY(6px); opacity: 0; } }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand" title="About API Designer Studio">
+      <svg width="22" height="22" viewBox="0 0 24 24"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)"/>
+        <g fill="none" stroke="var(--accent-ink)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 7h4M7 12h3M9 7v10h3"/><circle cx="15.5" cy="12" r="1.7"/><circle cx="15.5" cy="17" r="1.7"/></g></svg>
+    </div>
+    <button class="proj-btn" id="projBtn"><span id="projName">customer-orders-sapi</span><span class="chev" data-ic="chevDown" data-s="13"></span></button>
+    <span class="chip" title="Opened from a folder on this computer. Everything works offline."><span data-ic="folder" data-s="12"></span>Local folder</span>
+    <div style="flex:1"></div>
+    <button class="palette-trigger" id="palBtn"><span data-ic="search" data-s="13"></span><span style="flex:1;text-align:left">Search resources, types, files…</span><span class="kbd">Ctrl K</span></button>
+    <div style="flex:1"></div>
+    <button class="ghost-btn" id="connectBtn" title="Sign in to pull, push and publish with Design Center"><span data-ic="cloud" data-s="14"></span>Connect to Anypoint</button>
+    <div class="vsep"></div>
+    <button class="icon-btn" id="themeBtn" title="Switch theme"></button>
+    <button class="icon-btn" id="settingsBtn" title="Settings (Ctrl ,)"><span data-ic="settings" data-s="15"></span></button>
+    <div class="winctl">
+      <button title="Minimize"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg></button>
+      <button title="Maximize"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x=".5" y=".5" width="9" height="9" stroke="currentColor"/></svg></button>
+      <button class="close" title="Close"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg></button>
+    </div>
+  </header>
+
+  <div class="body">
+    <nav class="rail">
+      <button class="rail-btn" data-rail="api" title="API (Ctrl Shift A)"><span data-ic="api" data-s="18"></span></button>
+      <button class="rail-btn" data-rail="files" title="Files (Ctrl Shift E)"><span data-ic="files" data-s="18"></span></button>
+      <button class="rail-btn" data-rail="problems" title="Problems (Ctrl J)"><span data-ic="alert" data-s="18"></span><span class="badge" id="railBadge"></span></button>
+      <div style="flex:1"></div>
+      <button class="rail-btn" id="railSettings" title="Settings"><span data-ic="settings" data-s="18"></span></button>
+    </nav>
+
+    <aside class="side" id="side">
+      <div class="side-head">
+        <span class="title" id="sideTitle">API</span>
+        <button class="mini-btn" title="Collapse all" id="collapseAll"><span data-ic="collapse" data-s="13"></span></button>
+        <button class="mini-btn" title="Hide sidebar (Ctrl B)" id="hideSide"><span data-ic="panelLeft" data-s="13"></span></button>
+      </div>
+      <label class="filter"><span data-ic="filter" data-s="12"></span><input id="filter" placeholder="Filter resources and types" spellcheck="false"><span class="kbd" id="filterKbd">/</span></label>
+      <div class="tree" id="tree"></div>
+    </aside>
+    <div class="split-x" id="splitL"></div>
+
+    <main class="center">
+      <div class="tabs" id="tabs"></div>
+      <div class="crumbs" id="crumbs"></div>
+      <div class="editor" id="editor"><div class="code" id="code"></div></div>
+      <div class="split-y" id="splitB"></div>
+      <section class="problems" id="problems">
+        <div class="p-head">
+          <span class="p-title">Problems <span class="pill" id="pCount"></span></span>
+          <div class="seg" id="sevSeg"></div>
+          <div class="seg" id="scopeSeg"><button data-scope="all">All files</button><button data-scope="file">This file</button></div>
+          <span class="p-meta" id="pMeta"></span>
+          <button class="mini-btn" title="Hide problems (Ctrl J)" id="hideProblems"><span data-ic="x" data-s="13"></span></button>
+        </div>
+        <div class="p-list" id="pList"></div>
+      </section>
+    </main>
+    <div class="split-x" id="splitR"></div>
+
+    <aside class="insp" id="insp">
+      <div class="side-head"><span class="title">Inspector</span>
+        <button class="mini-btn" title="Hide inspector (Ctrl Alt B)" id="hideInsp"><span data-ic="panelRight" data-s="13"></span></button></div>
+      <div class="insp-body" id="inspBody"></div>
+    </aside>
+  </div>
+
+  <footer class="status" id="status"></footer>
+</div>
+<div class="toasts" id="toasts"></div>
+<div id="layer"></div>
+
+<script>
+// ---------- Icons (24px grid, stroke 1.5, like DataWeave Studio's Icons.tsx) ----------
+const IC = {
+  chevDown: '<polyline points="6 9 12 15 18 9"/>',
+  chevRight: '<polyline points="9 6 15 12 9 18"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  files: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  api: '<circle cx="6" cy="5" r="2"/><path d="M6 7v12M6 12h6M6 19h6"/><circle cx="15" cy="12" r="2.2"/><circle cx="15" cy="19" r="2.2"/>',
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 0 1 0 9z"/>',
+  filter: '<path d="M3 5h18M6 12h12M10 19h4"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  panelLeft: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>',
+  panelRight: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/>',
+  panelBottom: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/>',
+  collapse: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  dup: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/><path d="M14.5 11.5v6M11.5 14.5h6"/>',
+  target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>',
+  zip: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M11 6h1M11 9h1M11 12h1M10.5 15h2v3h-2z"/>',
+  play: '<polygon points="7 4 20 12 7 20 7 4"/>',
+  errorDot: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
+  warnTri: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+};
+const ic = (n, s = 16, sw = 1.6) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${IC[n]}</svg>`;
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const $ = id => document.getElementById(id);
+function paintIcons(root = document) { root.querySelectorAll('[data-ic]').forEach(el => { el.innerHTML = ic(el.dataset.ic, +el.dataset.s || 16); el.style.display = 'inline-flex'; }); }
+
+// ---------- The sample project (invented, not from any real org) ----------
+const MAIN = 'customer-orders-sapi.raml';
+const LIBS = {
+  ordersLib: 'data-types/orders-lib.raml',
+  accountLib: 'data-types/customer-lib.raml',
+  commonLib: 'exchange_modules/acme-group/common-fragments/1.0.4/common-lib.raml',
+};
+const FILES = {};
+FILES[MAIN] = `#%RAML 1.0
+title: Customer Orders SAPI
+version: v1
+baseUri: https://api.example.com/orders/{version}
+mediaType: application/json
+protocols: [ HTTPS ]
+
+uses:
+  ordersLib: data-types/orders-lib.raml
+  accountLib: data-types/customer-lib.raml
+  commonLib: /exchange_modules/acme-group/common-fragments/1.0.4/common-lib.raml
+
+securitySchemes:
+  client-id-enforcement: !include /exchange_modules/acme-group/common-fragments/1.0.4/security/client-id.raml
+
+traits:
+  client-id-policy: !include traits/client-id-policy.raml
+  correlation-headers: !include traits/correlation-headers.raml
+  paged: !include traits/paged.raml
+
+resourceTypes:
+  collection: !include resource-types/collection.raml
+
+# Every endpoint needs a client id and a correlation id
+/orders:
+  description: Orders placed by customers.
+  get:
+    displayName: List orders
+    is: [ client-id-policy, correlation-headers, paged ]
+    queryParameters:
+      status:
+        type: ordersLib.OrderStatus
+        required: false
+      customerId:
+        type: string
+        required: false
+    responses:
+      200:
+        body:
+          application/json:
+            type: ordersLib.OrderList
+            example: !include examples/list-orders-response.json
+  post:
+    displayName: Create order
+    is: [ client-id-policy, correlation-headers ]
+    body:
+      application/json:
+        type: ordersLib.OrderCreate
+        example: !include examples/create-order-request.json
+    responses:
+      201:
+        body:
+          application/json:
+            type: ordersLib.OrderCreated
+            example: !include examples/create-order-response.json
+  /{orderId}:
+    uriParameters:
+      orderId:
+        type: string
+        pattern: ^ORD-[0-9]{8}$
+    get:
+      displayName: Get order
+      is: [ client-id-policy, correlation-headers ]
+      responses:
+        200:
+          body:
+            application/json:
+              type: ordersLib.Order
+              example: !include examples/get-order-response.json
+        404:
+          body:
+            application/json:
+              type: commonLib.ErrorResponse
+              example: !include examples/order-not-found.json
+    put:
+      displayName: Update order
+      is: [ client-id-policy, correlation-headers ]
+      body:
+        application/json:
+          type: ordersLib.OrderUpdte
+          example: !include examples/update-order-request.json
+      responses:
+        200:
+          body:
+            application/json:
+              type: ordersLib.Order
+              example: !include examples/get-order-response.json
+    delete:
+      displayName: Cancel order
+      is: [ client-id-policy, correlation-headers ]
+      responses:
+        204:
+    /items:
+      get:
+        displayName: List order items
+        is: [ client-id-policy, correlation-headers, paged ]
+        responses:
+          200:
+            body:
+              application/json:
+                type: ordersLib.OrderItem[]
+                example: !include examples/list-order-items-response.json
+/customers:
+  /{customerId}:
+    uriParameters:
+      customerId:
+        type: string
+    get:
+      displayName: Get customer
+      is: [ client-id-policy, correlation-headers ]
+      responses:
+        200:
+          body:
+            application/json:
+              type: accountLib.Customer
+              example: !include examples/get-customer-response.json
+    /orders:
+      get:
+        displayName: List a customer's orders
+        is: [ client-id-policy, correlation-headers, paged ]
+        responses:
+          200:
+            body:
+              application/json:
+                type: ordersLib.Ord`;
+
+FILES[LIBS.ordersLib] = `#%RAML 1.0 Library
+usage: Order types shared by every orders endpoint.
+
+uses:
+  commonLib: /exchange_modules/acme-group/common-fragments/1.0.4/common-lib.raml
+
+types:
+  OrderStatus:
+    type: string
+    enum: [ PENDING, CONFIRMED, SHIPPED, DELIVERED, CANCELLED ]
+
+  Order:
+    type: object
+    properties:
+      orderId: string
+      customerId: string
+      status: OrderStatus
+      placedAt: datetime
+      currency:
+        type: string
+        pattern: ^[A-Z]{3}$
+      total: number
+      items: OrderItem[]
+      shippingAddress?: commonLib.Address
+
+  OrderItem:
+    properties:
+      sku: string
+      quantity: integer
+      unitPrice: number
+
+  OrderCreate:
+    properties:
+      customerId: string
+      currency: string
+      items: OrderItem[]
+
+  OrderCreated:
+    properties:
+      orderId: string
+      status: OrderStatus
+
+  OrderUpdate:
+    properties:
+      status?: OrderStatus
+      shippingAddress?: commonLib.Address
+
+  OrderList:
+    properties:
+      data: Order[]
+      total: integer`;
+
+FILES[LIBS.accountLib] = `#%RAML 1.0 Library
+usage: Customer types.
+
+types:
+  Customer:
+    properties:
+      customerId: string
+      name: string
+      email: string
+      tier?: CustomerTier
+
+  CustomerTier:
+    type: string
+    enum: [ STANDARD, GOLD, PLATINUM ]`;
+
+FILES[LIBS.commonLib] = `#%RAML 1.0 Library
+usage: Shared types published to Exchange by the platform team.
+
+types:
+  ErrorResponse:
+    properties:
+      code: string
+      message: string
+      correlationId: string
+
+  Address:
+    properties:
+      line1: string
+      line2?: string
+      city: string
+      postcode: string
+      country: string`;
+
+FILES['examples/get-order-response.json'] = `{
+  "orderId": "ORD-20261005",
+  "customerId": "CUS-00042",
+  "status": "CONFIRMED",
+  "placedAt": "2026-10-05T09:12:44Z",
+  "total": 149.90,
+  "items": [
+    { "sku": "KB-104", "quantity": 1, "unitPrice": 99.90 },
+    { "sku": "MS-220", "quantity": 2, "unitPrice": 25.00 }
+  ]
+}`;
+
+FILES['traits/paged.raml'] = `#%RAML 1.0 Trait
+queryParameters:
+  offset:
+    type: integer
+    default: 0
+  limit:
+    type: integer
+    default: 50
+    maximum: 200`;
+
+FILES['traits/client-id-policy.raml'] = `#%RAML 1.0 Trait
+headers:
+  client_id:
+    type: string
+  client_secret:
+    type: string`;
+
+FILES['traits/correlation-headers.raml'] = `#%RAML 1.0 Trait
+headers:
+  x-correlation-id:
+    type: string
+    required: false`;
+
+const OTHER_PATHS = [
+  '.gitignore', 'exchange.json',
+  'examples/list-orders-response.json', 'examples/create-order-request.json', 'examples/create-order-response.json',
+  'examples/order-not-found.json', 'examples/update-order-request.json', 'examples/get-customer-response.json',
+  'resource-types/collection.raml',
+  'exchange_modules/acme-group/common-fragments/1.0.4/security/client-id.raml',
+  'exchange_modules/acme-group/common-fragments/1.0.4/exchange.json',
+];
+const allPaths = () => [...new Set([...Object.keys(FILES), ...OTHER_PATHS])].sort();
+const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
+const BUILTIN = ['string', 'number', 'integer', 'boolean', 'date-only', 'time-only', 'datetime', 'datetime-only', 'file', 'object', 'array', 'any', 'nil'];
+const TRAIT_ADDS = { 'client-id-policy': 'headers client_id, client_secret', 'correlation-headers': 'header x-correlation-id', 'paged': 'query offset, limit' };
+const fileText = p => FILES[p] ?? (p.endsWith('.json') ? '{\n  "note": "sample example"\n}' : '#%RAML 1.0 DataType\ntype: object');
+const lines = p => fileText(p).split('\n');
+const base = p => p.split('/').pop();
+const lang = p => p.endsWith('.raml') ? 'raml' : p.endsWith('.json') ? 'json' : 'other';
+
+// ---------- Fast YAML-ish outline: the stand-in for the real `yaml` CST parse ----------
+const KEY_RE = /^(\s*)(- )?("[^"]*"|[^\s#:][^:#]*?)(\s*:)(?:(\s+)(.*))?$/;
+function entries(p) {
+  const out = [];
+  lines(p).forEach((l, i) => { const m = l.match(KEY_RE); if (m) out.push({ i, ind: m[1].length + (m[2] ? 2 : 0), key: m[3].trim(), val: (m[6] || '').trim() }); });
+  return out;
+}
+function kids(E, k) {
+  const out = []; let ci = null;
+  for (let j = k + 1; j < E.length; j++) { if (E[j].ind <= E[k].ind) break; if (ci === null) ci = E[j].ind; if (E[j].ind === ci) out.push(j); }
+  return out;
+}
+const kid = (E, k, key) => kids(E, k).find(j => E[j].key === key);
+function keyPath(p, line) {
+  if (lang(p) !== 'raml') return [];
+  const L = lines(p), E = entries(p), at = new Map(E.map(e => [e.i, e]));
+  const out = []; let cur = Infinity;
+  for (let i = line; i >= 0; i--) {
+    const e = at.get(i); if (!e) continue;
+    if (i === line || e.ind < cur) { out.unshift(e); cur = e.ind; if (cur === 0) break; }
+  }
+  return out;
+}
+
+// ---------- Model built from the text (what amf-server's outline gives in the real app) ----------
+let MODEL;
+function buildModel() {
+  const E = entries(MAIN);
+  const resources = [];
+  const walk = (k, parent) => {
+    const node = { kind: 'res', id: 'res:' + parent + E[k].key, key: E[k].key, path: parent + E[k].key, file: MAIN, line: E[k].i, k, children: [], methods: [] };
+    kids(E, k).forEach(j => {
+      if (E[j].key.startsWith('/')) node.children.push(walk(j, node.path));
+      else if (METHODS.includes(E[j].key)) {
+        const dn = kid(E, j, 'displayName');
+        node.methods.push({ kind: 'method', id: 'm:' + E[j].key + ':' + node.path, m: E[j].key, path: node.path, file: MAIN, line: E[j].i, k: j, name: dn != null ? E[dn].val : '', parent: node });
+      }
+    });
+    return node;
+  };
+  E.forEach((e, k) => { if (e.ind === 0 && e.key.startsWith('/')) resources.push(walk(k, '')); });
+  const decl = (key, kind) => { const t = E.findIndex(e => e.ind === 0 && e.key === key); return t < 0 ? [] : kids(E, t).map(j => ({ kind, id: kind + ':' + E[j].key, name: E[j].key, file: MAIN, line: E[j].i, target: E[j].val.replace('!include', '').trim().replace(/^\//, '') })); };
+  const types = [];
+  Object.entries(LIBS).forEach(([alias, f]) => {
+    const LE = entries(f); const t = LE.findIndex(e => e.ind === 0 && e.key === 'types');
+    kids(LE, t).forEach(j => {
+      const tk = kid(LE, j, 'type'), pk = kid(LE, j, 'properties'), en = kid(LE, j, 'enum');
+      const props = pk == null ? [] : kids(LE, pk).map(q => {
+        const tt = LE[q].val || (kid(LE, q, 'type') != null ? LE[kid(LE, q, 'type')].val : 'object');
+        return { name: LE[q].key.replace(/\?$/, ''), type: tt, opt: LE[q].key.endsWith('?') };
+      });
+      const shape = en != null ? 'string enum' : (tk != null ? LE[tk].val : 'object');
+      types.push({ kind: 'type', id: 'type:' + alias + '.' + LE[j].key, alias, name: LE[j].key, q: alias + '.' + LE[j].key, file: f, line: LE[j].i, props, shape, enumVals: en != null ? LE[en].val : '' });
+    });
+  });
+  const libs = Object.entries(LIBS).map(([alias, f]) => ({ kind: 'lib', id: 'lib:' + alias, name: alias, file: f, line: 0, exchange: f.startsWith('exchange_modules') }));
+  MODEL = { resources, types, libs, traits: decl('traits', 'trait'), rtypes: decl('resourceTypes', 'rt'), schemes: decl('securitySchemes', 'sec') };
+  MODEL.all = [];
+  const flat = r => { MODEL.all.push(r); r.methods.forEach(m => MODEL.all.push(m)); r.children.forEach(flat); };
+  resources.forEach(flat);
+  MODEL.all.push(...types, ...MODEL.traits, ...MODEL.rtypes, ...MODEL.schemes, ...libs);
+}
+const byId = id => MODEL.all.find(n => n.id === id);
+
+// Usages of a type: text match of alias.Name (main) and bare Name inside its own library, as in M0.2
+function usagesOfType(t) {
+  const out = [];
+  lines(MAIN).forEach((l, i) => { if (new RegExp('\\b' + t.q.replace('.', '\\.') + '\\b').test(l)) out.push({ file: MAIN, line: i }); });
+  lines(t.file).forEach((l, i) => { if (i !== t.line && new RegExp(':\\s+' + t.name + '(\\[\\])?\\s*$').test(l)) out.push({ file: t.file, line: i }); });
+  return out;
+}
+function usageLabel(u) {
+  const kp = keyPath(u.file, u.line);
+  if (u.file !== MAIN) { const t = kp.find(e => e.ind === 2); const pr = kp[kp.length - 1]; return { m: null, p: (t ? t.key : '') + (pr && pr !== t ? '.' + pr.key.replace('?', '') : ''), w: base(u.file) }; }
+  const mi = kp.findIndex(e => METHODS.includes(e.key));
+  const path = kp.filter(e => e.key.startsWith('/')).map(e => e.key).join('');
+  const rest = kp.slice(mi + 1).map(e => e.key).filter(k => !['body', 'application/json', 'type', 'responses'].includes(k));
+  return { m: mi >= 0 ? kp[mi].key : null, p: path, w: rest.join(' ') || (mi >= 0 ? 'type' : '') };
+}
+
+// ---------- Problems (parse phase + validation phase, merged, as in M0.1) ----------
+const PROBLEMS = [
+  { id: 'p1', sev: 'error', src: 'parse', file: MAIN, find: 'ordersLib.OrderUpdte', msg: "Unknown type 'ordersLib.OrderUpdte'.", hint: 'Did you mean OrderUpdate?',
+    fix: { label: 'Use OrderUpdate', run: () => replaceIn(MAIN, 'ordersLib.OrderUpdte', 'ordersLib.OrderUpdate') } },
+  { id: 'p2', sev: 'error', src: 'parse', file: MAIN, find: 'examples/list-order-items-response.json', msg: 'File not found: examples/list-order-items-response.json', hint: '',
+    fix: { label: 'Create file', run: () => { FILES['examples/list-order-items-response.json'] = '[\n  { "sku": "KB-104", "quantity": 1, "unitPrice": 99.90 }\n]'; toast('Created examples/list-order-items-response.json'); } } },
+  { id: 'p3', sev: 'warning', src: 'validation', file: 'examples/get-order-response.json', find: '{', msg: "Example doesn't match ordersLib.Order: the required property 'currency' is missing.", hint: '',
+    fix: { label: 'Add currency', run: () => replaceIn('examples/get-order-response.json', '"placedAt": "2026-10-05T09:12:44Z",', '"placedAt": "2026-10-05T09:12:44Z",\n  "currency": "EUR",') } },
+];
+const liveProblems = () => PROBLEMS.filter(p => !S.fixed.has(p.id)).map(p => {
+  const L = lines(p.file); const line = L.findIndex(l => l.includes(p.find)); return { ...p, line, col: L[line].indexOf(p.find) };
+});
+function replaceIn(p, a, b) { FILES[p] = fileText(p).replace(a, b); S.dirty.add(p); }
+
+// ---------- State ----------
+const S = {
+  rail: 'api', tabs: [MAIN, LIBS.ordersLib, 'examples/get-order-response.json'], active: MAIN,
+  cursor: { line: 0, col: 0 }, dirty: new Set([MAIN]), sel: null, popup: null, filter: '',
+  closedSecs: new Set(['Resource types', 'Security schemes']), collapsed: new Set(), openDirs: new Set(['data-types', 'examples', 'traits']),
+  sev: 'all', scope: 'all', fixed: new Set(), engine: 'ready', parseMs: 180, checkMs: 1940, checkedAgo: 4,
+  side: true, insp: true, problems: true, menu: null,
+};
+const cursorByFile = {};
+
+// ---------- Highlighting ----------
+function hlYaml(line) {
+  const segs = []; const push = (t, c = '') => { if (t) segs.push([t, c]); };
+  if (/^#%RAML/.test(line)) { push(line, 't-hdr'); return segs; }
+  const cm = line.match(/^(\s*)(#.*)$/); if (cm) { push(cm[1]); push(cm[2], 't-com'); return segs; }
+  const m = line.match(KEY_RE);
+  if (!m) { const lm = line.match(/^(\s*)(- )(.*)$/); if (lm) { push(lm[1]); push(lm[2], 't-punc'); push(lm[3], 't-str'); } else push(line, 't-plain'); return segs; }
+  push(m[1]); if (m[2]) push(m[2], 't-punc');
+  const key = m[3]; let kc = 't-key';
+  if (key.startsWith('/')) kc = 't-res'; else if (METHODS.includes(key)) kc = 't-m-' + key; else if (/^\d{3}$/.test(key)) kc = 't-num'; else if (key.includes('/')) kc = 't-media';
+  push(key, kc); push(m[4], 't-punc');
+  if (m[5] !== undefined) {
+    push(m[5]); const v = m[6] || '';
+    if (v.startsWith('!include')) { push('!include', 't-tag'); const r = v.slice(8); const w = r.match(/^\s*/)[0]; push(w); push(r.slice(w.length), 't-path'); }
+    else if (v.startsWith('[')) v.split(/([\[\],])/).forEach(p => push(p, /^[\[\],]$/.test(p) ? 't-punc' : 't-plain'));
+    else if (/^-?\d+(\.\d+)?$|^(true|false|null)$/.test(v)) push(v, 't-num');
+    else { const tr = v.match(/^([a-z]\w*\.)([A-Z]\w*(\[\])?)?$/);
+      if (tr) { push(tr[1], 't-alias'); push(tr[2], 't-type'); }
+      else if (/^[A-Z]\w*(\[\])?$/.test(v) || BUILTIN.includes(v.replace('[]', ''))) push(v, 't-type');
+      else push(v, 't-str'); }
+  }
+  return segs;
+}
+function hlJson(line) {
+  const segs = []; const re = /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?)|(true|false|null)|([{}\[\],])|(\s+)|(.)/g; let m;
+  while ((m = re.exec(line))) {
+    if (m[1]) { segs.push([m[1], m[2] ? 't-key' : 't-str']); if (m[2]) segs.push([m[2], 't-punc']); }
+    else if (m[3] || m[4]) segs.push([m[0], 't-num']); else if (m[5]) segs.push([m[5], 't-punc']); else segs.push([m[0], m[6] ? '' : 't-plain']);
+  }
+  return segs;
+}
+function renderLine(text, p, marks) {
+  const segs = lang(p) === 'raml' ? hlYaml(text) : lang(p) === 'json' ? hlJson(text) : [[text, 't-plain']];
+  if (!marks.length) return segs.map(([t, c]) => c ? `<span class="${c}">${esc(t)}</span>` : esc(t)).join('');
+  const cls = []; segs.forEach(([t, c]) => { for (const _ of t) cls.push(c); });
+  const mk = new Array(text.length).fill('');
+  marks.forEach(mm => { for (let i = mm.from; i < mm.to && i < text.length; i++) mk[i] = 'sq-' + mm.sev; });
+  let out = '', i = 0;
+  while (i < text.length) { let j = i; while (j < text.length && cls[j] === cls[i] && mk[j] === mk[i]) j++; out += `<span class="${cls[i]} ${mk[i]}">${esc(text.slice(i, j))}</span>`; i = j; }
+  return out;
+}
+
+// ---------- Editor ----------
+function renderEditor(keepScroll = true) {
+  const ed = $('editor'), code = $('code'); const st = ed.scrollTop;
+  const p = S.active, L = lines(p);
+  const probs = liveProblems().filter(x => x.file === p);
+  let html = '';
+  L.forEach((t, i) => {
+    const lp = probs.filter(x => x.line === i);
+    const marks = lp.map(x => ({ from: x.col, to: x.col + x.find.length, sev: x.sev }));
+    const gd = lp.length ? `<span class="gd" style="background:var(--${lp.some(x => x.sev === 'error') ? 'err' : 'warn'})"></span>` : '';
+    const cur = i === S.cursor.line;
+    html += `<div class="ln${cur ? ' cur' : ''}" data-line="${i}"><span class="gut">${gd}${i + 1}</span><span class="txt">${renderLine(t, p, marks)}${cur ? `<span class="caret" style="left:calc(4px + ${S.cursor.col}ch)"></span>` : ''}</span></div>`;
+  });
+  if (S.popup) html += renderPopup();
+  code.innerHTML = html;
+  if (keepScroll) ed.scrollTop = st;
+}
+function scrollToLine(line, flash) {
+  const ed = $('editor'); const top = line * 20; const h = ed.clientHeight;
+  if (top < ed.scrollTop + 40 || top > ed.scrollTop + h - 80) ed.scrollTop = Math.max(0, top - h / 3);
+  if (flash) { const el = $('code').querySelector(`[data-line="${line}"]`); if (el) { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } }
+}
+function openAt(p, line, col, opts = {}) {
+  if (S.active !== p) cursorByFile[S.active] = { ...S.cursor, scroll: $('editor').scrollTop };
+  if (!S.tabs.includes(p)) S.tabs.push(p);
+  S.active = p; S.popup = null;
+  if (line != null) S.cursor = { line, col: col ?? lines(p)[line].match(/^\s*/)[0].length };
+  else S.cursor = cursorByFile[p] ? { line: cursorByFile[p].line, col: cursorByFile[p].col } : { line: 0, col: 0 };
+  if (!opts.keepSel) syncSelFromCursor();
+  renderAll(false);
+  if (line != null) scrollToLine(line, opts.flash !== false); else $('editor').scrollTop = cursorByFile[p]?.scroll || 0;
+}
+function syncSelFromCursor() {
+  const kp = keyPath(S.active, S.cursor.line);
+  if (S.active === MAIN) {
+    const mi = kp.map(e => e.key).lastIndexOf(kp.filter(e => METHODS.includes(e.key)).pop()?.key);
+    const path = kp.filter((e, i) => e.key.startsWith('/') && (mi < 0 || i < mi)).map(e => e.key).join('');
+    if (mi >= 0) S.sel = 'm:' + kp[mi].key + ':' + path;
+    else if (path) S.sel = 'res:' + path;
+    else { const top = kp[0], sub = kp[1]; const map = { traits: 'trait', resourceTypes: 'rt', securitySchemes: 'sec', uses: 'lib' };
+      if (top && sub && map[top.key]) S.sel = map[top.key] + ':' + sub.key; }
+  } else {
+    const alias = Object.keys(LIBS).find(a => LIBS[a] === S.active);
+    const t = kp.find(e => e.ind === 2); if (alias && t) S.sel = 'type:' + alias + '.' + t.key;
+  }
+}
+
+// ---------- Autocomplete (local, instant: types qualified by this file's uses: aliases) ----------
+function completionsAt(p, line) {
+  const t = lines(p)[line]; const m = t.match(/^(\s*)(type|items):(\s*)(\S*)$/); if (!m) return null;
+  const prefix = m[4]; const col = m[1].length + m[2].length + 1 + m[3].length;
+  const own = Object.keys(LIBS).find(a => LIBS[a] === p);
+  const usable = MODEL.types.filter(ty => p === MAIN || ty.alias === own || (own === 'ordersLib' && ty.alias === 'commonLib'))
+    .map(ty => ({ ty, label: ty.alias === own ? ty.name : ty.q })).sort((a, b) => a.label.localeCompare(b.label));
+  const builtins = BUILTIN.map(b => ({ ty: null, label: b }));
+  const items = [...usable, ...builtins].filter(x => x.label.toLowerCase().startsWith(prefix.toLowerCase()) || (prefix && !prefix.includes('.') && x.ty && x.ty.name.toLowerCase().startsWith(prefix.toLowerCase())));
+  return items.length ? { line, col, prefix, items, idx: 0 } : null;
+}
+function renderPopup() {
+  const P = S.popup; const cur = P.items[P.idx];
+  const alias = P.prefix.includes('.') ? P.prefix.split('.')[0] : null;
+  const head = alias ? `<b style="color:var(--content-muted)">${alias}</b> · ${esc(LIBS[alias] || '')}` : 'Types';
+  const rows = P.items.slice(0, 9).map((x, i) => {
+    const lab = x.label; const n = lab.toLowerCase().startsWith(P.prefix.toLowerCase()) ? P.prefix.length : 0;
+    return `<div class="ac-item${i === P.idx ? ' on' : ''}" data-ac="${i}"><span class="kind k-type">${x.ty ? 'T' : 't'}</span><span><span class="hl">${esc(lab.slice(0, n))}</span>${esc(lab.slice(n))}</span><span class="det">${x.ty ? esc(x.ty.shape) : 'built-in'}</span></div>`;
+  }).join('');
+  let doc = '';
+  if (cur.ty) {
+    const t = cur.ty; const uses = usagesOfType(t).length;
+    const props = t.props.slice(0, 6).map(pr => `<div>${esc(pr.name)}${pr.opt ? '<span class="opt">?</span>' : ''}: <span style="color:var(--syn-type)">${esc(pr.type)}</span></div>`).join('') + (t.props.length > 6 ? `<div class="opt">+ ${t.props.length - 6} more</div>` : '');
+    doc = `<div class="ac-doc"><div class="nm">${esc(t.name)}</div><div style="color:var(--content-faint);font-size:11.5px;margin-top:2px">${esc(t.shape)}${t.props.length ? ' · ' + t.props.length + ' properties' : ''} · used ${uses} ${uses === 1 ? 'time' : 'times'}</div>
+      ${t.enumVals ? `<div class="props">${esc(t.enumVals)}</div>` : `<div class="props">${props}</div>`}
+      <div style="margin-top:8px;font-family:var(--font-mono);font-size:10.5px;color:var(--content-ghost)">${esc(t.file)}:${t.line + 1}</div></div>`;
+  }
+  return `<div class="ac" style="top:${(P.line + 1) * 20 + 8}px;left:calc(66px + ${P.col}ch)"><div class="ac-list"><div class="ac-head">${head}</div>${rows}<div class="ac-foot"><span>↑↓ choose</span><span>Enter insert</span><span>Esc close</span></div></div>${doc}</div>`;
+}
+function acceptCompletion(i) {
+  const P = S.popup, x = P.items[i]; const L = lines(S.active);
+  L[P.line] = L[P.line].replace(/\S*$/, x.label);
+  FILES[S.active] = L.join('\n'); S.dirty.add(S.active);
+  S.cursor = { line: P.line, col: L[P.line].length }; S.popup = null;
+  reparse();
+}
+
+// ---------- Engine simulation: parse tier, then full check ----------
+let engTimer;
+function reparse() {
+  clearTimeout(engTimer); S.engine = 'parsing'; buildModel(); renderAll();
+  engTimer = setTimeout(() => {
+    S.engine = 'checking'; S.parseMs = 140 + Math.round(Math.random() * 120); renderAll();
+    engTimer = setTimeout(() => { S.engine = 'ready'; S.checkMs = 1700 + Math.round(Math.random() * 400); S.checkedAgo = 0; renderAll(); }, 1500);
+  }, 320);
+}
+
+// ---------- Tree ----------
+function match(s) { return !S.filter || s.toLowerCase().includes(S.filter.toLowerCase()); }
+function resMatches(r) { return match(r.path) || r.methods.some(m => match(m.m + ' ' + m.name)) || r.children.some(resMatches); }
+function renderTree() {
+  const T = $('tree'); let h = '';
+  if (S.rail === 'files') { T.innerHTML = renderFiles(); return; }
+  const probs = liveProblems();
+  const sec = (name, count, body) => {
+    const closed = S.closedSecs.has(name) && !S.filter;
+    h += `<div class="sec" data-sec="${name}"><span data-ic="${closed ? 'chevRight' : 'chevDown'}" data-s="11"></span>${name}<span class="count">${count}</span></div>`;
+    if (!closed) h += body;
+  };
+  const row = (n, depth, inner, tail = '') => `<div class="row${S.sel === n.id ? ' sel' : ''}" data-id="${n.id}" style="padding-left:${8 + depth * 14}px">${inner}<span class="tail">${tail}<button class="mini-btn more" data-menu="${n.id}" title="More actions">${ic('more', 13)}</button></span></div>`;
+  const errIn = (fromLine, toLine) => { const ps = probs.filter(p => p.file === MAIN && p.line >= fromLine && p.line < toLine); return ps.length ? `<span class="${ps.some(p => p.sev === 'error') ? 'cnt-err' : 'cnt-warn'}">${ps.length}</span>` : ''; };
+  const E = entries(MAIN);
+  const endOf = k => { for (let j = k + 1; j < E.length; j++) if (E[j].ind <= E[k].ind) return E[j].i; return 1e9; };
+  let rb = '';
+  const resRow = (r, depth) => {
+    if (!resMatches(r)) return;
+    const open = !S.collapsed.has(r.id) || S.filter;
+    rb += row(r, depth, `<span class="twist" data-twist="${r.id}">${ic(open ? 'chevDown' : 'chevRight', 11, 2)}</span><span class="lbl res-lbl">${esc(r.key)}</span>`, open ? '' : `<span class="sub">${r.methods.length + r.children.length}</span>`);
+    if (!open) return;
+    r.methods.forEach(m => { if (match(r.path) || match(m.m + ' ' + m.name)) rb += row(m, depth + 1, `<span class="twist"></span><span class="m m-${m.m}">${m.m.toUpperCase()}</span><span class="sub">${esc(m.name)}</span>`, errIn(m.line, endOf(m.k))); });
+    r.children.forEach(c => resRow(c, depth + 1));
+  };
+  MODEL.resources.forEach(r => resRow(r, 0));
+  const nMethods = MODEL.all.filter(n => n.kind === 'method').length, nRes = MODEL.all.filter(n => n.kind === 'res').length;
+  sec('Resources', `${nRes} · ${nMethods} methods`, rb);
+  let tb = '';
+  Object.keys(LIBS).forEach(alias => {
+    const ts = MODEL.types.filter(t => t.alias === alias && (match(t.q)));
+    if (!ts.length) return;
+    const lid = 'grp:' + alias; const open = !S.collapsed.has(lid) || S.filter;
+    tb += `<div class="row" data-twist="${lid}" style="padding-left:8px"><span class="twist">${ic(open ? 'chevDown' : 'chevRight', 11, 2)}</span><span class="lbl" style="color:var(--content-muted)">${alias}</span><span class="tail">${LIBS[alias].startsWith('exchange') ? '<span class="xtag">Exchange</span>' : ''}<span class="sub">${ts.length}</span></span></div>`;
+    if (open) ts.forEach(t => tb += row(t, 1, `<span class="twist"></span><span class="kind k-type">T</span><span class="lbl">${esc(t.name)}</span>`, `<span class="sub">${t.shape === 'string enum' ? 'enum' : ''}</span>`));
+  });
+  sec('Types', MODEL.types.length, tb);
+  const simple = (list, k, letter) => list.filter(n => match(n.name)).map(n => row(n, 0, `<span class="twist"></span><span class="kind ${k}">${letter}</span><span class="lbl">${esc(n.name)}</span>`)).join('');
+  sec('Traits', MODEL.traits.length, simple(MODEL.traits, 'k-trait', 'Tr'));
+  sec('Resource types', MODEL.rtypes.length, simple(MODEL.rtypes, 'k-rt', 'RT'));
+  sec('Security schemes', MODEL.schemes.length, simple(MODEL.schemes, 'k-sec', 'S'));
+  sec('Libraries', MODEL.libs.length, MODEL.libs.filter(n => match(n.name)).map(n => row(n, 0, `<span class="twist"></span><span class="kind k-lib">L</span><span class="lbl">${esc(n.name)}</span>`, n.exchange ? '<span class="xtag">Exchange</span>' : '')).join(''));
+  T.innerHTML = h; paintIcons(T);
+}
+function renderFiles() {
+  const probs = liveProblems(); const paths = allPaths().filter(p => match(p));
+  const tree = {}; paths.forEach(p => { let n = tree; const parts = p.split('/'); parts.forEach((seg, i) => { if (i === parts.length - 1) (n.__f ||= []).push(p); else n = (n[seg] ||= {}); }); });
+  let h = '';
+  const walk = (n, depth, prefix) => {
+    Object.keys(n).filter(k => k !== '__f').sort().forEach(dir => {
+      const full = prefix + dir; const open = S.openDirs.has(full) || S.filter;
+      h += `<div class="row" data-dir="${full}" style="padding-left:${8 + depth * 14}px"><span class="twist">${ic(open ? 'chevDown' : 'chevRight', 11, 2)}</span><span style="color:var(--content-faint);display:inline-flex">${ic('folder', 13)}</span><span class="lbl">${dir}</span>${dir === 'exchange_modules' ? '<span class="tail"><span class="xtag">Exchange</span></span>' : ''}</div>`;
+      if (open) walk(n[dir], depth + 1, full + '/');
+    });
+    (n.__f || []).forEach(p => {
+      const ps = probs.filter(x => x.file === p); const l = lang(p);
+      h += `<div class="row${S.active === p ? ' sel' : ''}" data-file="${p}" style="padding-left:${8 + depth * 14}px"><span class="twist"></span><span class="ficon f-${l}">${l === 'raml' ? 'R' : l === 'json' ? '{}' : '·'}</span><span class="lbl" style="${p === MAIN ? 'font-weight:600;color:var(--content)' : ''}">${base(p)}</span><span class="tail">${p === MAIN ? '<span class="sub">main</span>' : ''}${ps.length ? `<span class="${ps.some(x => x.sev === 'error') ? 'cnt-err' : 'cnt-warn'}">${ps.length}</span>` : ''}${S.dirty.has(p) ? '<span class="dot" style="background:var(--content-muted)" title="Unsaved changes"></span>' : ''}</span></div>`;
+    });
+  };
+  walk(tree, 0, '');
+  return h;
+}
+
+// ---------- Tabs, breadcrumb ----------
+function renderTabs() {
+  $('tabs').innerHTML = S.tabs.map(p => { const l = lang(p);
+    return `<div class="tab${p === S.active ? ' active' : ''}" data-tab="${p}" title="${esc(p)}"><span class="ficon f-${l}">${l === 'raml' ? 'R' : l === 'json' ? '{}' : '·'}</span><span class="name">${base(p)}</span><span class="x${S.dirty.has(p) ? ' dirty' : ''}" data-close="${p}" title="${S.dirty.has(p) ? 'Unsaved changes. Close' : 'Close'}"><span class="d"></span>${ic('x', 12, 2)}</span></div>`; }).join('')
+    + `<div class="tabs-end"><button class="mini-btn" id="tglProblems" title="Problems (Ctrl J)">${ic('panelBottom', 14)}</button><button class="mini-btn" id="tglInsp" title="Inspector (Ctrl Alt B)">${ic('panelRight', 14)}</button></div>`;
+}
+function renderCrumbs() {
+  const p = S.active; const parts = p.split('/');
+  let h = parts.map((s, i) => `<span class="crumb" style="color:var(--content-faint)">${esc(s)}</span>`).join('<span class="sepc">/</span>');
+  const kp = keyPath(p, S.cursor.line);
+  kp.forEach((e, i) => { const res = e.key.startsWith('/'); const mth = METHODS.includes(e.key);
+    h += `<span class="sepc">${ic('chevRight', 11, 2)}</span><span class="crumb${res ? ' res' : ''}${i === kp.length - 1 ? ' last' : ''}" data-crumb="${e.i}">${mth ? `<span class="m m-${e.key}" style="width:auto;padding:0 4px">${e.key.toUpperCase()}</span>` : esc(e.key)}</span>`; });
+  $('crumbs').innerHTML = h;
+}
+
+// ---------- Problems panel ----------
+function renderProblems() {
+  const all = liveProblems(); const nE = all.filter(p => p.sev === 'error').length, nW = all.length - nE;
+  $('pCount').textContent = all.length;
+  $('railBadge').textContent = nE; $('railBadge').classList.toggle('hidden', !nE);
+  $('sevSeg').innerHTML = `<button data-sev="all" class="${S.sev === 'all' ? 'on' : ''}">All</button><button data-sev="error" class="${S.sev === 'error' ? 'on' : ''}"><span style="color:var(--err);display:inline-flex">${ic('errorDot', 11, 2)}</span>${nE}</button><button data-sev="warning" class="${S.sev === 'warning' ? 'on' : ''}"><span style="color:var(--warn);display:inline-flex">${ic('warnTri', 11, 2)}</span>${nW}</button>`;
+  document.querySelectorAll('#scopeSeg button').forEach(b => b.classList.toggle('on', b.dataset.scope === S.scope));
+  const engine = S.engine === 'parsing' ? '<span class="spin"></span>Reading…' : S.engine === 'checking' ? `<span class="spin"></span>Read in ${(S.parseMs / 1000).toFixed(2)} s · full check running…` : `Full check ${(S.checkMs / 1000).toFixed(1)} s, ${S.checkedAgo ? S.checkedAgo + ' s ago' : 'just now'}`;
+  $('pMeta').innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px">${engine}</span><button class="btn" id="checkNow" style="height:22px">${ic('refresh', 12)}Check now</button>`;
+  const shown = all.filter(p => (S.sev === 'all' || p.sev === S.sev) && (S.scope === 'all' || p.file === S.active));
+  if (!shown.length) { $('pList').innerHTML = `<div class="p-empty"><span style="color:var(--ok);display:inline-flex">${ic('check', 15, 2)}</span>${all.length ? 'Nothing here with this filter.' : 'No problems. The spec reads and checks clean.'}</div>`; return; }
+  const files = [...new Set(shown.map(p => p.file))];
+  $('pList').innerHTML = files.map(f => { const l = lang(f);
+    return `<div class="p-file"><span class="ficon f-${l}">${l === 'raml' ? 'R' : '{}'}</span>${base(f)} <span class="path">${f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : ''}</span></div>` +
+    shown.filter(p => p.file === f).map(p => `<div class="p-row" data-prob="${p.id}"><span style="color:var(--${p.sev === 'error' ? 'err' : 'warn'});display:inline-flex">${ic(p.sev === 'error' ? 'errorDot' : 'warnTri', 14, 1.8)}</span><span class="msg">${esc(p.msg)}</span>${p.hint ? `<span class="hint">${esc(p.hint)}</span>` : ''}${p.fix ? `<button class="fix-btn" data-fix="${p.id}">${esc(p.fix.label)}</button>` : ''}<span class="loc">Ln ${p.line + 1}, Col ${p.col + 1}</span><span class="src" title="${p.src === 'parse' ? 'Found while reading the spec, right after your edit' : 'Found by the full check, which runs in the background'}">${p.src}</span></div>`).join(''); }).join('');
+}
+
+// ---------- Inspector ----------
+function tref(v) {
+  if (!v) return '<span style="color:var(--content-faint)">none</span>';
+  const arr = v.endsWith('[]'); const name = v.replace('[]', '');
+  const t = MODEL.types.find(t => t.q === name);
+  if (BUILTIN.includes(name)) return `<span class="tref" style="cursor:default">${esc(v)}</span>`;
+  if (!t) return `<span class="tref bad" title="This type doesn't exist (yet)">${esc(v)}</span>`;
+  return `<span class="tref" data-goto="${t.id}"><span class="al">${t.alias}.</span>${t.name}${arr ? '[]' : ''}</span>`;
+}
+function exampleRow(path) {
+  if (!path) return '';
+  const p = path.replace(/^\//, '');
+  const exists = allPaths().includes(p);
+  const pr = liveProblems().find(x => x.file === p || (x.find === p));
+  const st = !exists ? `<span class="st" style="color:var(--err)">missing</span>` : pr ? `<span class="st" style="color:var(--warn)">doesn't match</span>` : `<span class="st" style="color:var(--ok)">${ic('check', 12, 2.2)}</span>`;
+  return `<div class="ex${exists ? '' : ' missing'}" data-open="${esc(p)}" title="${esc(p)}"><span style="display:inline-flex">${ic('files', 12)}</span><span class="fn">${esc(base(p))}</span>${st}</div>`;
+}
+function renderInspector() {
+  const B = $('inspBody'); const n = S.sel && byId(S.sel);
+  if (!n) { B.innerHTML = `<div class="i-empty">${ic('target', 22)}<div style="margin-top:8px">Put the cursor in a resource, method or type, or pick one in the tree, to see it here.</div></div>`; return; }
+  const E = entries(MAIN); let h = '';
+  const loc = `<div class="i-loc" data-jump="${n.id}">${esc(n.file)}:${n.line + 1}</div>`;
+  if (n.kind === 'method') {
+    const k = n.k; const is = kid(E, k, 'is'); const traits = is != null ? E[is].val.replace(/[\[\]]/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
+    h += `<div class="i-title"><span class="m m-${n.m}">${n.m.toUpperCase()}</span><span class="path">${esc(n.path)}</span></div><div class="i-sub">${esc(n.name) || '<span style="color:var(--content-faint)">No display name</span>'}</div>${loc}`;
+    h += `<div class="i-actions"><button class="btn primary" data-act="dup" data-id="${n.id}">${ic('dup', 13)}Duplicate as…</button><button class="btn" data-act="addresp">${ic('plus', 13)}Add response</button></div>`;
+    if (traits.length) h += `<div class="i-sec"><h4>Traits <span class="count">${traits.length}</span></h4><div class="tchips">${traits.map(t => `<span class="tchip" data-goto="trait:${t}">${esc(t)}</span>`).join('')}</div><div class="note">Adds ${traits.map(t => `<span class="mono">${esc(TRAIT_ADDS[t] || t)}</span>`).join(', ')}</div></div>`;
+    // uri params from ancestor resources
+    const uri = []; const kp = keyPath(MAIN, n.line);
+    kp.filter(e => e.key.startsWith('/')).forEach(e => { const kk = E.findIndex(x => x.i === e.i); const u = kid(E, kk, 'uriParameters'); if (u != null) kids(E, u).forEach(j => { const t = kid(E, j, 'type'), pt = kid(E, j, 'pattern'); uri.push({ name: E[j].key, type: t != null ? E[t].val : E[j].val || 'string', note: pt != null ? E[pt].val : '' }); }); });
+    const qp = kid(E, k, 'queryParameters'); const query = qp == null ? [] : kids(E, qp).map(j => { const t = kid(E, j, 'type'), r = kid(E, j, 'required'); return { name: E[j].key, type: t != null ? E[t].val : 'string', note: r != null && E[r].val === 'false' ? 'optional' : 'required' }; });
+    const tbl = (title, rows) => rows.length ? `<div class="i-sec"><h4>${title} <span class="count">${rows.length}</span></h4><table class="kv">${rows.map(r => `<tr><td class="k">${esc(r.name)}</td><td>${tref(r.type)}</td><td class="o">${esc(r.note)}</td></tr>`).join('')}</table></div>` : '';
+    h += tbl('URI parameters', uri) + tbl('Query parameters', query);
+    const bodyBlock = (bk) => kids(E, bk).map(mj => { const t = kid(E, mj, 'type'), ex = kid(E, mj, 'example'); return { media: E[mj].key, type: t != null ? E[t].val : '', ex: ex != null ? E[ex].val.replace('!include', '').trim() : '' }; });
+    const body = kid(E, k, 'body');
+    if (body != null) h += `<div class="i-sec"><h4>Request body</h4>${bodyBlock(body).map(b => `<div class="resp"><div class="resp-top"><span class="media">${esc(b.media)}</span><span style="margin-left:auto">${tref(b.type)}</span></div>${exampleRow(b.ex)}</div>`).join('')}</div>`;
+    const rs = kid(E, k, 'responses');
+    if (rs != null) { const codes = kids(E, rs);
+      h += `<div class="i-sec"><h4>Responses <span class="count">${codes.length}</span></h4>${codes.map(cj => { const code = E[cj].key; const bk = kid(E, cj, 'body'); const bs = bk != null ? bodyBlock(bk) : [];
+        return `<div class="resp"><div class="resp-top"><span class="code-badge c${code[0]}">${code}</span>${bs.length ? `<span class="media">${esc(bs[0].media)}</span><span style="margin-left:auto">${tref(bs[0].type)}</span>` : '<span class="media">no body</span>'}</div>${bs.length ? exampleRow(bs[0].ex) : ''}</div>`; }).join('')}</div>`; }
+  } else if (n.kind === 'res') {
+    h += `<div class="i-title"><span class="path">${esc(n.path)}</span></div><div class="i-sub">${n.methods.length} ${n.methods.length === 1 ? 'method' : 'methods'}${n.children.length ? `, ${n.children.length} nested` : ''}</div>${loc}`;
+    h += `<div class="i-actions"><button class="btn primary" data-act="dup" data-id="${n.id}">${ic('dup', 13)}Duplicate as…</button><button class="btn" data-act="addmethod">${ic('plus', 13)}Add method</button></div>`;
+    h += `<div class="i-sec"><h4>Methods</h4>${n.methods.map(m => `<div class="usage" data-goto="${m.id}"><span class="m m-${m.m}">${m.m.toUpperCase()}</span><span class="p" style="font-family:var(--font-sans)">${esc(m.name)}</span></div>`).join('') || '<div class="note">None yet.</div>'}</div>`;
+    if (n.children.length) h += `<div class="i-sec"><h4>Nested resources</h4>${n.children.map(c => `<div class="usage" data-goto="${c.id}"><span class="p">${esc(c.key)}</span><span class="w">${c.methods.map(m => m.m.toUpperCase()).join(' ')}</span></div>`).join('')}</div>`;
+  } else if (n.kind === 'type') {
+    const us = usagesOfType(n);
+    h += `<div class="i-title"><span class="kind k-type">T</span><span class="path">${esc(n.name)}</span><span class="sub" style="margin-left:auto;color:var(--content-faint);font-size:11.5px">${n.alias}</span></div><div class="i-sub">${esc(n.shape)}${n.props.length ? ' · ' + n.props.length + ' properties' : ''}</div>${loc}`;
+    h += `<div class="i-actions"><button class="btn" data-act="rename">Rename…</button><button class="btn" data-act="jsonschema">${ic('copy', 13)}Copy as JSON Schema</button></div>`;
+    if (n.enumVals) h += `<div class="i-sec"><h4>Values</h4><div class="mono" style="font-size:12px;color:var(--content-secondary)">${esc(n.enumVals.replace(/[\[\]]/g, '').trim())}</div></div>`;
+    if (n.props.length) h += `<div class="i-sec"><h4>Properties <span class="count">${n.props.length}</span></h4><table class="kv">${n.props.map(p => { const v = p.type.includes('.') || BUILTIN.includes(p.type.replace('[]', '')) ? p.type : (MODEL.types.find(t => t.name === p.type.replace('[]', '') && t.alias === n.alias) ? n.alias + '.' + p.type : p.type);
+      return `<tr><td class="k">${esc(p.name)}</td><td>${tref(v)}</td><td class="o">${p.opt ? 'optional' : ''}</td></tr>`; }).join('')}</table></div>`;
+    h += `<div class="i-sec"><h4>Used by <span class="count">${us.length}</span></h4>${us.map(u => { const l = usageLabel(u); return `<div class="usage" data-openline="${u.file}|${u.line}">${l.m ? `<span class="m m-${l.m}">${l.m.toUpperCase()}</span>` : `<span class="kind k-type">T</span>`}<span class="p">${esc(l.p)}</span><span class="w">${esc(l.w)}</span></div>`; }).join('') || '<div class="note">Nothing uses this type. It could be removed.</div>'}</div>`;
+  } else {
+    const label = { trait: 'Trait', rt: 'Resource type', sec: 'Security scheme', lib: 'Library' }[n.kind];
+    const target = n.kind === 'lib' ? n.file : n.target;
+    let used = [];
+    lines(MAIN).forEach((l, i) => { if ((n.kind === 'trait' && /\bis:/.test(l) && new RegExp('\\b' + n.name + '\\b').test(l)) || (n.kind === 'lib' && l.includes(n.name + '.'))) used.push({ file: MAIN, line: i }); });
+    h += `<div class="i-title"><span class="path">${esc(n.name)}</span></div><div class="i-sub">${label}${n.exchange ? ' from Exchange' : ''}</div>${loc}`;
+    h += `<div class="i-sec"><h4>File</h4>${exampleRow(target)}</div>`;
+    if (n.kind === 'trait' && TRAIT_ADDS[n.name]) h += `<div class="i-sec"><h4>Adds</h4><div class="mono" style="font-size:12px;color:var(--content-secondary)">${esc(TRAIT_ADDS[n.name])}</div></div>`;
+    if (n.kind === 'trait' || n.kind === 'lib') h += `<div class="i-sec"><h4>Used by <span class="count">${used.length}</span></h4>${used.slice(0, 30).map(u => { const l = usageLabel(u); return `<div class="usage" data-openline="${u.file}|${u.line}">${l.m ? `<span class="m m-${l.m}">${l.m.toUpperCase()}</span>` : ''}<span class="p">${esc(l.p)}</span><span class="w">${esc(n.kind === 'lib' ? lines(MAIN)[u.line].trim().split(/\s+/).pop() : '')}</span></div>`; }).join('')}</div>`;
+  }
+  B.innerHTML = h;
+}
+
+// ---------- Status bar ----------
+function renderStatus() {
+  const all = liveProblems(); const nE = all.filter(p => p.sev === 'error').length, nW = all.length - nE;
+  const eng = S.engine === 'ready' ? `<span style="color:var(--accent);display:inline-flex;align-items:center;gap:5px"><span class="dot" style="background:var(--accent)"></span>AMF ready</span>` : `<span style="color:var(--warn);display:inline-flex;align-items:center;gap:6px"><span class="spin"></span>${S.engine === 'parsing' ? 'Reading' : 'Checking'}</span>`;
+  const eol = lines(S.active).length && S.active === LIBS.accountLib ? 'CRLF' : 'LF';
+  $('status').innerHTML = `${eng}<span>RAML 1.0</span><button id="stProblems" title="Problems (Ctrl J)"><span style="color:var(--err);display:inline-flex">${ic('errorDot', 12, 2)}</span>${nE}<span style="color:var(--warn);display:inline-flex;margin-left:6px">${ic('warnTri', 12, 2)}</span>${nW}</button><span title="The main file, from exchange.json">main: ${MAIN}</span><span style="flex:1"></span><span>Ln ${S.cursor.line + 1}, Col ${S.cursor.col + 1}</span><span>${lang(S.active) === 'raml' ? 'Spaces: 2' : 'JSON'}</span><span title="Line endings are kept as each file has them">${eol}</span><span>UTF-8</span><span style="color:var(--content-ghost)">v0.1.0</span>`;
+}
+
+function renderLayout() {
+  $('side').classList.toggle('hidden', !S.side); $('splitL').classList.toggle('hidden', !S.side);
+  $('insp').classList.toggle('hidden', !S.insp); $('splitR').classList.toggle('hidden', !S.insp);
+  $('problems').classList.toggle('hidden', !S.problems); $('splitB').classList.toggle('hidden', !S.problems);
+  document.querySelectorAll('.rail-btn[data-rail]').forEach(b => b.classList.toggle('active', S.side && b.dataset.rail === S.rail || (b.dataset.rail === 'problems' && false)));
+  $('sideTitle').textContent = S.rail === 'files' ? 'Files' : 'API';
+  $('filter').placeholder = S.rail === 'files' ? 'Filter files' : 'Filter resources and types';
+  $('collapseAll').classList.toggle('hidden', S.rail === 'files');
+}
+function renderAll(keepScroll = true) { renderLayout(); renderTree(); renderTabs(); renderCrumbs(); renderEditor(keepScroll); renderProblems(); renderInspector(); renderStatus(); }
+
+// ---------- Menus, palette, toasts ----------
+function toast(msg, icon = 'check') {
+  const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = `<span class="ico">${ic(icon, 15, 2)}</span>${esc(msg)}`;
+  $('toasts').appendChild(t); setTimeout(() => t.remove(), 3200);
+}
+function closeLayer() { $('layer').innerHTML = ''; S.menu = null; }
+function popAt(anchor, html, cls = '') {
+  closeLayer(); const r = anchor.getBoundingClientRect();
+  $('layer').innerHTML = `<div class="pop ${cls}" id="pop">${html}</div>`; const p = $('pop');
+  let left = r.left, top = r.bottom + 4; if (left + p.offsetWidth > innerWidth - 8) left = r.right - p.offsetWidth; if (top + p.offsetHeight > innerHeight - 8) top = r.top - p.offsetHeight - 4;
+  p.style.left = left + 'px'; p.style.top = top + 'px'; paintIcons(p); return p;
+}
+function popAtPoint(x, y, html) {
+  closeLayer(); $('layer').innerHTML = `<div class="pop" id="pop">${html}</div>`; const p = $('pop');
+  p.style.left = Math.min(x, innerWidth - p.offsetWidth - 8) + 'px'; p.style.top = Math.min(y, innerHeight - p.offsetHeight - 8) + 'px'; return p;
+}
+function nodeMenu(id) {
+  const n = byId(id); if (!n) return '';
+  const mi = (act, icon, label, sc = '', dis = false) => `<button class="mi" data-act="${act}" data-id="${id}" ${dis ? 'disabled' : ''}><span class="ico">${icon ? ic(icon, 14) : ''}</span>${label}<span class="sc">${sc}</span></button>`;
+  if (n.kind === 'method' || n.kind === 'res') return mi('dup', 'dup', 'Duplicate as…', 'Ctrl D') + (n.kind === 'res' ? mi('addmethod', 'plus', 'Add method') + mi('addres', 'plus', 'Add nested resource') : mi('addresp', 'plus', 'Add response')) + '<div class="msep"></div>' + mi('code', 'files', 'Show in code', 'Enter') + mi('copypath', 'copy', 'Copy path') + '<div class="msep"></div>' + mi('delete', null, 'Delete…', 'Del');
+  if (n.kind === 'type') return mi('code', 'files', 'Go to definition', 'F12') + mi('usages', 'search', 'Find usages', 'Shift F12') + mi('rename', null, 'Rename…', 'F2') + '<div class="msep"></div>' + mi('jsonschema', 'copy', 'Copy as JSON Schema');
+  return mi('code', 'files', 'Show in code') + mi('openfile', 'link', 'Open file');
+}
+function doAct(act, id) {
+  const n = id && byId(id); closeLayer();
+  if (act === 'dup') toast(`Duplicate as… for ${n ? (n.m ? n.m.toUpperCase() + ' ' : '') + n.path : 'this'} opens the dialog. That's the next mockup.`, 'dup');
+  else if (act === 'code' && n) select(n, true);
+  else if (act === 'copypath' && n) { try { navigator.clipboard.writeText(n.path); } catch {} toast('Copied ' + n.path, 'copy'); }
+  else if (act === 'usages' && n) { select(n, false); toast(`${usagesOfType(n).length} usages listed in the Inspector`, 'search'); }
+  else if (act === 'openfile' && n) openAt(n.kind === 'lib' ? n.file : n.target, 0, 0);
+  else if (act === 'jsonschema') toast('Copied as JSON Schema (draft 7)', 'copy');
+  else if (act === 'rename') toast('Rename updates the declaration and every alias.Name across files, then re-reads to prove nothing broke.', 'check');
+  else if (act === 'addresp') toast('Add response asks for a status code and inserts it after the last one, indented like its siblings.', 'plus');
+  else if (act === 'addmethod' || act === 'addres') toast('Opens a small picker, then inserts at the end of this resource.', 'plus');
+  else if (act === 'delete') toast('Delete asks first and lists what else would break.', 'alert');
+}
+function select(n, toCode) {
+  S.sel = n.id;
+  if (toCode) openAt(n.file, n.line, undefined, { keepSel: true });
+  else { renderTree(); renderInspector(); }
+}
+
+function openPalette() {
+  closeLayer();
+  const cmds = [
+    { g: 'Commands', label: 'Check the whole spec now', run: () => { reparse(); toast('Full check started'); } },
+    { g: 'Commands', label: 'Duplicate as…', det: 'Ctrl D', run: () => doAct('dup', S.sel) },
+    { g: 'Commands', label: 'Switch to Paper', det: 'theme', run: () => setTheme('light') },
+    { g: 'Commands', label: 'Switch to Dusk', det: 'theme', run: () => setTheme('dark') },
+    { g: 'Commands', label: 'Open folder…', det: 'Ctrl O', run: () => toast('Opens the system folder picker') },
+    { g: 'Commands', label: 'Open Design Center zip…', run: () => toast('Opens the system file picker, then unpacks next to the zip') },
+    { g: 'Commands', label: 'Save all', det: 'Ctrl Shift S', run: saveAll },
+  ];
+  const items = [
+    ...MODEL.all.filter(n => n.kind === 'method').map(n => ({ g: 'Endpoints', m: n.m, label: n.path, det: n.name, run: () => select(n, true) })),
+    ...MODEL.types.map(n => ({ g: 'Types', k: 'T', label: n.q, det: n.shape, run: () => select(n, true) })),
+    ...MODEL.traits.map(n => ({ g: 'Traits', k: 'Tr', label: n.name, det: 'trait', run: () => select(n, true) })),
+    ...allPaths().map(p => ({ g: 'Files', f: p, label: p, run: () => openAt(p) })),
+    ...cmds,
+  ];
+  $('layer').innerHTML = `<div class="scrim" id="scrim"><div class="palette"><div class="pal-in">${ic('search', 16)}<input id="palIn" placeholder="Type a path, a type, a file or a command" spellcheck="false"><span class="kbd">Esc</span></div><div class="pal-list" id="palList"></div><div class="pal-foot"><span>↑↓ move</span><span>Enter open</span><span><span class="mono">get /orders</span> finds endpoints by method</span></div></div></div>`;
+  let idx = 0, shown = [];
+  const draw = () => {
+    const q = $('palIn').value.trim().toLowerCase(); const words = q.split(/\s+/).filter(Boolean);
+    const hay = it => ((it.m || '') + ' ' + it.label + ' ' + (it.det || '') + ' ' + it.g).toLowerCase();
+    shown = items.filter(it => words.every(w => hay(it).includes(w)));
+    if (q) shown.sort((a, b) => (hay(b).includes(q) || (b.det || '').toLowerCase() === q) - (hay(a).includes(q) || (a.det || '').toLowerCase() === q));
+    const groups = [...new Set(shown.map(i => i.g))]; let flat = [], h = '';
+    groups.forEach(g => { const gi = shown.filter(i => i.g === g).slice(0, q ? 8 : 4); h += `<div class="mlabel">${g}</div>`;
+      gi.forEach(it => { const i = flat.length; flat.push(it);
+        const lead = it.m ? `<span class="m m-${it.m}">${it.m.toUpperCase()}</span>` : it.k ? `<span class="kind ${it.k === 'T' ? 'k-type' : 'k-trait'}">${it.k}</span>` : it.f ? `<span class="ficon f-${lang(it.f)}">${lang(it.f) === 'raml' ? 'R' : lang(it.f) === 'json' ? '{}' : '·'}</span>` : `<span style="color:var(--content-faint);display:inline-flex">${ic('play', 12)}</span>`;
+        h += `<div class="pal-item${i === idx ? ' on' : ''}" data-pi="${i}">${lead}<span class="${it.m || it.f || it.k ? 'mono' : ''}" style="font-size:12.5px">${esc(it.label)}</span><span class="det">${esc(it.det || '')}</span></div>`; }); });
+    shown = flat; $('palList').innerHTML = h || '<div class="p-empty">No matches.</div>';
+  };
+  const go = i => { const it = shown[i]; closeLayer(); if (it) it.run(); };
+  $('palIn').oninput = () => { idx = 0; draw(); };
+  $('palIn').onkeydown = e => {
+    if (e.key === 'ArrowDown') { idx = Math.min(idx + 1, shown.length - 1); draw(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { idx = Math.max(idx - 1, 0); draw(); e.preventDefault(); }
+    else if (e.key === 'Enter') go(idx); else if (e.key === 'Escape') closeLayer();
+  };
+  $('palList').onclick = e => { const it = e.target.closest('[data-pi]'); if (it) go(+it.dataset.pi); };
+  $('scrim').onmousedown = e => { if (e.target.id === 'scrim') closeLayer(); };
+  draw(); $('palIn').focus();
+}
+
+// ---------- Theme and accent (same values as DataWeave Studio accents.ts) ----------
+const ACCENTS = [{ id: 'emerald', hue: 158, chroma: 0.15, name: 'Emerald' }, { id: 'sky', hue: 220, chroma: 0.13, name: 'Sky' }, { id: 'violet', hue: 290, chroma: 0.14, name: 'Violet' }, { id: 'amber', hue: 80, chroma: 0.14, name: 'Amber' }, { id: 'rose', hue: 20, chroma: 0.18, name: 'Rose' }];
+let pref = 'dark', accent = 'emerald';
+try { pref = localStorage.getItem('ads.theme') || 'dark'; accent = localStorage.getItem('ads.accent') || 'emerald'; } catch {}
+const isDark = () => pref === 'system' ? !matchMedia('(prefers-color-scheme: light)').matches : pref === 'dark';
+function applyTheme() {
+  const root = document.documentElement; root.classList.toggle('light', !isDark());
+  const a = ACCENTS.find(x => x.id === accent) || ACCENTS[0]; const l = isDark() ? 72 : 55, hl = isDark() ? 78 : 50;
+  root.style.setProperty('--accent', `oklch(${l}% ${a.chroma} ${a.hue})`); root.style.setProperty('--accent-hover', `oklch(${hl}% ${a.chroma} ${a.hue})`);
+  root.style.setProperty('--accent-dim', `oklch(${l}% ${a.chroma} ${a.hue} / ${isDark() ? 0.14 : 0.10})`); root.style.setProperty('--accent-border', `oklch(${l}% ${a.chroma} ${a.hue} / 0.32)`);
+  root.style.setProperty('--selection-bg', `oklch(${l}% ${a.chroma} ${a.hue} / ${isDark() ? 0.35 : 0.25})`);
+  $('themeBtn').innerHTML = ic(isDark() ? 'sun' : 'moon', 15); $('themeBtn').title = isDark() ? 'Switch to Paper' : 'Switch to Dusk';
+  try { localStorage.setItem('ads.theme', pref); localStorage.setItem('ads.accent', accent); } catch {}
+}
+function setTheme(t) { pref = t; applyTheme(); if ($('pop')?.classList.contains('settings')) openSettings(); }
+function openSettings(anchor = $('settingsBtn')) {
+  const p = popAt(anchor, `<h5>Theme</h5><div class="seg wide">${[['dark', 'Dusk'], ['light', 'Paper'], ['system', 'System']].map(([id, nm]) => `<button data-theme="${id}" class="${pref === id ? 'on' : ''}">${nm}</button>`).join('')}</div>
+    <h5 style="margin-top:14px">Accent</h5><div class="swatches">${ACCENTS.map(a => `<button class="sw${accent === a.id ? ' on' : ''}" data-accent="${a.id}" title="${a.name}" style="background:oklch(${isDark() ? 72 : 55}% ${a.chroma} ${a.hue})"></button>`).join('')}</div>
+    <div class="msep" style="margin:14px 0 8px"></div><button class="mi" data-act-settings="all">All settings…<span class="sc">Ctrl ,</span></button>`, 'settings');
+  p.onclick = e => {
+    const t = e.target.closest('[data-theme]'), a = e.target.closest('[data-accent]');
+    if (t) setTheme(t.dataset.theme); if (a) { accent = a.dataset.accent; applyTheme(); openSettings(anchor); }
+    if (e.target.closest('[data-act-settings]')) { closeLayer(); toast('The full settings screen is copied from DataWeave Studio'); }
+  };
+}
+function saveAll() { const n = S.dirty.size; S.dirty.clear(); renderAll(); toast(n ? `Saved ${n} ${n === 1 ? 'file' : 'files'}. Line endings kept.` : 'Nothing to save'); }
+
+// ---------- Events ----------
+$('tree').addEventListener('click', e => {
+  const sec = e.target.closest('[data-sec]'); if (sec) { const n = sec.dataset.sec; S.closedSecs.has(n) ? S.closedSecs.delete(n) : S.closedSecs.add(n); renderTree(); return; }
+  const m = e.target.closest('[data-menu]'); if (m) { e.stopPropagation(); popAt(m, nodeMenu(m.dataset.menu)).onclick = ev => { const b = ev.target.closest('[data-act]'); if (b && !b.disabled) doAct(b.dataset.act, b.dataset.id); }; return; }
+  const tw = e.target.closest('[data-twist]'); if (tw && (tw.classList.contains('twist') || tw.classList.contains('row'))) { const id = tw.dataset.twist; S.collapsed.has(id) ? S.collapsed.delete(id) : S.collapsed.add(id); renderTree(); return; }
+  const d = e.target.closest('[data-dir]'); if (d) { const id = d.dataset.dir; S.openDirs.has(id) ? S.openDirs.delete(id) : S.openDirs.add(id); renderTree(); return; }
+  const f = e.target.closest('[data-file]'); if (f) { openAt(f.dataset.file); return; }
+  const r = e.target.closest('[data-id]'); if (r) select(byId(r.dataset.id), true);
+});
+$('tree').addEventListener('contextmenu', e => {
+  const r = e.target.closest('[data-id]'); if (!r) return; e.preventDefault(); S.sel = r.dataset.id; renderTree(); renderInspector();
+  popAtPoint(e.clientX, e.clientY, nodeMenu(r.dataset.id)).onclick = ev => { const b = ev.target.closest('[data-act]'); if (b && !b.disabled) doAct(b.dataset.act, b.dataset.id); };
+  paintIcons($('pop'));
+});
+$('tabs').addEventListener('click', e => {
+  if (e.target.id === 'tglProblems' || e.target.closest('#tglProblems')) { S.problems = !S.problems; renderLayout(); return; }
+  if (e.target.closest('#tglInsp')) { S.insp = !S.insp; renderLayout(); return; }
+  const c = e.target.closest('[data-close]'); if (c) { e.stopPropagation(); const p = c.dataset.close; const i = S.tabs.indexOf(p); S.tabs.splice(i, 1);
+    if (!S.tabs.length) S.tabs.push(MAIN); if (S.active === p) openAt(S.tabs[Math.max(0, i - 1)]); else renderTabs(); return; }
+  const t = e.target.closest('[data-tab]'); if (t && t.dataset.tab !== S.active) openAt(t.dataset.tab);
+});
+$('tabs').addEventListener('auxclick', e => { const t = e.target.closest('[data-tab]'); if (t && e.button === 1) t.querySelector('[data-close]').click(); });
+$('crumbs').addEventListener('click', e => { const c = e.target.closest('[data-crumb]'); if (c) { S.cursor = { line: +c.dataset.crumb, col: lines(S.active)[+c.dataset.crumb].match(/^\s*/)[0].length }; syncSelFromCursor(); renderAll(); scrollToLine(S.cursor.line, true); } });
+let chW = 7.5;
+$('code').addEventListener('mousedown', e => {
+  const ac = e.target.closest('[data-ac]'); if (ac) { e.preventDefault(); acceptCompletion(+ac.dataset.ac); return; }
+  if (e.target.closest('.ac')) { e.preventDefault(); return; }
+  const ln = e.target.closest('[data-line]'); if (!ln) return;
+  const line = +ln.dataset.line; const txt = ln.querySelector('.txt'); const L = lines(S.active)[line];
+  if ((e.ctrlKey || e.metaKey) && e.target.classList.contains('t-path')) { e.preventDefault(); const p = e.target.textContent.trim().replace(/^\//, ''); allPaths().includes(p) ? openAt(p, 0, 0) : toast('That file doesn\'t exist yet', 'alert'); return; }
+  if ((e.ctrlKey || e.metaKey) && e.target.classList.contains('t-type')) { e.preventDefault(); const v = (e.target.previousSibling?.textContent || '') + e.target.textContent; const t = MODEL.types.find(t => t.q === v.replace('[]', '') || (t.name === v.replace('[]', '') && t.file === S.active)); if (t) select(t, true); return; }
+  const col = Math.max(0, Math.min(L.length, Math.round((e.clientX - txt.getBoundingClientRect().left - 4) / chW)));
+  S.cursor = { line, col }; S.popup = null; syncSelFromCursor();
+  renderEditor(); renderCrumbs(); renderTree(); renderInspector(); renderStatus();
+});
+$('pList').addEventListener('click', e => {
+  const f = e.target.closest('[data-fix]'); if (f) { e.stopPropagation(); const p = PROBLEMS.find(x => x.id === f.dataset.fix); p.fix.run(); S.fixed.add(p.id); reparse(); return; }
+  const r = e.target.closest('[data-prob]'); if (r) { const p = liveProblems().find(x => x.id === r.dataset.prob); openAt(p.file, p.line, p.col); }
+});
+$('problems').addEventListener('click', e => {
+  const s = e.target.closest('[data-sev]'); if (s) { S.sev = s.dataset.sev; renderProblems(); }
+  const sc = e.target.closest('[data-scope]'); if (sc) { S.scope = sc.dataset.scope; renderProblems(); }
+  if (e.target.closest('#checkNow')) reparse();
+});
+$('inspBody').addEventListener('click', e => {
+  const a = e.target.closest('[data-act]'); if (a) { doAct(a.dataset.act, a.dataset.id); return; }
+  const g = e.target.closest('[data-goto]'); if (g) { const n = byId(g.dataset.goto); if (n) select(n, true); return; }
+  const j = e.target.closest('[data-jump]'); if (j) { select(byId(j.dataset.jump), true); return; }
+  const o = e.target.closest('[data-open]'); if (o) { allPaths().includes(o.dataset.open) ? openAt(o.dataset.open, 0, 0) : toast('That file doesn\'t exist yet. The problem list offers to create it.', 'alert'); return; }
+  const ol = e.target.closest('[data-openline]'); if (ol) { const [f, l] = ol.dataset.openline.split('|'); openAt(f, +l, lines(f)[+l].search(/\S/), { keepSel: true }); }
+});
+$('status').addEventListener('click', e => { if (e.target.closest('#stProblems')) { S.problems = !S.problems; renderLayout(); } });
+document.querySelectorAll('.rail-btn[data-rail]').forEach(b => b.onclick = () => {
+  const r = b.dataset.rail;
+  if (r === 'problems') { S.problems = true; S.sev = 'all'; renderAll(); return; }
+  if (S.rail === r && S.side) S.side = false; else { S.rail = r; S.side = true; }
+  renderLayout(); renderTree();
+});
+$('railSettings').onclick = () => openSettings($('railSettings'));
+$('hideSide').onclick = () => { S.side = false; renderLayout(); };
+$('hideInsp').onclick = () => { S.insp = false; renderLayout(); };
+$('hideProblems').onclick = () => { S.problems = false; renderLayout(); };
+$('collapseAll').onclick = () => { MODEL.all.filter(n => n.kind === 'res').forEach(n => S.collapsed.add(n.id)); renderTree(); };
+$('filter').oninput = e => { S.filter = e.target.value; renderTree(); };
+$('filter').onfocus = () => $('filterKbd').classList.add('hidden'); $('filter').onblur = () => $('filterKbd').classList.toggle('hidden', !!S.filter);
+$('palBtn').onclick = openPalette;
+$('themeBtn').onclick = () => setTheme(isDark() ? 'light' : 'dark');
+$('settingsBtn').onclick = () => openSettings();
+$('connectBtn').onclick = () => toast('Sign in with Anypoint, or your own Connected App. Opens the connect screen (a later mockup).', 'cloud');
+$('projBtn').onclick = () => {
+  popAt($('projBtn'), `<div class="mlabel">Project</div>
+    <button class="mi" data-p="folder"><span class="ico">${ic('folder', 14)}</span>Open folder…<span class="sc">Ctrl O</span></button>
+    <button class="mi" data-p="zip"><span class="ico">${ic('zip', 14)}</span>Open Design Center zip…</button>
+    <button class="mi" data-p="save"><span class="ico">${ic('check', 14)}</span>Save all<span class="sc">Ctrl Shift S</span></button>
+    <div class="msep"></div><div class="mlabel">Recent</div>
+    <button class="mi" data-p="r"><span class="ico">${ic('folder', 14)}</span>customer-orders-sapi<span class="sc">now</span></button>
+    <button class="mi" data-p="r"><span class="ico">${ic('folder', 14)}</span>payments-papi<span class="sc">2 d</span></button>
+    <button class="mi" data-p="r"><span class="ico">${ic('zip', 14)}</span>store-experience-eapi<span class="sc">1 w</span></button>
+    <div class="msep"></div><button class="mi" data-p="close">Close project</button>`).onclick = e => {
+    const b = e.target.closest('[data-p]'); if (!b) return; closeLayer();
+    if (b.dataset.p === 'save') saveAll(); else toast(b.dataset.p === 'close' ? 'Back to the start screen (its own mockup)' : 'Opens the project. The start screen mockup covers this flow.', 'folder');
+  };
+};
+document.addEventListener('mousedown', e => { if ($('pop') && !e.target.closest('#pop') && !e.target.closest('[data-menu]')) closeLayer(); });
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  if (S.popup && document.activeElement === document.body) {
+    if (e.key === 'ArrowDown') { S.popup.idx = Math.min(S.popup.idx + 1, Math.min(8, S.popup.items.length - 1)); renderEditor(); e.preventDefault(); return; }
+    if (e.key === 'ArrowUp') { S.popup.idx = Math.max(S.popup.idx - 1, 0); renderEditor(); e.preventDefault(); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { acceptCompletion(S.popup.idx); e.preventDefault(); return; }
+    if (e.key === 'Escape') { S.popup = null; renderEditor(); return; }
+  }
+  if (e.key === 'Escape') { closeLayer(); return; }
+  if (mod && k === 'k') { e.preventDefault(); openPalette(); }
+  else if (mod && k === ' ') { e.preventDefault(); S.popup = completionsAt(S.active, S.cursor.line); if (!S.popup) toast('Suggestions show after type:, is: [ and !include. Try a type: line.', 'search'); renderEditor(); }
+  else if (mod && k === 's') { e.preventDefault(); saveAll(); }
+  else if (mod && e.altKey && k === 'b') { e.preventDefault(); S.insp = !S.insp; renderLayout(); }
+  else if (mod && k === 'b') { e.preventDefault(); S.side = !S.side; renderLayout(); }
+  else if (mod && k === 'j') { e.preventDefault(); S.problems = !S.problems; renderLayout(); }
+  else if (mod && k === 'd') { e.preventDefault(); doAct('dup', S.sel); }
+  else if (mod && k === ',') { e.preventDefault(); openSettings(); }
+  else if (e.key === '/' && document.activeElement === document.body) { e.preventDefault(); S.side = true; renderLayout(); $('filter').focus(); }
+});
+
+// splitters
+function splitter(el, v, axis, sign, min, max) {
+  el.onpointerdown = e => { const root = document.documentElement; const start = axis === 'x' ? e.clientX : e.clientY; const sv = parseFloat(getComputedStyle(root).getPropertyValue(v));
+    el.setPointerCapture(e.pointerId); document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize';
+    el.onpointermove = ev => root.style.setProperty(v, Math.max(min, Math.min(max, sv + sign * ((axis === 'x' ? ev.clientX : ev.clientY) - start))) + 'px');
+    el.onpointerup = () => { el.onpointermove = null; document.body.style.cursor = ''; }; };
+}
+splitter($('splitL'), '--left-w', 'x', 1, 200, 480);
+splitter($('splitR'), '--right-w', 'x', -1, 260, 560);
+splitter($('splitB'), '--bottom-h', 'y', -1, 80, 480);
+
+setInterval(() => { if (S.engine === 'ready') { S.checkedAgo++; if (S.problems) renderProblems(); } }, 1000);
+
+// ---------- Boot: cursor on the unfinished type: line, with suggestions open ----------
+paintIcons(); applyTheme(); buildModel();
+{ const L = lines(MAIN); const line = L.findIndex(l => l.trimEnd().endsWith('ordersLib.Ord')); S.cursor = { line, col: L[line].length }; S.popup = completionsAt(MAIN, line); syncSelFromCursor(); }
+renderAll(false);
+requestAnimationFrame(() => {
+  const probe = document.createElement('span'); probe.className = 'mono'; probe.style.cssText = 'position:absolute;visibility:hidden;font-size:12.5px'; probe.textContent = 'x'.repeat(100);
+  $('code').appendChild(probe); chW = probe.getBoundingClientRect().width / 100; probe.remove();
+  scrollToLine(S.cursor.line, false); $('editor').scrollTop += 120;
+});
+</script>
+</body>
+</html>
