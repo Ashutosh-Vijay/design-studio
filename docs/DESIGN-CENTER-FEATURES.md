@@ -111,6 +111,57 @@ Three panels: left (API name, add resources, data types, security schemes, all i
 5. **Publish dialog** with Design Center's pre-fill rules and the unreferenced-files prompt.
 6. **Editor polish**: highlight uses, tab context menu, F1 and Ctrl Shift O, Copy on problem rows, and the Files menu (done: Set as root file, Rename, Duplicate As, Show in folder, Delete).
 
+## 11. Screen by screen (from the developer's screenshots, 2026-10-10)
+
+The exact layout of API Designer today, to match where it helps.
+
+**Project bar** (under Anypoint's own top bar)
+- Left: "Saved 8 minutes ago".
+- Centre: the branch as `project/branch` with a caret. The popover lists the branches (master has a "Default" badge and a pencil to rename), then "Create Branch": a name field and a + button.
+- Right: **Share**, **Publish**, and a gear with a caret, which opens "Project settings": Import, Import from Exchange, Download Project, Branch Settings, then Rename, Duplicate…, Delete….
+
+**Left rail** (three icons, a collapse arrow at the bottom)
+1. **Files**: a "Design Center" header, then "Files" with a + button, a Filter field, and the files. `exchange.json` has a lock. The root file has a boxed "Root file" badge and a three-dots menu. Unsaved files start with `*`.
+2. **Dependencies**: two collapsible groups, "Fragments (0)" and "Rulesets (0)", each with a +.
+   - The + opens "API Specification Fragments" or "Rulesets": an organization picker ("Any Organization"), a search box, and "Include versions in Development".
+   - The table has a checkbox, Name (with a link icon and a format badge: RAML, OAS or Ruleset; deprecated ones struck through), Version (a dropdown with a Stable or Deprecated badge), Date modified, Created by (initials avatar), and Organization.
+   - At the bottom: "Show selected only" ("Search and filter will reset"), Cancel, and Add dependency.
+3. **Exchange**: "Last published 6 days ago by <name>." with "Open in Exchange", then "Publish a new version of your project." with a Publish button.
+
+**Right rail** (two icons, a collapse arrow)
+1. **Documentation**: a menu icon (the console's navigation), the title, and a shield toggle ("API is behind a firewall", which routes Try it through a proxy). Content: "API title", then "API endpoints" as links.
+2. **Mocking Service Configuration**:
+   - Service Settings: "Make Public" ("Use Mocking Service without authorization headers").
+   - Local Settings: "Select By Default" ("Mocking Service will be selected by default in the documentation panel").
+
+**Under the editor**
+- The shelf: suggestion columns (Methods, Docs, Types and Traits, Security, Parameters) for the cursor's position.
+
+**Project Errors**
+- A tab at the bottom right with a menu and a collapse caret.
+- Open, it has two tabs, "Problems (0)" and "Governance (0)", a column of severity filters (error, warning, info) down the left, and "No errors to show" when empty.
+
+**Status bar**
+- Left: the file name, `line:col` (5:3), "Root File".
+- Centre: "Saved 12 minutes ago".
+- Right: "Governance auto-validation: on", "RAML", "API specification".
+
+**Share project**
+- A search box ("Share with people or teams in your organization").
+- "Who has access", with roles (Owner and so on).
+- A help link and Close.
+
+**How ours maps**
+
+| Theirs | Ours |
+|---|---|
+| Files, Dependencies, Exchange on the left rail | API tree, Files; add Dependencies and Exchange (M4) as the same two icons |
+| Documentation, Mocking config on the right rail | The Inspector; a Docs view comes with M5. Mock settings shrink to one toggle ("use the local mock") since ours is local |
+| Branch in the centre, Share, Publish, gear menu | Same place and names. Share opens Design Center in the browser |
+| "Saved N minutes ago" | Ours saves to disk on Ctrl S; show "Unsaved changes" or nothing, and "Pushed N minutes ago" once linked |
+| Project Errors with Problems and Governance tabs | Project errors; a Governance tab when rulesets arrive |
+| Shelf | Left out on purpose: autocomplete covers it, and it's the slow picker people avoid |
+
 ## Sources
 
 - MuleSoft docs source: https://github.com/mulesoft/docs-design-center (pages under `modules/ROOT/pages`)
