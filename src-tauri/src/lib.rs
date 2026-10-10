@@ -91,11 +91,28 @@ fn read_text_file(root: String, path: String) -> Result<String, String> {
   Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
+// Saves what the editor holds. The editor always works in LF; a file that used CRLF on disk
+// gets CRLF back, so a save never turns every line into a diff. New files are LF.
+#[tauri::command]
+fn save_text_file(root: String, path: String, text: String) -> Result<(), String> {
+  let root_path = PathBuf::from(&root).canonicalize().map_err(|e| e.to_string())?;
+  let full = root_path.join(&path);
+  let parent = full.parent().ok_or("Bad path")?;
+  fs::create_dir_all(parent).map_err(|e| format!("Couldn't create the folder for {}: {}", path, e))?;
+  if !parent.canonicalize().map_err(|e| e.to_string())?.starts_with(&root_path) {
+    return Err(format!("{} is outside the project.", path));
+  }
+  let crlf = fs::read(&full).map(|b| b.windows(2).any(|w| w == b"\r\n")).unwrap_or(false);
+  let lf = text.replace("\r\n", "\n");
+  let out = if crlf { lf.replace('\n', "\r\n") } else { lf };
+  fs::write(&full, out).map_err(|e| format!("Couldn't save {}: {}", path, e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
-    .invoke_handler(tauri::generate_handler![open_project, read_text_file])
+    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file])
     .run(tauri::generate_context!())
     .expect("error while running API Designer Studio");
 }

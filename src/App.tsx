@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
+import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
+import { METHODS, baseExtensions, languageFor, yamlPathAt } from './editor';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Icons } from './components/Icons';
@@ -32,17 +35,24 @@ export default function App() {
   const [recent, setRecent] = useState<Recent[]>(readRecent);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [active, setActive] = useState<string | null>(null);
-  const [text, setText] = useState<string>('');
-  const [filter, setFilter] = useState('');
-  const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
   const [theme, setTheme] = useState(savedTheme);
   const [settingsAt, setSettingsAt] = useState<DOMRect | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [dirtyCount, setDirtyCount] = useState(0);
+  const openFileRef = useRef<(path: string) => void>(() => {});
 
   useEffect(() => { applyTheme(theme.pref, theme.accent); }, [theme]);
 
+  // Leaving a project (or the window) with unsaved files asks first.
+  const okToLeave = () => dirtyCount === 0 || window.confirm(`${dirtyCount} ${dirtyCount === 1 ? 'file has' : 'files have'} unsaved changes. Leave without saving?`);
+  useEffect(() => {
+    const before = (e: BeforeUnloadEvent) => { if (dirtyCount) { e.preventDefault(); } };
+    window.addEventListener('beforeunload', before);
+    return () => window.removeEventListener('beforeunload', before);
+  }, [dirtyCount]);
+
   async function openFolder(root?: string) {
+    if (project && !okToLeave()) return;
     setError(null);
     let dir = root;
     if (!dir) {
@@ -53,12 +63,9 @@ export default function App() {
     setOpening(dir);
     try {
       const p = await invoke<Project>('open_project', { root: dir });
-      setProject(p);
-      setOpenDirs(new Set());
-      setActive(null); setText('');
+      setProject(p); setDirtyCount(0);
       const list = [{ root: p.root, name: p.name, opened: Date.now() }, ...readRecent().filter((r) => r.root !== p.root)];
       writeRecent(list); setRecent(list);
-      if (p.main) openFile(p, p.main);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -66,13 +73,7 @@ export default function App() {
     }
   }
 
-  async function openFile(p: Project, path: string) {
-    setActive(path);
-    try { setText(await invoke<string>('read_text_file', { root: p.root, path })); }
-    catch (e) { setText(''); setError(String(e)); }
-  }
-
-  // Ctrl K: palette, Ctrl O: open folder, Esc closes popovers.
+  // App-wide keys. The editor handles its own (Ctrl S lives in the project view).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -85,11 +86,7 @@ export default function App() {
   });
 
   const settingsBtn = (cls: string) => (
-    <button
-      className={cls}
-      title="Theme and accent"
-      onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget.getBoundingClientRect())}
-    >
+    <button className={cls} title="Theme and accent" onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget.getBoundingClientRect())}>
       <Icons.Sliders size={17} />
     </button>
   );
@@ -98,15 +95,12 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-bg text-content select-none">
       {/* Title bar: the window has no OS decorations, so this is the drag region */}
       <header data-tauri-drag-region className="h-11 shrink-0 flex items-center gap-2.5 pl-3 bg-surface border-b border-line">
-        <button
-          className="w-8 h-7 flex items-center justify-center rounded-md hover:bg-surface-2"
-          title={project ? 'All projects' : APP_NAME}
-          onClick={() => setProject(null)}
-        >
+        <button className="w-8 h-7 flex items-center justify-center rounded-md hover:bg-surface-2" title={project ? 'All projects' : APP_NAME}
+          onClick={() => { if (project && okToLeave()) { setProject(null); setDirtyCount(0); } }}>
           <img src="/logo.svg" width={22} height={22} alt="" />
         </button>
         <span data-tauri-drag-region className="text-[13px] font-semibold">{project ? project.name : APP_NAME}</span>
-        {project && <span data-tauri-drag-region className="text-[11.5px] text-content-faint font-mono truncate max-w-[420px]">{project.root}</span>}
+        {project && <span data-tauri-drag-region className="text-[12px] text-content-faint">{dirtyCount ? `${dirtyCount} unsaved` : 'All changes saved'}</span>}
         <div data-tauri-drag-region className="flex-1 h-full" />
         <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title="Search files and commands (Ctrl K)" onClick={() => setPaletteOpen(true)}>
           <Icons.Search size={15} />
@@ -117,14 +111,10 @@ export default function App() {
 
       {project ? (
         <ProjectView
+          key={project.root}
           project={project}
-          active={active}
-          text={text}
-          filter={filter}
-          setFilter={setFilter}
-          openDirs={openDirs}
-          setOpenDirs={setOpenDirs}
-          onOpenFile={(p) => openFile(project, p)}
+          onDirtyCount={setDirtyCount}
+          openFileRef={openFileRef}
           settingsButton={settingsBtn('relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center text-content-faint hover:text-content-secondary')}
         />
       ) : (
@@ -133,23 +123,11 @@ export default function App() {
       )}
 
       {settingsAt && (
-        <SettingsPopover
-          at={settingsAt}
-          pref={theme.pref}
-          accent={theme.accent}
-          onChange={(pref, accent) => setTheme({ pref, accent })}
-          onClose={() => setSettingsAt(null)}
-        />
+        <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)} />
       )}
       {paletteOpen && (
-        <Palette
-          project={project}
-          recent={recent}
-          onClose={() => setPaletteOpen(false)}
-          onOpenFile={(p) => project && openFile(project, p)}
-          onOpenFolder={(root) => openFolder(root)}
-          onTheme={(pref) => setTheme((t) => ({ ...t, pref }))}
-        />
+        <Palette project={project} recent={recent} onClose={() => setPaletteOpen(false)}
+          onOpenFile={(p) => openFileRef.current(p)} onOpenFolder={(root) => openFolder(root)} onTheme={(pref) => setTheme((t) => ({ ...t, pref }))} />
       )}
     </div>
   );
@@ -212,30 +190,132 @@ function StartView({ recent, opening, error, onOpen, onRemove }: {
   );
 }
 
-function ProjectView({ project, active, text, filter, setFilter, openDirs, setOpenDirs, onOpenFile, settingsButton }: {
-  project: Project; active: string | null; text: string; filter: string; setFilter: (s: string) => void;
-  openDirs: Set<string>; setOpenDirs: (s: Set<string>) => void; onOpenFile: (p: string) => void; settingsButton: ReactNode;
+// One open file: its editor state and the text on disk (with LF line endings, as the editor holds it).
+type OpenFile = { state: EditorState; disk: string };
+
+function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
+  project: Project; onDirtyCount: (n: number) => void; openFileRef: MutableRefObject<(path: string) => void>; settingsButton: ReactNode;
 }) {
+  const [filter, setFilter] = useState('');
+  const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
+  const [tabs, setTabs] = useState<string[]>([]);
+  const [active, setActive] = useState<string | null>(null);
+  const [dirty, setDirty] = useState<Set<string>>(new Set());
+  const [crumb, setCrumb] = useState<{ key: string; from: number }[]>([]);
+  const [cursor, setCursor] = useState({ line: 1, col: 1 });
+  const [notice, setNotice] = useState<string | null>(null);
+  const files = useRef(new Map<string, OpenFile>());
+  const activeRef = useRef<string | null>(null);
+  const host = useRef<HTMLDivElement>(null);
+  const view = useRef<EditorView | null>(null);
+
+  useEffect(() => { onDirtyCount(dirty.size); }, [dirty, onDirtyCount]);
+
+  // Keeps React in step with the editor: dirty dots, breadcrumb, Ln/Col.
+  const listener = useMemo(() => EditorView.updateListener.of((u) => {
+    const path = activeRef.current; if (!path) return;
+    if (u.docChanged) {
+      const f = files.current.get(path);
+      const isDirty = !!f && u.state.doc.toString() !== f.disk;
+      setDirty((d) => { if (d.has(path) === isDirty) return d; const n = new Set(d); isDirty ? n.add(path) : n.delete(path); return n; });
+    }
+    if (u.docChanged || u.selectionSet) {
+      const pos = u.state.selection.main.head, line = u.state.doc.lineAt(pos);
+      setCursor({ line: line.number, col: pos - line.from + 1 });
+      setCrumb(/\.(raml|ya?ml)$/i.test(path) ? yamlPathAt(u.state, pos) : []);
+    }
+  }), []);
+
+  useEffect(() => {
+    view.current = new EditorView({ parent: host.current! });
+    return () => view.current?.destroy();
+  }, []);
+
+  function show(path: string) {
+    const v = view.current!, f = files.current.get(path)!;
+    if (activeRef.current && files.current.has(activeRef.current)) files.current.get(activeRef.current)!.state = v.state;
+    activeRef.current = path;
+    v.setState(f.state);
+    setActive(path);
+    const pos = f.state.selection.main.head, line = f.state.doc.lineAt(pos);
+    setCursor({ line: line.number, col: pos - line.from + 1 });
+    setCrumb(/\.(raml|ya?ml)$/i.test(path) ? yamlPathAt(f.state, pos) : []);
+    v.focus();
+  }
+
+  async function openFile(path: string) {
+    if (!files.current.has(path)) {
+      let text: string;
+      try { text = (await invoke<string>('read_text_file', { root: project.root, path })).replace(/\r\n/g, '\n'); }
+      catch (e) { setNotice(String(e)); return; }
+      const ro = isReadOnly(path);
+      files.current.set(path, {
+        disk: text,
+        state: EditorState.create({ doc: text, extensions: [...baseExtensions(), languageFor(path), listener, EditorState.readOnly.of(ro), EditorView.editable.of(!ro)] }),
+      });
+    }
+    setTabs((t) => (t.includes(path) ? t : [...t, path]));
+    show(path);
+  }
+  openFileRef.current = openFile;
+
+  useEffect(() => { if (project.main) openFile(project.main); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function save(path: string) {
+    const f = files.current.get(path); if (!f) return;
+    const state = path === activeRef.current ? view.current!.state : f.state;
+    const text = state.doc.toString();
+    try {
+      await invoke('save_text_file', { root: project.root, path, text });
+      f.disk = text;
+      setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
+    } catch (e) { setNotice(String(e)); }
+  }
+
+  function closeTab(path: string) {
+    if (dirty.has(path) && !window.confirm(`${base(path)} has unsaved changes. Close it anyway?`)) return;
+    const i = tabs.indexOf(path), rest = tabs.filter((t) => t !== path);
+    files.current.delete(path);
+    setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
+    setTabs(rest);
+    if (activeRef.current === path) {
+      activeRef.current = null;
+      const next = rest[Math.min(i, rest.length - 1)];
+      if (next) show(next); else { setActive(null); view.current!.setState(EditorState.create({ doc: '' })); }
+    }
+  }
+
+  // Ctrl S saves this file, Ctrl Shift S saves them all. Ctrl W closes the tab.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+      if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) [...dirty].forEach(save); else if (activeRef.current) save(activeRef.current); }
+      else if (mod && k === 'w' && activeRef.current) { e.preventDefault(); closeTab(activeRef.current); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  function jumpTo(from: number) {
+    const v = view.current!; v.dispatch({ selection: { anchor: from }, scrollIntoView: true }); v.focus();
+  }
+
   // Folders first, then files; a filter shows matching files with their folders open.
   const rows = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    const files = project.files.filter((f) => !q || f.path.toLowerCase().includes(q));
+    const list = project.files.filter((f) => !q || f.path.toLowerCase().includes(q));
     const dirs = new Set<string>();
-    files.forEach((f) => { const parts = f.path.split('/'); for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/')); });
+    list.forEach((f) => { const parts = f.path.split('/'); for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/')); });
     const out: { kind: 'dir' | 'file'; path: string; depth: number }[] = [];
     const walk = (prefix: string, depth: number) => {
       const here = (p: string) => p.startsWith(prefix) && !p.slice(prefix.length).includes('/');
-      [...dirs].filter(here).sort().forEach((d) => {
-        out.push({ kind: 'dir', path: d, depth });
-        if (q || openDirs.has(d)) walk(d + '/', depth + 1);
-      });
-      files.map((f) => f.path).filter(here).sort().forEach((p) => out.push({ kind: 'file', path: p, depth }));
+      [...dirs].filter(here).sort().forEach((d) => { out.push({ kind: 'dir', path: d, depth }); if (q || openDirs.has(d)) walk(d + '/', depth + 1); });
+      list.map((f) => f.path).filter(here).sort().forEach((p) => out.push({ kind: 'file', path: p, depth }));
     };
     walk('', 0);
     return out;
   }, [project, filter, openDirs]);
 
-  const lines = text.split('\n');
   return (
     <>
       <div className="flex-1 min-h-0 flex">
@@ -252,24 +332,22 @@ function ProjectView({ project, active, text, filter, setFilter, openDirs, setOp
           <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold">Files</div>
           <label className="m-2 mb-1 flex items-center gap-1.5 h-[26px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
             <Icons.Search size={12} />
-            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" spellCheck={false}
-              className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
+            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
           </label>
           <div className="flex-1 overflow-auto pb-3">
             {rows.map((r) => r.kind === 'dir' ? (
-              <div key={'d' + r.path} onClick={() => { const n = new Set(openDirs); n.has(r.path) ? n.delete(r.path) : n.add(r.path); setOpenDirs(n); }}
-                style={{ paddingLeft: 8 + r.depth * 14 }}
+              <div key={'d' + r.path} style={{ paddingLeft: 8 + r.depth * 14 }}
+                onClick={() => { const n = new Set(openDirs); n.has(r.path) ? n.delete(r.path) : n.add(r.path); setOpenDirs(n); }}
                 className="flex items-center gap-1.5 h-6 pr-2 text-[12.5px] text-content-secondary cursor-pointer hover:bg-[var(--hover-overlay)]">
                 <span className="w-3.5 flex justify-center text-content-ghost">{filter || openDirs.has(r.path) ? <Icons.ChevronDown size={11} /> : <Icons.ChevronRight size={11} />}</span>
                 <span className="text-content-faint flex"><Icons.Folder size={13} /></span>
                 <span className="truncate">{base(r.path)}</span>
               </div>
             ) : (
-              <div key={'f' + r.path} onClick={() => onOpenFile(r.path)} title={r.path}
-                style={{ paddingLeft: 8 + r.depth * 14 + 20 }}
+              <div key={'f' + r.path} onClick={() => openFile(r.path)} title={r.path} style={{ paddingLeft: 8 + r.depth * 14 + 20 }}
                 className={`relative flex items-center gap-1.5 h-6 pr-2 text-[12.5px] cursor-pointer ${active === r.path ? 'bg-accent-dim text-content' : 'text-content-secondary hover:bg-[var(--hover-overlay)]'}`}>
                 {active === r.path && <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent" />}
-                <span className="truncate" style={r.path === project.main ? { fontWeight: 600, color: 'var(--content)' } : undefined}>{base(r.path)}</span>
+                <span className="truncate" style={r.path === project.main ? { fontWeight: 600, color: 'var(--content)' } : undefined}>{dirty.has(r.path) ? '* ' : ''}{base(r.path)}</span>
                 <span className="ml-auto flex items-center gap-1.5">
                   {r.path === project.main && <span className="text-[9.5px] font-semibold px-1.5 rounded border border-accent-border text-accent">Root file</span>}
                   {isReadOnly(r.path) && <span className="text-content-faint flex" title="Read-only"><Icons.Lock size={12} /></span>}
@@ -281,30 +359,45 @@ function ProjectView({ project, active, text, filter, setFilter, openDirs, setOp
         </aside>
 
         <main className="flex-1 min-w-0 flex flex-col bg-surface">
-          {active ? (
-            <>
-              <div className="h-9 shrink-0 flex items-center px-3 border-b border-line text-[12.5px] text-content-secondary bg-bg">
-                <span className="font-mono text-[12px]">{active}</span>
-                <span className="ml-3 text-[11px] text-content-faint">Read-only preview. The editor comes in M1 step 3.</span>
+          <div className="h-9 shrink-0 flex items-stretch bg-bg border-b border-line overflow-x-auto">
+            {tabs.map((p) => (
+              <div key={p} onClick={() => show(p)} onAuxClick={(e) => { if (e.button === 1) closeTab(p); }} title={p}
+                className={`group relative flex items-center gap-2 pl-3 pr-2 text-[12.5px] border-r border-line-secondary cursor-pointer shrink-0 ${p === active ? 'bg-surface text-content' : 'text-content-faint hover:text-content-secondary'}`}>
+                {p === active && <span className="absolute left-0 right-0 top-0 h-0.5 bg-accent" />}
+                <span>{base(p)}</span>
+                <button onClick={(e) => { e.stopPropagation(); closeTab(p); }} title={dirty.has(p) ? 'Unsaved changes. Close' : 'Close (Ctrl W)'}
+                  className="w-4 h-4 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">
+                  {dirty.has(p) ? <span className="w-[7px] h-[7px] rounded-full bg-content-muted group-hover:hidden" /> : null}
+                  <span className={dirty.has(p) ? 'hidden group-hover:flex' : 'flex'}><Icons.X size={12} /></span>
+                </button>
               </div>
-              <div className="flex-1 overflow-auto font-mono text-[12.5px] leading-5 py-1.5 select-text">
-                {lines.map((l, i) => (
-                  <div key={i} className="flex whitespace-pre">
-                    <span className="w-[62px] shrink-0 pr-3.5 text-right text-content-ghost select-none">{i + 1}</span>
-                    <span>{l}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">
-              {project.main ? 'Opening…' : 'No root file found. Pick a file on the left.'}
+            ))}
+          </div>
+          <div className="h-7 shrink-0 flex items-center gap-1 px-3 border-b border-line-subtle text-[12px] text-content-faint whitespace-nowrap overflow-hidden">
+            {active && <span>{active}</span>}
+            {crumb.map((c, i) => (
+              <span key={i} className="flex items-center gap-1">
+                <Icons.ChevronRight size={11} />
+                <button onClick={() => jumpTo(c.from)} className={`px-1 rounded hover:bg-surface-2 hover:text-content ${c.key.startsWith('/') ? 'font-mono text-[11.5px]' : ''} ${i === crumb.length - 1 ? 'text-content-secondary' : ''}`}>
+                  {METHODS.includes(c.key) ? <span className="font-mono text-[10px] font-bold uppercase">{c.key}</span> : c.key}
+                </button>
+              </span>
+            ))}
+            {active && isReadOnly(active) && <span className="ml-auto flex items-center gap-1"><Icons.Lock size={11} />Read-only: managed by Exchange</span>}
+          </div>
+          <div ref={host} className="flex-1 min-h-0 select-text" style={{ display: active ? 'block' : 'none' }} />
+          {!active && <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">{project.main ? 'Opening…' : 'No root file found. Pick a file on the left.'}</div>}
+          {notice && (
+            <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line bg-surface-2 text-[12px] text-err">
+              <span className="flex-1 select-text">{notice}</span>
+              <button onClick={() => setNotice(null)} className="text-content-faint hover:text-content"><Icons.X size={12} /></button>
             </div>
           )}
         </main>
       </div>
       <footer className="h-[26px] shrink-0 flex items-center gap-3.5 px-3 bg-rail border-t border-line font-mono text-[11px] text-content-faint">
         <span className="text-content-secondary">{active ? base(active) : project.name}</span>
+        {active && <span>{cursor.line}:{cursor.col}</span>}
         {active && active === project.main && <span>Root file</span>}
         <span className="flex-1" />
         <span>{project.files.length} files</span>
