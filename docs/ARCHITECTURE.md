@@ -41,7 +41,7 @@ One repo, like DataWeave Studio:
 api-designer-studio/
   src/                    React app
     app/                  App shell, layout, panes
-    editor/               Monaco setup, RAML/OAS language, completion, hover, markers
+    editor/               CodeMirror 6 setup, RAML/OAS language, completion, hover, markers
     edits/                edit operations (pure functions + tests)
     project/              project store (open files, outline, problems, generations)
     tree/                 API tree
@@ -203,16 +203,17 @@ Code: `spikes/m0-5-als/run.mjs`. ALS 7.1.6 (73 jars, 61 MB, AMF 5.9.2), `org.mul
 ## 5. Webview
 
 **State:** a single project store, plain React context and hooks as in DataWeave Studio, with no extra state library unless it becomes painful. It holds:
-- open files (Monaco models keyed by path);
+- open files (one CodeMirror state per file, keyed by path);
 - the current generation;
 - the last outline and its generation;
 - problems by file;
 - the dirty set;
 - the selection (the tree node, the cursor's YAML path).
 
-**Monaco:**
-- **Languages:** RAML gets its own Monarch grammar (YAML plus `#%RAML` header, `!include`, `uses:` aliases, type expressions); OAS YAML and JSON use Monaco's built-in highlighting.
-- **One model per file,** created lazily. Big example JSON files open only when clicked.
+**The editor (CodeMirror 6, M0.4):**
+- **Languages:** RAML is `@codemirror/lang-yaml` plus highlighting for the `#%RAML` header, `!include`, `uses:` aliases and type expressions; OAS uses lang-yaml and lang-json.
+- **Cursor context** comes from the live Lezer tree (about 0.01 ms in M0.4), which drives autocomplete, the shelf, the breadcrumb and the tree selection.
+- **One editor state per file,** created lazily. Big example JSON files open only when clicked.
 - **Undo:** an edit operation touching several files is applied as one undo group per file, plus an app-level "undo last operation" that reverts all its files together.
 
 **Where am I?** A fast `yaml` parse of the current file, debounced at about 50 ms and done in the webview, gives the YAML path at the cursor: for example `/order-process > get > responses > 200 > body > application/json > type`. That drives autocomplete context, the tree selection, breadcrumbs and which form to show.
@@ -248,7 +249,7 @@ addResponse(project, methodRef, code, template): FileEdit[]
 
 | Action | Budget |
 |---|---|
-| Keystroke to screen | under 16 ms (Monaco; never blocked) |
+| Keystroke to screen | under 16 ms (CodeMirror; never blocked) |
 | Cursor context (YAML path) | under 20 ms on a 2,000-line file |
 | Autocomplete list | under 50 ms (outline already in memory) |
 | Edit to outline and reference errors | under 0.5 s |
@@ -347,7 +348,7 @@ Each step ends usable and tested:
 
 1. **Skeleton:** Tauri and React app with DataWeave Studio's shell (theme, window controls, settings, palette); an open-folder dialog; a file list.
 2. **amf-server and the manager:** open, overlay, parse, validate; warm-up; problems panel with click-to-jump; bench script on the corpus.
-3. **Editor:** Monaco tabs, the RAML grammar, dirty tracking and save with line endings kept, zip import with duplicate handling.
+3. **Editor:** CodeMirror tabs, the RAML grammar, dirty tracking and save with line endings kept, zip import with duplicate handling.
 4. **Outline and tree:** resources, methods, types, traits, libraries; the tree selects with the cursor and the cursor follows the tree; breadcrumbs.
 5. **Autocomplete and hover:** the context table in section 5; hover on a type shows its definition; F12 goes to the definition.
 6. **Edit operations:** rename type (Design Center's "Rename Symbol") and add response, end to end with a preview and golden tests. Then the Files menu: Set as root file, Rename (updates every `!include`), Duplicate As (copy, or RAML/OAS conversion through amf-server's `convert`), Delete.

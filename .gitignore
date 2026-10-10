@@ -3,3 +3,6 @@ node_modules/
 target/
 out/
 corpus-private/
+dist/
+src-tauri/gen/
+.tokens.json

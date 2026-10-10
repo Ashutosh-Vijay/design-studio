@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Bundled mono font, so the editor looks the same on every machine. */
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("/fonts/jetbrains-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-style: normal; font-display: swap; src: url("/fonts/jetbrains-mono-700.woff2") format("woff2"); }
+
+/* ========= Dusk / Paper tokens, copied from DataWeave Studio =========
+   Warm-neutral surfaces (hue 80, chroma 0.004) and an accent the user picks. */
+:root {
+  color-scheme: dark;
+
+  --accent: oklch(72% 0.15 158);
+  --accent-hover: oklch(78% 0.15 158);
+  --accent-dim: oklch(72% 0.15 158 / 0.14);
+  --accent-border: oklch(72% 0.15 158 / 0.32);
+  --accent-ink: oklch(14% 0.004 80);
+
+  --bg:              oklch(14% 0.004 80);
+  --surface:         oklch(17% 0.004 80);
+  --surface-panel:   oklch(17% 0.004 80);
+  --surface-2:       oklch(20% 0.004 80);
+  --surface-elevated:oklch(20% 0.004 80);
+  --surface-input:   oklch(20% 0.004 80);
+  --surface-section: oklch(17% 0.004 80);
+  --surface-3:       oklch(24% 0.004 80);
+  --surface-active:  oklch(24% 0.004 80);
+  --rail:            oklch(12% 0.004 80);
+  --surface-sidebar: oklch(12% 0.004 80);
+
+  --line:           oklch(26% 0.004 80);
+  --line-secondary: oklch(22% 0.004 80);
+  --line-subtle:    oklch(20% 0.004 80);
+
+  --content:           oklch(96% 0 0);
+  --content-secondary: oklch(78% 0 0);
+  --content-muted:     oklch(60% 0 0);
+  --content-faint:     oklch(50% 0 0);
+  --content-ghost:     oklch(38% 0 0);
+
+  --warn:   oklch(80% 0.14 80);
+  --err:    oklch(68% 0.18 20);
+  --ok:     oklch(76% 0.15 155);
+  --violet: oklch(72% 0.14 290);
+  --cyan:   oklch(75% 0.11 220);
+
+  --scrollbar-thumb: oklch(30% 0.004 80);
+  --scrollbar-thumb-hover: oklch(40% 0.004 80);
+  --selection-bg: oklch(72% 0.15 158 / 0.35);
+  --selection-text: oklch(100% 0 0);
+  --hover-overlay: oklch(100% 0 0 / 0.05);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+
+  /* Syntax palette from DataWeave Studio's dataweaveTheme.ts */
+  --syn-string: #88D4A4;
+  --syn-number: #E2B36F;
+  --syn-type: #DDD3BE;
+  --syn-fn: #4EBEDE;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.light {
+  color-scheme: light;
+
+  --accent: oklch(55% 0.15 158);
+  --accent-hover: oklch(50% 0.15 158);
+  --accent-dim: oklch(55% 0.15 158 / 0.10);
+  --accent-border: oklch(55% 0.15 158 / 0.35);
+  --accent-ink: oklch(100% 0 0);
+
+  --bg:              oklch(98% 0.003 80);
+  --surface:         oklch(100% 0 0);
+  --surface-panel:   oklch(100% 0 0);
+  --surface-2:       oklch(97% 0.003 80);
+  --surface-elevated:oklch(97% 0.003 80);
+  --surface-input:   oklch(100% 0 0);
+  --surface-section: oklch(97% 0.003 80);
+  --surface-3:       oklch(94% 0.004 80);
+  --surface-active:  oklch(94% 0.004 80);
+  --rail:            oklch(96% 0.003 80);
+  --surface-sidebar: oklch(96% 0.003 80);
+
+  --line:           oklch(90% 0.004 80);
+  --line-secondary: oklch(94% 0.003 80);
+  --line-subtle:    oklch(96% 0.003 80);
+
+  --content:           oklch(20% 0 0);
+  --content-secondary: oklch(35% 0 0);
+  --content-muted:     oklch(50% 0 0);
+  --content-faint:     oklch(65% 0 0);
+  --content-ghost:     oklch(78% 0 0);
+
+  --warn:   oklch(60% 0.15 80);
+  --err:    oklch(55% 0.18 20);
+  --ok:     oklch(52% 0.14 155);
+  --violet: oklch(50% 0.15 290);
+  --cyan:   oklch(55% 0.12 220);
+
+  --scrollbar-thumb: oklch(80% 0.004 80);
+  --scrollbar-thumb-hover: oklch(70% 0.004 80);
+  --selection-bg: oklch(55% 0.15 158 / 0.25);
+  --hover-overlay: oklch(0% 0 0 / 0.04);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.14);
+
+  --syn-string: #1F6537;
+  --syn-number: #8E6224;
+  --syn-type: #3D3B36;
+  --syn-fn: #0E6F87;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg);
+  color: var(--content);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+code, pre, .font-mono { font-family: var(--font-mono); }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--surface); }
+* { scrollbar-color: var(--scrollbar-thumb) var(--surface); }
+
+::selection { background: var(--selection-bg); color: var(--selection-text); }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
