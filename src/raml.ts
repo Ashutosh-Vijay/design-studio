@@ -8,7 +8,14 @@ export const BUILTIN_TYPES = ['string', 'number', 'integer', 'boolean', 'date-on
 const KEY_RE = /^(\s*)(- )?("[^"]*"|'[^']*'|[^\s#:][^:#]*?)\s*:(?:\s+(.*))?$/;
 export type Entry = { line: number; ind: number; key: string; val: string; from: number };
 
+// The shelf, breadcrumb, tree selection and Inspector all read the same text after each keystroke: parse it once.
+let lastText = '', lastEntries: Entry[] = [];
 export function entries(text: string): Entry[] {
+  if (text === lastText) return lastEntries;
+  lastEntries = parseEntries(text); lastText = text;
+  return lastEntries;
+}
+function parseEntries(text: string): Entry[] {
   const out: Entry[] = [];
   let pos = 0, block = -1; // inside a | or > text block: lines indented deeper than its key are text, not keys
   for (const [i, l] of text.split('\n').entries()) {

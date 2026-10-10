@@ -92,10 +92,23 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
   const E = useMemo(() => entries(text), [text]);
   const L = useMemo(() => text.split('\n'), [text]);
   const node = useMemo(() => nodeAt(text, line, isMain), [text, line, isMain]);
+  // "Used by" reads every library, so only when the type or the text changes, not on cursor moves.
+  const typeName = node.kind === 'decl' && node.sect === 'types' ? node.name : null;
+  const used = useMemo(() => {
+    const d = typeName && outline?.types.find((x) => x.file === file && x.name === typeName);
+    return d ? usages(d.name, d.file, rootFile, textOf, outline) : [];
+  }, [typeName, file, rootFile, outline, text]); // eslint-disable-line react-hooks/exhaustive-deps
   const own = outline?.libraries.find((l) => l.path === file)?.alias ?? null;
   // Names this file can refer to: its own declarations bare, the others through the root's aliases.
   const typeNames = useMemo(() => [...(outline?.types ?? []).map((d) => (d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name)), ...BUILTIN_TYPES], [outline, own]);
-  const traitNames = (outline?.traits ?? []).map((d) => (d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name));
+  // The suggestion lists for type boxes, built once per outline rather than on every keystroke.
+  const lists = useMemo(() => (
+    <>
+      <datalist id="ads-types">{typeNames.map((t) => <option key={t} value={t} />)}</datalist>
+      <datalist id="ads-rtypes">{(outline?.resourceTypes ?? []).map((d) => { const n = d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name; return <option key={n} value={n} />; })}</datalist>
+    </>
+  ), [typeNames, outline, own]);
+  const traitNames =(outline?.traits ?? []).map((d) => (d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name));
   const findType = (t: string) => {
     const name = t.replace(/\[\]$/, '').replace(/\?$/, '');
     const [a, n] = name.includes('.') ? name.split('.') : [own, name];
@@ -188,6 +201,8 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
     return <Sec title="Request body" add={add}>{rows}{k < 0 && <div className="text-[11.5px] text-content-faint">No body.</div>}</Sec>;
   };
 
+  // Traits a method gets from its resource (RAML applies a resource's is: to that resource's own methods).
+  const inherited = (parent: string[]) => (METHODS.includes(parent[parent.length - 1]) ? S.list(text, [...parent.slice(0, -1), 'is']) ?? [] : []);
   const traits = (parent: string[]) => {
     const k = at([...parent, 'is']);
     const raw = k >= 0 ? E[k].val : '';
@@ -206,6 +221,7 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
             );
           })}</div>
           : <div className="text-[11.5px] text-content-faint">None.</div>}
+        {inherited(parent).length > 0 && <div className="mt-1.5 text-[11px] text-content-faint">Also from the resource: <span className="font-mono text-content-muted">{inherited(parent).join(', ')}</span></div>}
       </Sec>
     );
   };
@@ -302,7 +318,6 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
     const d = outline && [...outline.types, ...outline.traits, ...outline.resourceTypes, ...outline.securitySchemes].find((x) => x.file === file && x.name === node.name);
     const isType = node.sect === 'types';
     const enumK = at([...node.path, 'enum']);
-    const used = isType && d ? usages(d.name, d.file, rootFile, textOf, outline) : [];
     h = (
       <>
         {title(<><span className="font-mono text-[13.5px] font-bold break-all">{node.name}</span>{d?.alias && <span className="ml-auto text-[11.5px] text-content-faint">{d.alias}</span>}</>)}
@@ -363,8 +378,7 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
   return (
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
       {h}
-      <datalist id="ads-types">{typeNames.map((t) => <option key={t} value={t} />)}</datalist>
-      <datalist id="ads-rtypes">{(outline?.resourceTypes ?? []).map((d) => { const n = d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name; return <option key={n} value={n} />; })}</datalist>
+      {lists}
     </div>
   );
 }

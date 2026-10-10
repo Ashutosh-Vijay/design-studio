@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
 import { EditorState, type Extension } from '@codemirror/state';
 import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
@@ -833,6 +833,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const v = view.current!; v.dispatch({ selection: { anchor: from }, scrollIntoView: true }); v.focus();
   }
 
+  // A stable handler, so the API tree (hundreds of rows) isn't redrawn on every keystroke.
+  const pickRef = useRef((_f: string, _from: number, _id: string) => {});
+  pickRef.current = (file, from, id) => { setSelId(id); reveal(file, from); };
+  const treePick = useMemo(() => (file: string, from: number, id: string) => pickRef.current(file, from, id), []);
+
   // Folders first, then files; a filter shows matching files with their folders open.
   const rows = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -872,7 +877,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           </label>
           {rail === 'api' ? (
             <ApiTree outline={outline} rootFile={project.main ?? ''} filter={filter} selId={selId} closed={closedSecs} setClosed={setClosedSecs} noRoot={!project.main}
-              onPick={(file, from, id) => { setSelId(id); reveal(file, from); }} />
+              onPick={treePick} />
           ) : (
           <div className="flex-1 overflow-auto pb-3">
             {rows.map((r) => r.kind === 'dir' ? (
@@ -997,7 +1002,7 @@ function MethodBadge({ m }: { m: string }) {
   return <span className={`font-mono text-[9.5px] font-bold w-[38px] h-4 rounded-[3px] shrink-0 inline-flex items-center justify-center ${METHOD_STYLE[m] ?? ''}`}>{m.toUpperCase()}</span>;
 }
 
-function ApiTree({ outline, rootFile, filter, selId, closed, setClosed, noRoot, onPick }: {
+const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed, setClosed, noRoot, onPick }: {
   outline: Outline | null; rootFile: string; filter: string; selId: string | null; closed: Set<string>; setClosed: (s: Set<string>) => void; noRoot: boolean;
   onPick: (file: string, from: number, id: string) => void;
 }) {
@@ -1059,7 +1064,7 @@ function ApiTree({ outline, rootFile, filter, selId, closed, setClosed, noRoot, 
           () => onPick(l.path, 0, 'lib:' + l.alias), l.path.startsWith('exchange_modules/') ? <span className="text-[9.5px] font-semibold px-1 rounded border border-cyan-border text-cyan">Exchange</span> : null)))}
     </div>
   );
-}
+});
 
 const SHELF_BAR: Record<string, string> = {
   Methods: 'var(--content-muted)', Docs: 'var(--cyan)', 'Types and Traits': 'var(--violet)', Security: 'var(--err)', Parameters: 'var(--cyan)', Body: 'var(--ok)',
