@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
+import { listen } from '@tauri-apps/api/event';
 import { METHODS, baseExtensions, languageFor, yamlPathAt } from './editor';
 import { BUILTIN_TYPES, buildOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
 import { invoke } from '@tauri-apps/api/core';
@@ -212,6 +214,12 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
   const [selId, setSelId] = useState<string | null>(null);
   const [closedSecs, setClosedSecs] = useState<Set<string>>(new Set(['Resource types', 'Security schemes']));
   const libTexts = useRef(new Map<string, string>());
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [problemsOpen, setProblemsOpen] = useState(false);
+  const [engine, setEngine] = useState<{ state: string; detail: string; ms?: string }>({ state: 'starting', detail: '' });
+  const gen = useRef(0), applied = useRef(0), sentOverlay = useRef(new Set<string>());
+  const checkTimers = useRef<number[]>([]);
+  const scheduleRef = useRef<() => void>(() => {});
   const outlineTimer = useRef<number>(0);
   const files = useRef(new Map<string, OpenFile>());
   const activeRef = useRef<string | null>(null);
@@ -234,6 +242,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
       setCrumb(/\.(raml|ya?ml)$/i.test(path) ? yamlPathAt(u.state, pos) : []);
       updateCursorViews(path, u.state);
     }
+    if (u.docChanged) scheduleRef.current();
     if (u.docChanged && (path === project.main || libraryFiles.current.has(path))) {
       clearTimeout(outlineTimer.current);
       outlineTimer.current = window.setTimeout(rebuildOutline, 120);
@@ -314,7 +323,72 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
   }
   openFileRef.current = openFile;
 
-  useEffect(() => { if (project.main) openFile(project.main).then(rebuildOutline); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // ---------- Live errors from amf-server: a quick parse after edits, a full check when idle or on save ----------
+  const amf = (op: string, args: Record<string, unknown>) => invoke<any>('amf', { op, args }); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const checkable = !!project.main && /\.(raml|ya?ml|json)$/i.test(project.main);
+
+  async function syncOverlays() {
+    const changed: Record<string, string | null> = {};
+    for (const [path, f] of files.current) {
+      const text = textOf(path) ?? f.disk;
+      if (text !== f.disk) { changed[path] = text; sentOverlay.current.add(path); }
+      else if (sentOverlay.current.has(path)) { changed[path] = null; sentOverlay.current.delete(path); }
+    }
+    if (Object.keys(changed).length) await amf('overlay', { files: changed });
+  }
+  async function runCheck(mode: 'parse' | 'validate') {
+    if (!checkable) return;
+    const g = ++gen.current;
+    setEngine((e) => (e.state === 'failed' ? e : { ...e, state: 'checking' }));
+    try {
+      await syncOverlays();
+      const r = await amf('check', { mode });
+      if (r.stale || g < applied.current) return;
+      applied.current = g;
+      setProblems((prev) => (mode === 'validate' ? r.problems : [...r.problems, ...prev.filter((x) => x.phase === 'validate')]));
+      setEngine({ state: 'ready', detail: '', ms: mode === 'validate' ? `Checked in ${((r.parseMs + r.validateMs) / 1000).toFixed(1)} s` : `Read in ${(r.parseMs / 1000).toFixed(2)} s` });
+    } catch (e) {
+      setEngine({ state: 'failed', detail: String(e) });
+    }
+  }
+  scheduleRef.current = () => {
+    checkTimers.current.forEach(clearTimeout);
+    checkTimers.current = [window.setTimeout(() => runCheck('parse'), 300), window.setTimeout(() => runCheck('validate'), 1500)];
+  };
+
+  useEffect(() => {
+    const un = listen<{ state: string; detail: string }>('amf-status', (e) => {
+      if (e.payload.state === 'ready') { setEngine({ state: 'ready', detail: '' }); if (checkable) amf('open', { root: project.root, main: project.main }).then(() => runCheck('validate')).catch(() => {}); }
+      else if (e.payload.state !== 'starting') setEngine({ state: e.payload.state, detail: e.payload.detail });
+    });
+    return () => { un.then((f) => f()); checkTimers.current.forEach(clearTimeout); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (project.main) openFile(project.main).then(rebuildOutline);
+    if (checkable) amf('open', { root: project.root, main: project.main }).then(() => runCheck('validate')).catch((e) => setEngine({ state: 'failed', detail: String(e) }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Wavy underlines in the editor for the open file's problems.
+  useEffect(() => {
+    const v = view.current; if (!v || !active) return;
+    const doc = v.state.doc;
+    const diags: Diagnostic[] = problems.filter((p) => p.file === active).map((p) => {
+      const l = doc.line(Math.min(Math.max(p.line, 1), doc.lines));
+      const from = Math.min(l.from + p.col, l.to);
+      const el = doc.line(Math.min(Math.max(p.endLine, p.line), doc.lines));
+      const to = Math.max(from, Math.min(el.from + p.endCol, el.to));
+      return { from, to: to > from ? to : Math.min(from + 1, doc.length), severity: p.severity, message: p.message };
+    });
+    v.dispatch(setDiagnostics(v.state, diags));
+  }, [problems, active]);
+
+  async function goToProblem(p: Problem) {
+    await openFile(p.file);
+    const v = view.current!, doc = v.state.doc, l = doc.line(Math.min(Math.max(p.line, 1), doc.lines));
+    const pos = Math.min(l.from + p.col, l.to);
+    v.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) }); v.focus();
+  }
 
   async function save(path: string) {
     const f = files.current.get(path); if (!f) return;
@@ -324,6 +398,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
       await invoke('save_text_file', { root: project.root, path, text });
       f.disk = text;
       setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
+      runCheck('validate');
     } catch (e) { setNotice(String(e)); }
   }
 
@@ -346,6 +421,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
       const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
       if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) [...dirty].forEach(save); else if (activeRef.current) save(activeRef.current); }
       else if (mod && k === 'w' && activeRef.current) { e.preventDefault(); closeTab(activeRef.current); }
+      else if (mod && k === 'j') { e.preventDefault(); setProblemsOpen((o) => !o); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -457,6 +533,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
             <Shelf ctx={shelf} open={shelfOpen} setOpen={setShelfOpen} onPick={shelfInsert}
               types={(outline?.types ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} traits={(outline?.traits ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} />
           )}
+          {checkable && <ProblemsPanel problems={problems} open={problemsOpen} setOpen={setProblemsOpen} engine={engine} onGo={goToProblem} />}
           {!active && <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">{project.main ? 'Opening…' : 'No root file found. Pick a file on the left.'}</div>}
           {notice && (
             <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line bg-surface-2 text-[12px] text-err">
@@ -593,6 +670,62 @@ function Shelf({ ctx, open, setOpen, onPick, types, traits }: {
       ) : (
         <div className="px-3.5 py-1.5 text-[12px] text-content-faint">Nothing to add here. Put the cursor in a resource, method, responses or body.</div>
       ))}
+    </section>
+  );
+}
+
+type Problem = { severity: 'error' | 'warning' | 'info'; message: string; file: string; line: number; col: number; endLine: number; endCol: number; phase: string; code: string };
+
+// Design Center's Project Errors: a bar with counts that opens into the list. Click a row to go there.
+function ProblemsPanel({ problems, open, setOpen, engine, onGo }: {
+  problems: Problem[]; open: boolean; setOpen: (b: boolean) => void; engine: { state: string; detail: string; ms?: string }; onGo: (p: Problem) => void;
+}) {
+  const nE = problems.filter((p) => p.severity === 'error').length, nW = problems.length - nE;
+  const files = [...new Set(problems.map((p) => p.file))];
+  const counts = (
+    <span className="flex items-center gap-2 text-[12px]">
+      <span className={`flex items-center gap-1 ${nE ? 'text-err' : 'text-content-faint'}`}><span className="w-2 h-2 rounded-full bg-current" />{nE}</span>
+      <span className={`flex items-center gap-1 ${nW ? 'text-warn' : 'text-content-faint'}`}><span className="w-2 h-2 rotate-45 bg-current" />{nW}</span>
+    </span>
+  );
+  return (
+    <section className="shrink-0 flex flex-col bg-surface border-t border-line" style={{ height: open ? 190 : 28 }}>
+      <div className="h-7 shrink-0 flex items-center gap-3 px-3 border-b border-line-subtle">
+        <button onClick={() => setOpen(!open)} className="flex items-center gap-2.5 text-[12px] font-semibold text-content-secondary hover:text-content">
+          Project errors {counts}
+        </button>
+        <span className="flex-1" />
+        <span className="text-[11px] text-content-faint flex items-center gap-1.5">
+          {engine.state === 'checking' && <span className="w-2.5 h-2.5 rounded-full border-2 border-warn border-t-transparent animate-spin" />}
+          {engine.state === 'checking' ? 'Checking' : engine.state === 'ready' ? (engine.ms ?? '') : engine.state === 'starting' ? 'Starting the checker' : ''}
+        </span>
+        <button onClick={() => setOpen(!open)} title={open ? 'Hide (Ctrl J)' : 'Show (Ctrl J)'} className="w-[22px] h-[22px] rounded flex items-center justify-center text-content-faint hover:bg-surface-2 hover:text-content">
+          {open ? <Icons.ChevronDown size={12} /> : <span className="rotate-180 flex"><Icons.ChevronDown size={12} /></span>}
+        </button>
+      </div>
+      {open && (
+        <div className="flex-1 overflow-auto py-1 select-text">
+          {(engine.state === 'failed' || engine.state === 'stopped') && (
+            <div className="mx-3 my-1.5 p-2.5 rounded-md border border-err-border bg-err-tint text-[12px]">
+              <div className="font-semibold text-err">The checker isn't running, so errors aren't up to date. Editing still works.</div>
+              {engine.detail && <pre className="mt-1.5 text-[11px] text-content-secondary whitespace-pre-wrap max-h-24 overflow-auto">{engine.detail}</pre>}
+            </div>
+          )}
+          {problems.length === 0 && engine.state !== 'failed' && <div className="px-3 py-3 text-[12.5px] text-content-faint">No errors to show.</div>}
+          {files.map((f) => (
+            <div key={f}>
+              <div className="h-6 flex items-center px-3 text-[12px] font-medium text-content-secondary">{base(f)} <span className="ml-2 text-[11px] font-normal text-content-faint">{f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : ''}</span></div>
+              {problems.filter((p) => p.file === f).map((p, i) => (
+                <div key={i} onClick={() => onGo(p)} className="flex items-center gap-2 min-h-[26px] pl-7 pr-3 text-[12.5px] cursor-pointer hover:bg-[var(--hover-overlay)]">
+                  <span className={`w-2 h-2 shrink-0 ${p.severity === 'error' ? 'rounded-full bg-err' : 'rotate-45 bg-warn'}`} />
+                  <span className="text-content">{p.message}</span>
+                  <span className="ml-auto font-mono text-[11px] text-content-faint whitespace-nowrap">{p.line}:{p.col + 1}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

@@ -1,3 +1,5 @@
+mod amf;
+
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -112,7 +114,17 @@ fn save_text_file(root: String, path: String, text: String) -> Result<(), String
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
-    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file])
-    .run(tauri::generate_context!())
-    .expect("error while running API Designer Studio");
+    .manage(std::sync::Arc::new(amf::Amf::default()))
+    .setup(|app| {
+      amf::start_in_background(app.handle());
+      Ok(())
+    })
+    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, amf::amf])
+    .build(tauri::generate_context!())
+    .expect("error while building API Designer Studio")
+    .run(|app, event| {
+      if let tauri::RunEvent::Exit = event {
+        amf::stop(app);
+      }
+    });
 }
