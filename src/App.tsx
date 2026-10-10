@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
-import { EditorState } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { EditorState, type Extension } from '@codemirror/state';
+import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
+import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import { listen } from '@tauri-apps/api/event';
 import { METHODS, baseExtensions, languageFor, yamlPathAt } from './editor';
-import { BUILTIN_TYPES, buildOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
+import { BUILTIN_TYPES, SCALAR_KEYS, normalizePath, buildOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Icons } from './components/Icons';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
@@ -48,11 +50,18 @@ export default function App() {
 
   // Leaving a project (or the window) with unsaved files asks first.
   const okToLeave = () => dirtyCount === 0 || window.confirm(`${dirtyCount} ${dirtyCount === 1 ? 'file has' : 'files have'} unsaved changes. Leave without saving?`);
+  // Closing the window with unsaved files asks first. (A browser-style beforeunload prompt would be
+  // a blocking native dialog in WebView2, so the guard sits on Tauri's close request instead.)
+  const dirtyRef = useRef(0);
+  dirtyRef.current = dirtyCount;
   useEffect(() => {
-    const before = (e: BeforeUnloadEvent) => { if (dirtyCount) { e.preventDefault(); } };
-    window.addEventListener('beforeunload', before);
-    return () => window.removeEventListener('beforeunload', before);
-  }, [dirtyCount]);
+    if (!isTauri) return;
+    const un = getCurrentWindow().onCloseRequested((e) => {
+      const n = dirtyRef.current;
+      if (n && !window.confirm(`${n} ${n === 1 ? 'file has' : 'files have'} unsaved changes. Close without saving?`)) e.preventDefault();
+    });
+    return () => { un.then((f) => f()); };
+  }, []);
 
   async function openFolder(root?: string) {
     if (project && !okToLeave()) return;
@@ -80,6 +89,7 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
+      if (import.meta.env.PROD && (e.key === 'F5' || (mod && e.key.toLowerCase() === 'r'))) { e.preventDefault(); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(true); }
       else if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); if (isTauri) openFolder(); }
       else if (e.key === 'Escape') { setSettingsAt(null); setPaletteOpen(false); }
@@ -292,6 +302,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
 
   useEffect(() => {
     view.current = new EditorView({ parent: host.current! });
+    if (import.meta.env.DEV) (window as unknown as { __view: EditorView }).__view = view.current; // for UI checks over CDP
     return () => view.current?.destroy();
   }, []);
 
@@ -315,13 +326,114 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
       const ro = isReadOnly(path);
       files.current.set(path, {
         disk: text,
-        state: EditorState.create({ doc: text, extensions: [...baseExtensions(), languageFor(path), listener, EditorState.readOnly.of(ro), EditorView.editable.of(!ro)] }),
+        state: EditorState.create({ doc: text, extensions: [...baseExtensions(), languageFor(path), ...assist(path), listener, EditorState.readOnly.of(ro), EditorView.editable.of(!ro)] }),
       });
     }
     setTabs((t) => (t.includes(path) ? t : [...t, path]));
     show(path);
   }
   openFileRef.current = openFile;
+
+  // ---------- Autocomplete, hover and go to definition (M1 step 5). All local, from the outline. ----------
+  const outlineRef = useRef<Outline | null>(null);
+  outlineRef.current = outline;
+
+  // Names a file can use: its own declarations bare, library ones as alias.Name through the root's uses:.
+  function namesFor(path: string, kind: 'types' | 'traits' | 'resourceTypes') {
+    const o = outlineRef.current; if (!o) return [];
+    const own = o.libraries.find((l) => l.path === path)?.alias ?? null;
+    return o[kind].map((d) => ({ d, label: d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name }))
+      .filter(({ d }) => path === project.main || d.alias === own || d.alias !== null);
+  }
+
+  function findDecl(path: string, word: string) {
+    const o = outlineRef.current; if (!o) return null;
+    const own = o.libraries.find((l) => l.path === path)?.alias ?? null;
+    const [a, n] = word.includes('.') ? word.split('.') : [own, word];
+    return [...o.types, ...o.traits, ...o.resourceTypes, ...o.securitySchemes].find((d) => d.name === n && (d.alias ?? null) === (a ?? null)) ?? null;
+  }
+
+  function relInclude(from: string, target: string) {
+    const fromDir = from.includes('/') ? from.slice(0, from.lastIndexOf('/')).split('/') : [];
+    const t = target.split('/');
+    let i = 0; while (i < fromDir.length && i < t.length - 1 && fromDir[i] === t[i]) i++;
+    return [...fromDir.slice(i).map(() => '..'), ...t.slice(i)].join('/');
+  }
+
+  const completions = (path: string) => (ctx: CompletionContext): CompletionResult | null => {
+    const line = ctx.state.doc.lineAt(ctx.pos), before = line.text.slice(0, ctx.pos - line.from);
+    const inc = before.match(/!include\s+(\S*)$/);
+    if (inc) {
+      const opts = project.files.map((f) => f.path).filter((p) => p !== path && /\.(raml|json|ya?ml|xsd|xml|md)$/i.test(p))
+        .map((p) => ({ label: relInclude(path, p), detail: p.startsWith('exchange_modules/') ? 'Exchange' : undefined, type: 'text' }));
+      return { from: ctx.pos - inc[1].length, options: opts, validFor: /^[\w./-]*$/ };
+    }
+    const tv = before.match(/(?:^|\s)(?:type|items):\s*([\w.]*)$/) || before.match(/\|\s*([\w.]*)$/);
+    if (tv) {
+      const crumb = yamlPathAt(ctx.state, ctx.pos);
+      const underResource = crumb.length >= 2 && crumb[crumb.length - 2].key.startsWith('/');
+      const opts = underResource
+        ? namesFor(path, 'resourceTypes').map(({ label }) => ({ label, type: 'class', detail: 'resource type' }))
+        : [...namesFor(path, 'types').map(({ d, label }) => ({ label, type: 'class', detail: d.alias ?? 'type' })), ...BUILTIN_TYPES.map((t) => ({ label: t, type: 'keyword', detail: 'built-in' }))];
+      return { from: ctx.pos - tv[1].length, options: opts, validFor: /^[\w.]*$/ };
+    }
+    const is = before.match(/is:\s*\[[^\]]*?([\w.-]*)$/);
+    if (is) return { from: ctx.pos - is[1].length, options: namesFor(path, 'traits').map(({ d, label }) => ({ label, type: 'interface', detail: d.alias ?? 'trait' })), validFor: /^[\w.-]*$/ };
+    // A key being typed: what the shelf would offer here, plus media types and status codes.
+    const key = before.match(/^(\s*)([\w/{}.-]*)$/);
+    if (key && (ctx.explicit || key[2].length > 0) && path === project.main) {
+      const sc = shelfContext(ctx.state.doc.toString(), line.number - 1, key[1].length);
+      if (sc.kind !== 'keys') return null;
+      const opts = sc.cols.flatMap((c) => c.items.map((i) => ({ label: i, type: METHODS.includes(i) ? 'method' : /^\d{3}$/.test(i) ? 'constant' : 'property', detail: c.title.toLowerCase(), apply: i + ':' + (SCALAR_KEYS.includes(i) ? ' ' : '') })));
+      return { from: ctx.pos - key[2].length, options: opts, validFor: /^[\w/{}.-]*$/ };
+    }
+    return null;
+  };
+
+  // The word under a position that could name a declaration: alias.Name or Name.
+  const wordAt = (state: EditorState, pos: number) => {
+    const line = state.doc.lineAt(pos), t = line.text, i = pos - line.from;
+    let s = i, e = i;
+    while (s > 0 && /[\w.-]/.test(t[s - 1])) s--;
+    while (e < t.length && /[\w.-]/.test(t[e])) e++;
+    return { text: t.slice(s, e).replace(/\[\]$/, ''), from: line.from + s, to: line.from + e, line: t };
+  };
+  async function goToDefinition(path: string, state: EditorState, pos: number) {
+    const w = wordAt(state, pos);
+    const inc = w.line.match(/!include\s+(\S+)/);
+    if (inc && w.line.indexOf(inc[1]) <= pos - state.doc.lineAt(pos).from) {
+      const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
+      const target = inc[1].startsWith('/') ? inc[1].slice(1) : normalizePath(dir + inc[1]);
+      if (project.files.some((f) => f.path === target)) { await openFile(target); return true; }
+      setNotice(`${target} doesn't exist.`); return true;
+    }
+    const d = findDecl(path, w.text); if (!d) return false;
+    await reveal(d.file, d.from); setSelId(d.id); return true;
+  }
+  const hover = (path: string) => hoverTooltip((view, pos) => {
+    const w = wordAt(view.state, pos); const d = w.text && findDecl(path, w.text); if (!d) return null;
+    const text = textOf(d.file); if (text == null) return null;
+    const startLine = text.slice(0, d.from).split('\n').length - 1, L = text.split('\n');
+    const ind = L[startLine].match(/^\s*/)![0].length;
+    let end = startLine + 1; while (end < L.length && (L[end].trim() === '' || L[end].match(/^\s*/)![0].length > ind)) end++;
+    const body = L.slice(startLine, Math.min(end, startLine + 14)).map((l) => l.slice(ind)).join('\n').trimEnd();
+    return { pos: w.from, end: w.to, above: true, create: () => {
+      const dom = document.createElement('div');
+      dom.style.cssText = 'padding:8px 10px;max-width:460px;font-family:var(--font-mono);font-size:12px;white-space:pre;color:var(--content-secondary)';
+      dom.textContent = body + (end - startLine > 14 ? '\n…' : '') + `\n\n${d.file}  (F12 to open)`;
+      return { dom };
+    } };
+  });
+  const assist = (path: string): Extension[] => [
+    autocompletion({ override: [completions(path)], icons: false }),
+    hover(path),
+    keymap.of([{ key: 'F12', run: (v) => { goToDefinition(path, v.state, v.state.selection.main.head); return true; } }]),
+    EditorView.domEventHandlers({ mousedown: (e, v) => {
+      if (!(e.ctrlKey || e.metaKey)) return false;
+      const pos = v.posAtCoords({ x: e.clientX, y: e.clientY }); if (pos == null) return false;
+      e.preventDefault(); goToDefinition(path, v.state, pos); return true;
+    } }),
+  ];
 
   // ---------- Live errors from amf-server: a quick parse after edits, a full check when idle or on save ----------
   const amf = (op: string, args: Record<string, unknown>) => invoke<any>('amf', { op, args }); // eslint-disable-line @typescript-eslint/no-explicit-any

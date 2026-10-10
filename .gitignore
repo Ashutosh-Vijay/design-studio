@@ -6,3 +6,4 @@ corpus-private/
 dist/
 src-tauri/gen/
 .tokens.json
+dependency-reduced-pom.xml

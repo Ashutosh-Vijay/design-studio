@@ -44,9 +44,9 @@ export function libraryPaths(rootPath: string, rootText: string): Library[] {
   const E = entries(rootText), u = topIndex(E, 'uses');
   if (u < 0) return [];
   const dir = rootPath.includes('/') ? rootPath.slice(0, rootPath.lastIndexOf('/') + 1) : '';
-  return kids(E, u).map((j) => ({ alias: E[j].key, path: E[j].val.startsWith('/') ? E[j].val.slice(1) : normalize(dir + E[j].val) }));
+  return kids(E, u).map((j) => ({ alias: E[j].key, path: E[j].val.startsWith('/') ? E[j].val.slice(1) : normalizePath(dir + E[j].val) }));
 }
-function normalize(p: string) {
+export function normalizePath(p: string) {
   const out: string[] = [];
   for (const part of p.split('/')) { if (part === '..') out.pop(); else if (part && part !== '.') out.push(part); }
   return out.join('/');
