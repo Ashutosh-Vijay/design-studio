@@ -9,6 +9,9 @@ import amf.core.client.common.transform.PipelineId;
 import amf.core.client.platform.AMFResult;
 import amf.core.client.common.remote.Content;
 import amf.core.client.platform.AMFParseResult;
+import amf.core.client.platform.model.document.BaseUnit;
+import amf.core.client.platform.reference.CachedReference;
+import amf.core.client.platform.reference.UnitCache;
 import amf.core.client.platform.resource.FileResourceLoader;
 import amf.core.client.platform.resource.HttpResourceLoader;
 import amf.core.client.platform.resource.ResourceLoader;
@@ -32,7 +35,7 @@ import java.util.concurrent.*;
  *   request  {id, op, ...}            reply {id, ok, ...} or {id, ok:false, error}
  *   open     {root, main}             the project and its root file (path relative to root)
  *   overlay  {files: {path: text}}    unsaved editor text, served before the disk; null removes one
- *   check    {mode: parse|validate}   problems from the parse phase, plus validation when asked
+ *   check    {mode: parse|validate}   problems from the parse phase, plus validation when asked (noCache:true skips the unit cache, for comparisons)
  *   convert  {path, to, syntax}       a spec file as OAS 3.0 / OAS 2.0 / RAML 1.0, YAML or JSON (Design Center's "Duplicate As")
  *
  * The first line out is {"event":"ready"}. AMF's own logging goes to stderr so it can never
@@ -89,6 +92,7 @@ public class Main {
         root = Paths.get(req.path("root").asText()).toAbsolutePath().normalize();
         main = req.path("main").asText();
         overlays.clear();
+        unitCache.clear();
         send(reply(req));
       }
       case "overlay" -> {
@@ -119,13 +123,56 @@ public class Main {
   // withResourceLoader() appends after AMF's own file loader, which then answers first. Replace the list instead.
   static List<ResourceLoader> loaders() { return List.of(OVERLAY, new FileResourceLoader(), new HttpResourceLoader()); }
 
+  // Parsed libraries and fragments, reused while none of the files they are built from has changed
+  // (on disk or in the overlay). Only units whose files parsed without problems are kept, so the
+  // problem list is the same with or without the cache.
+  record Cached(BaseUnit unit, Map<String, String> stamps) {}
+  static final Map<String, Cached> unitCache = new ConcurrentHashMap<>();
+  static final UnitCache CACHE = url -> {
+    Cached c = unitCache.get(pathOf(url));
+    if (c == null || !c.stamps().entrySet().stream().allMatch(e -> e.getValue().equals(stamp(e.getKey())))) {
+      return CompletableFuture.failedFuture(new Exception("not cached"));
+    }
+    return CompletableFuture.completedFuture(new CachedReference(url, c.unit()));
+  };
+  static String stamp(String path) {
+    String o = overlays.get(path);
+    if (o != null) return "o" + o.length() + ":" + o.hashCode();
+    File f = new File(path);
+    return f.exists() ? "f" + f.length() + ":" + f.lastModified() : "missing";
+  }
+  // Every file a unit is built from: itself and everything it references, all the way down.
+  static void files(BaseUnit u, Set<String> into) {
+    if (u.location() == null || !into.add(pathOf(u.location()))) return;
+    for (BaseUnit r : u.references()) files(r, into);
+  }
+  static void remember(BaseUnit rootUnit, List<AMFValidationResult> results) {
+    Set<String> bad = new HashSet<>();
+    for (AMFValidationResult r : results) r.location().ifPresent(l -> bad.add(pathOf(l)));
+    Set<String> seen = new HashSet<>();
+    Deque<BaseUnit> todo = new ArrayDeque<>(rootUnit.references());
+    while (!todo.isEmpty()) {
+      BaseUnit u = todo.pop();
+      if (u.location() == null || !seen.add(pathOf(u.location()))) continue;
+      todo.addAll(u.references());
+      Set<String> fs = new LinkedHashSet<>();
+      files(u, fs);
+      if (fs.stream().anyMatch(bad::contains)) continue; // a problem anywhere inside: parse it fresh each time
+      Map<String, String> stamps = new HashMap<>();
+      for (String f : fs) stamps.put(f, stamp(f));
+      unitCache.put(pathOf(u.location()), new Cached(u, stamps));
+    }
+  }
+
   static ObjectNode check(JsonNode req, boolean validate) throws Exception {
     if (root == null) throw new IllegalStateException("no project open");
     long t0 = System.nanoTime();
     AMFConfiguration config = APIConfiguration.API().withResourceLoaders(loaders());
+    if (!req.path("noCache").asBoolean()) config = config.withUnitCache(CACHE);
     AMFBaseUnitClient client = config.baseUnitClient();
     AMFParseResult parsed = client.parse(fileUrl(root.resolve(main))).get();
     long t1 = System.nanoTime();
+    if (!req.path("noCache").asBoolean()) remember(parsed.baseUnit(), parsed.results());
     List<ObjectNode> problems = new ArrayList<>();
     for (AMFValidationResult r : parsed.results()) problems.add(problem(r, "parse"));
     String spec = parsed.sourceSpec() == null ? "" : parsed.sourceSpec().id();
