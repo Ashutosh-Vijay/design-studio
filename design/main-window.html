@@ -484,8 +484,7 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
     <div style="flex:1"></div>
     <button class="ghost-btn" id="connectBtn" title="Sign in to pull, push and publish with Design Center"><span data-ic="cloud" data-s="14"></span>Connect to Anypoint</button>
     <div class="vsep"></div>
-    <button class="icon-btn" id="themeBtn" title="Switch theme"></button>
-    <button class="icon-btn" id="settingsBtn" title="Settings (Ctrl ,)"><span data-ic="settings" data-s="15"></span></button>
+    <button class="icon-btn" id="settingsBtn" title="Theme, accent and settings"><span data-ic="settings" data-s="15"></span></button>
     <div class="winctl">
       <button title="Minimize"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg></button>
       <button title="Maximize"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x=".5" y=".5" width="9" height="9" stroke="currentColor"/></svg></button>
@@ -497,14 +496,12 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
     <nav class="rail">
       <button class="rail-btn" data-rail="api" title="API (Ctrl Shift A)"><span data-ic="api" data-s="18"></span></button>
       <button class="rail-btn" data-rail="files" title="Files (Ctrl Shift E)"><span data-ic="files" data-s="18"></span></button>
-      <button class="rail-btn" data-rail="problems" title="Problems (Ctrl J)"><span data-ic="alert" data-s="18"></span><span class="badge" id="railBadge"></span></button>
     </nav>
 
     <aside class="side" id="side">
       <div class="side-head">
         <span class="title" id="sideTitle">API</span>
         <button class="mini-btn" title="Collapse all" id="collapseAll"><span data-ic="collapse" data-s="13"></span></button>
-        <button class="mini-btn" title="Hide sidebar (Ctrl B)" id="hideSide"><span data-ic="panelLeft" data-s="13"></span></button>
       </div>
       <label class="filter"><span data-ic="filter" data-s="12"></span><input id="filter" placeholder="Filter resources and types" spellcheck="false"><span class="kbd" id="filterKbd">/</span></label>
       <div class="tree" id="tree"></div>
@@ -518,9 +515,8 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
       <div class="split-y" id="splitB"></div>
       <section class="problems" id="problems">
         <div class="p-head">
-          <span class="p-title">Problems <span class="pill" id="pCount"></span></span>
+          <span class="p-title">Project errors <span class="pill" id="pCount"></span></span>
           <div class="seg" id="sevSeg"></div>
-          <div class="seg" id="scopeSeg"><button data-scope="all">All files</button><button data-scope="file">This file</button></div>
           <span class="p-meta" id="pMeta"></span>
           <button class="mini-btn" title="Hide problems (Ctrl J)" id="hideProblems"><span data-ic="x" data-s="13"></span></button>
         </div>
@@ -1148,7 +1144,7 @@ function renderFiles() {
     });
     (n.__f || []).forEach(p => {
       const ps = probs.filter(x => x.file === p); const l = lang(p);
-      h += `<div class="row${S.active === p ? ' sel' : ''}" data-file="${p}" style="padding-left:${8 + depth * 14}px"><span class="twist"></span><span class="ficon f-${l}">${l === 'raml' ? 'R' : l === 'json' ? '{}' : '·'}</span><span class="lbl" style="${p === MAIN ? 'font-weight:600;color:var(--content)' : ''}">${base(p)}</span><span class="tail">${p === MAIN ? '<span class="sub">main</span>' : ''}${ps.length ? `<span class="${ps.some(x => x.sev === 'error') ? 'cnt-err' : 'cnt-warn'}">${ps.length}</span>` : ''}${S.dirty.has(p) ? '<span class="dot" style="background:var(--content-muted)" title="Unsaved changes"></span>' : ''}</span></div>`;
+      h += `<div class="row${S.active === p ? ' sel' : ''}" data-file="${p}" style="padding-left:${8 + depth * 14}px"><span class="twist"></span><span class="ficon f-${l}">${l === 'raml' ? 'R' : l === 'json' ? '{}' : '·'}</span><span class="lbl" style="${p === MAIN ? 'font-weight:600;color:var(--content)' : ''}">${base(p)}</span><span class="tail">${p === MAIN ? '<span class="xtag" style="color:var(--accent);border-color:var(--accent-border)">Root file</span>' : ''}${ps.length ? `<span class="${ps.some(x => x.sev === 'error') ? 'cnt-err' : 'cnt-warn'}">${ps.length}</span>` : ''}${S.dirty.has(p) ? '<span class="dot" style="background:var(--content-muted)" title="Unsaved changes"></span>' : ''}</span></div>`;
     });
   };
   walk(tree, 0, '');
@@ -1174,11 +1170,9 @@ function renderCrumbs() {
 function renderProblems() {
   const all = liveProblems(); const nE = all.filter(p => p.sev === 'error').length, nW = all.length - nE;
   $('pCount').textContent = all.length;
-  $('railBadge').textContent = nE; $('railBadge').classList.toggle('hidden', !nE);
   $('sevSeg').innerHTML = `<button data-sev="all" class="${S.sev === 'all' ? 'on' : ''}">All</button><button data-sev="error" class="${S.sev === 'error' ? 'on' : ''}"><span style="color:var(--err);display:inline-flex">${ic('errorDot', 11, 2)}</span>${nE}</button><button data-sev="warning" class="${S.sev === 'warning' ? 'on' : ''}"><span style="color:var(--warn);display:inline-flex">${ic('warnTri', 11, 2)}</span>${nW}</button>`;
-  document.querySelectorAll('#scopeSeg button').forEach(b => b.classList.toggle('on', b.dataset.scope === S.scope));
   const engine = S.engine === 'parsing' ? '<span class="spin"></span>Reading…' : S.engine === 'checking' ? `<span class="spin"></span>Read in ${(S.parseMs / 1000).toFixed(2)} s · full check running…` : `Full check ${(S.checkMs / 1000).toFixed(1)} s, ${S.checkedAgo ? S.checkedAgo + ' s ago' : 'just now'}`;
-  $('pMeta').innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px">${engine}</span><button class="btn" id="checkNow" style="height:22px">${ic('refresh', 12)}Check now</button>`;
+  $('pMeta').innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px">${engine}</span>`;
   const shown = all.filter(p => (S.sev === 'all' || p.sev === S.sev) && (S.scope === 'all' || p.file === S.active));
   if (!shown.length) { $('pList').innerHTML = `<div class="p-empty"><span style="color:var(--ok);display:inline-flex">${ic('check', 15, 2)}</span>${all.length ? 'Nothing here with this filter.' : 'No problems. The spec reads and checks clean.'}</div>`; return; }
   const files = [...new Set(shown.map(p => p.file))];
@@ -1256,9 +1250,8 @@ function renderInspector() {
 // ---------- Status bar ----------
 function renderStatus() {
   const all = liveProblems(); const nE = all.filter(p => p.sev === 'error').length, nW = all.length - nE;
-  const eng = S.engine === 'ready' ? `<span style="color:var(--accent);display:inline-flex;align-items:center;gap:5px"><span class="dot" style="background:var(--accent)"></span>AMF ready</span>` : `<span style="color:var(--warn);display:inline-flex;align-items:center;gap:6px"><span class="spin"></span>${S.engine === 'parsing' ? 'Reading' : 'Checking'}</span>`;
-  const eol = lines(S.active).length && S.active === LIBS.accountLib ? 'CRLF' : 'LF';
-  $('status').innerHTML = `${eng}<span>RAML 1.0</span><button id="stProblems" title="Problems (Ctrl J)"><span style="color:var(--err);display:inline-flex">${ic('errorDot', 12, 2)}</span>${nE}<span style="color:var(--warn);display:inline-flex;margin-left:6px">${ic('warnTri', 12, 2)}</span>${nW}</button><span title="The main file, from exchange.json">main: ${MAIN}</span><span style="flex:1"></span><span>Ln ${S.cursor.line + 1}, Col ${S.cursor.col + 1}</span><span>${lang(S.active) === 'raml' ? 'Spaces: 2' : 'JSON'}</span><span title="Line endings are kept as each file has them">${eol}</span><span>UTF-8</span><span style="color:var(--content-ghost)">v0.1.0</span>`;
+  const eng = S.engine === 'ready' ? `<span style="color:var(--accent);display:inline-flex;align-items:center;gap:5px"><span class="dot" style="background:var(--accent)"></span>Ready</span>` : `<span style="color:var(--warn);display:inline-flex;align-items:center;gap:6px"><span class="spin"></span>${S.engine === 'parsing' ? 'Reading' : 'Checking'}</span>`;
+  $('status').innerHTML = `${eng}<button id="stProblems" title="Project errors (Ctrl J)"><span style="color:var(--err);display:inline-flex">${ic('errorDot', 12, 2)}</span>${nE}<span style="color:var(--warn);display:inline-flex;margin-left:6px">${ic('warnTri', 12, 2)}</span>${nW}</button><span style="flex:1"></span><span>Ln ${S.cursor.line + 1}, Col ${S.cursor.col + 1}</span><span>RAML 1.0</span>`;
 }
 
 function renderLayout() {
@@ -1371,7 +1364,6 @@ function applyTheme() {
   root.style.setProperty('--accent', `oklch(${l}% ${a.chroma} ${a.hue})`); root.style.setProperty('--accent-hover', `oklch(${hl}% ${a.chroma} ${a.hue})`);
   root.style.setProperty('--accent-dim', `oklch(${l}% ${a.chroma} ${a.hue} / ${isDark() ? 0.14 : 0.10})`); root.style.setProperty('--accent-border', `oklch(${l}% ${a.chroma} ${a.hue} / 0.32)`);
   root.style.setProperty('--selection-bg', `oklch(${l}% ${a.chroma} ${a.hue} / ${isDark() ? 0.35 : 0.25})`);
-  $('themeBtn').innerHTML = ic(isDark() ? 'sun' : 'moon', 15); $('themeBtn').title = isDark() ? 'Switch to Paper' : 'Switch to Dusk';
   try { localStorage.setItem('ads.theme', pref); localStorage.setItem('ads.accent', accent); } catch {}
 }
 function setTheme(t) { pref = t; applyTheme(); refreshSettings(); }
@@ -1618,7 +1610,7 @@ function openSettingsScreen() {
     let h = '';
     if (SET.section === 'appearance') {
       const dusk = preview('oklch(14% 0.004 80)', 'oklch(12% 0.004 80)', 'oklch(26% 0.004 80)'), paper = preview('oklch(100% 0 0)', 'oklch(96% 0.003 80)', 'oklch(90% 0.004 80)');
-      h += `<h4>Theme</h4><div class="theme-cards">${[['dark', 'Dusk', dusk], ['light', 'Paper', paper], ['system', 'Match Windows', `<div class="pv"><div style="flex:1;display:flex">${dusk}</div><div style="flex:1;display:flex">${paper}</div></div>`]].map(([id, nm, pv]) => `<button class="tcard${pref === id ? ' on' : ''}" data-theme="${id}">${pv}<div class="nm">${nm}</div></button>`).join('')}</div>
+      h += `<h4>Theme</h4><div class="theme-cards">${[['dark', 'Dusk', dusk], ['light', 'Paper', paper], ['system', 'Match system', `<div class="pv"><div style="flex:1;display:flex">${dusk}</div><div style="flex:1;display:flex">${paper}</div></div>`]].map(([id, nm, pv]) => `<button class="tcard${pref === id ? ' on' : ''}" data-theme="${id}">${pv}<div class="nm">${nm}</div></button>`).join('')}</div>
         <h4 style="margin-top:22px">Accent</h4><div class="swatches" style="margin-top:10px">${ACCENTS.map(a => `<button class="sw${accent === a.id ? ' on' : ''}" data-accent="${a.id}" title="${a.name}" style="background:oklch(${isDark() ? 72 : 55}% ${a.chroma} ${a.hue})"></button>`).join('')}</div>`;
     } else if (SET.section === 'editor') {
       h += `<h4>Editor</h4>
@@ -1702,8 +1694,6 @@ $('pList').addEventListener('click', e => {
 });
 $('problems').addEventListener('click', e => {
   const s = e.target.closest('[data-sev]'); if (s) { S.sev = s.dataset.sev; renderProblems(); }
-  const sc = e.target.closest('[data-scope]'); if (sc) { S.scope = sc.dataset.scope; renderProblems(); }
-  if (e.target.closest('#checkNow')) reparse();
 });
 $('inspBody').addEventListener('click', e => {
   const a = e.target.closest('[data-act]'); if (a) { doAct(a.dataset.act, a.dataset.id); return; }
@@ -1715,18 +1705,15 @@ $('inspBody').addEventListener('click', e => {
 $('status').addEventListener('click', e => { if (e.target.closest('#stProblems')) { S.problems = !S.problems; renderLayout(); } });
 document.querySelectorAll('.rail-btn[data-rail]').forEach(b => b.onclick = () => {
   const r = b.dataset.rail;
-  if (r === 'problems') { S.problems = true; S.sev = 'all'; renderAll(); return; }
   if (S.rail === r && S.side) S.side = false; else { S.rail = r; S.side = true; }
   renderLayout(); renderTree();
 });
-$('hideSide').onclick = () => { S.side = false; renderLayout(); };
 $('hideInsp').onclick = () => { S.insp = false; renderLayout(); };
 $('hideProblems').onclick = () => { S.problems = false; renderLayout(); };
 $('collapseAll').onclick = () => { MODEL.all.filter(n => n.kind === 'res').forEach(n => S.collapsed.add(n.id)); renderTree(); };
 $('filter').oninput = e => { S.filter = e.target.value; renderTree(); };
 $('filter').onfocus = () => $('filterKbd').classList.add('hidden'); $('filter').onblur = () => $('filterKbd').classList.toggle('hidden', !!S.filter);
 $('palBtn').onclick = openPalette;
-$('themeBtn').onclick = () => setTheme(isDark() ? 'light' : 'dark');
 $('settingsBtn').onclick = () => openSettings();
 $('connectBtn').onclick = () => toast('Sign in with Anypoint, or your own Connected App. Opens the connect screen (a later mockup).', 'cloud');
 $('projBtn').onclick = () => {

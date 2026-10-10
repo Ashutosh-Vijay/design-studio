@@ -272,7 +272,6 @@ footer button:hover { color: var(--content); }
       <g fill="none" stroke="var(--accent-ink)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h4M7 12h3M9 7v10h3"/><circle cx="15.5" cy="12" r="1.7"/><circle cx="15.5" cy="17" r="1.7"/></g></svg>
     <span class="appname" id="appName"></span>
     <div style="flex:1"></div>
-    <button class="icon-btn" id="themeBtn"></button>
     <button class="icon-btn" id="settingsBtn" title="Theme and accent"></button>
     <div class="winctl">
       <button title="Minimize"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg></button>
@@ -318,6 +317,9 @@ footer button:hover { color: var(--content); }
 
 <script>
 const APP_NAME = 'API Designer Studio'; // working name, one place to change it
+// Where secrets live, by OS: Tauri reports the platform; the keyring crate covers all three.
+const PLATFORM = /Mac/.test(navigator.platform) ? 'mac' : /Linux/.test(navigator.platform) ? 'linux' : 'windows';
+const KEYCHAIN = { windows: 'Windows Credential Manager', mac: 'the macOS Keychain', linux: 'the system keyring (GNOME Keyring or KWallet)' }[PLATFORM];
 const IC = {
   folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
   zip: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M11 6h1M11 9h1M11 12h1M10.5 15h2v3h-2z"/>',
@@ -359,7 +361,6 @@ function applyTheme() {
   const a = ACCENTS.find(x => x.id === accent) || ACCENTS[0]; const l = isDark() ? 72 : 55, hl = isDark() ? 78 : 50;
   root.style.setProperty('--accent', `oklch(${l}% ${a.chroma} ${a.hue})`); root.style.setProperty('--accent-hover', `oklch(${hl}% ${a.chroma} ${a.hue})`);
   root.style.setProperty('--accent-dim', `oklch(${l}% ${a.chroma} ${a.hue} / ${isDark() ? 0.14 : 0.10})`); root.style.setProperty('--accent-border', `oklch(${l}% ${a.chroma} ${a.hue} / 0.32)`);
-  $('themeBtn').innerHTML = ic(isDark() ? 'sun' : 'moon', 15); $('themeBtn').title = isDark() ? 'Switch to Paper' : 'Switch to Dusk';
   try { localStorage.setItem('ads.theme', pref); localStorage.setItem('ads.accent', accent); } catch {}
   const p = $('pop'); if (p) p.innerHTML = settingsHtml();
 }
@@ -372,7 +373,6 @@ $('settingsBtn').onclick = () => {
   $('layer').innerHTML = `<div class="pop" id="pop" style="top:${r.bottom + 4}px;right:${innerWidth - r.right}px">${settingsHtml()}</div>`;
   $('pop').onclick = e => { const t = e.target.closest('[data-theme]'), a = e.target.closest('[data-accent]'); if (t) pref = t.dataset.theme; if (a) accent = a.dataset.accent; if (t || a) applyTheme(); };
 };
-$('themeBtn').onclick = () => { pref = isDark() ? 'light' : 'dark'; applyTheme(); };
 document.addEventListener('mousedown', e => { if ($('pop') && !e.target.closest('#pop') && !e.target.closest('#settingsBtn')) closeLayer(); });
 
 // ---------- Engine warm-up at launch (ARCHITECTURE 4: pay the class loading before anything is opened) ----------
@@ -450,7 +450,7 @@ function openProject(r) {
 }
 
 // ---------- Open folder ----------
-$('actFolder').onclick = () => toast('Opens the Windows folder picker. Pick customer-orders-sapi to continue the demo.', 'folder', { label: 'Pick it', run: () => openProject(RECENT[0]) });
+$('actFolder').onclick = () => toast('Opens the folder picker. Pick customer-orders-sapi to continue the demo.', 'folder', { label: 'Pick it', run: () => openProject(RECENT[0]) });
 
 // ---------- Zip import ----------
 function openZip(fileName = 'store-experience-eapi-1.0.12.zip') {
@@ -469,7 +469,7 @@ function openZip(fileName = 'store-experience-eapi-1.0.12.zip') {
     </div>
     <div class="modal-foot"><span class="grow"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="zipGo">Unpack and open</button></div></div></div>`;
   $('scrim').onclick = e => { if (e.target.id === 'scrim' || e.target.closest('[data-close]')) closeLayer();
-    if (e.target.closest('#zipBrowse')) toast('Opens the Windows folder picker'); };
+    if (e.target.closest('#zipBrowse')) toast('Opens the folder picker'); };
   $('zipGo').onclick = () => openProject({ name: base.replace(/-\d+\.\d+\.\d+$/, ''), files: 38 });
   $('zipGo').focus();
 }
@@ -495,7 +495,7 @@ function openConnect() {
           <div class="hint">${C.byok === 'user' ? 'You still sign in in the browser. Add http://127.0.0.1/callback as a redirect URI.' : 'No browser sign-in. Good for shared machines. Give it the Design Center Developer scope.'}</div></div>
         <div class="row2"><div class="field" style="flex:1"><label>Client ID</label><input class="inp mono" placeholder="Paste the client ID" spellcheck="false"></div>
           <div class="field" style="flex:1"><label>Client secret</label><input class="inp mono" type="password" placeholder="Paste the client secret"></div></div>
-        <div class="hint" style="margin-top:-8px;display:flex;gap:6px;align-items:center">${ic('key', 12)}Kept in Windows Credential Manager, never in a project file.</div></div>` : ''}
+        <div class="hint" style="margin-top:-8px;display:flex;gap:6px;align-items:center">${ic('key', 12)}Kept in ${KEYCHAIN}, never in a project file.</div></div>` : ''}
       <div class="field" style="margin:14px 0 0;display:flex;align-items:center;gap:10px"><label style="margin:0" for="region">Region</label>
         <select class="sel" id="region">${['US', 'EU', 'Canada', 'Japan', 'India', 'Australia'].map(r => `<option ${C.region === r ? 'selected' : ''}>${r}</option>`).join('')}</select>
         <span class="hint" style="margin:0">Where your Anypoint organization lives.</span></div>`;
@@ -529,7 +529,7 @@ function openConnect() {
     if (e.target.closest('[data-back]')) { C.step = 'choose'; return openConnect(); }
     if (e.target.closest('[data-fake]')) { C.step = 'projects'; return openConnect(); }
     if (e.target.closest('[data-copylink]')) return toast('Sign-in link copied');
-    if (e.target.closest('[data-browse]')) return toast('Opens the Windows folder picker');
+    if (e.target.closest('[data-browse]')) return toast('Opens the folder picker');
     const pr = e.target.closest('[data-proj]'); if (pr) { const p = DC_PROJECTS.find(x => x.name === pr.dataset.proj); if (p.unsupported) return toast('AsyncAPI projects come in a later version', 'alert'); C.pick = p.name; return openConnect(); }
     if (e.target.closest('[data-pull]')) { C.step = 'choose'; openProject({ name: C.pick, files: 31, kind: 'dc' }); }
   };
