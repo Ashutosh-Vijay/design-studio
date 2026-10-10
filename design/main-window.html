@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Main window mockup</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Fira+Code:wght@400;700&family=IBM+Plex+Mono:wght@400;700&family=Geist+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
 /* ===== Tokens copied from DataWeave Studio src/index.css (Dusk / Paper) ===== */
 :root {
@@ -234,7 +234,7 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
 .crumb.res { font-family: var(--font-mono); font-size: 11.5px; }
 .crumbs .sepc { color: var(--content-ghost); }
 
-.editor { flex: 1; min-height: 0; overflow: auto; position: relative; font-family: var(--font-mono); font-size: 12.5px; cursor: text; user-select: text; }
+.editor { flex: 1; min-height: 0; overflow: auto; position: relative; font-family: var(--editor-font, var(--font-mono)); font-size: var(--editor-size, 12.5px); cursor: text; user-select: text; }
 .code { position: relative; padding: 6px 0 40vh; min-width: max-content; }
 .ln { display: flex; height: 20px; line-height: 20px; white-space: pre; }
 .ln.cur { background: var(--surface-2); }
@@ -364,6 +364,75 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
 .spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--warn); border-top-color: transparent; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+
+/* modal dialogs (Duplicate as…, settings) */
+.modal-scrim { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.light .modal-scrim { background: rgba(0,0,0,0.18); }
+.modal { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; max-height: calc(100vh - 48px); overflow: hidden; animation: min 0.14s ease-out; }
+@keyframes min { from { transform: translateY(8px) scale(0.99); opacity: 0; } }
+.modal-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.modal-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.modal-head .sub { margin-top: 2px; font-size: 12px; color: var(--content-muted); }
+.modal-foot { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.modal-foot .note { margin: 0; flex: 1; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.field { margin-bottom: 14px; }
+.field > label, .field > .lab { display: block; margin-bottom: 5px; font-size: 11.5px; font-weight: 600; color: var(--content-secondary); }
+.inp { width: 100%; height: 30px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-input); color: var(--content); outline: 0; font-size: 12.5px; }
+.inp.mono { font-family: var(--font-mono); font-size: 12px; }
+.inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.inp.bad { border-color: var(--err); box-shadow: 0 0 0 3px color-mix(in oklch, var(--err) 14%, transparent); }
+.hint { margin-top: 5px; font-size: 11.5px; color: var(--content-faint); display: flex; gap: 5px; align-items: flex-start; }
+.hint.err { color: var(--err); }
+.check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
+.exrow { display: grid; grid-template-columns: minmax(0, 0.8fr) 14px minmax(0, 1.2fr) 30px; align-items: center; gap: 6px; margin-top: 6px; }
+.exrow .from { font-family: var(--font-mono); font-size: 11px; color: var(--content-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exrow .inp { height: 26px; font-size: 11px; padding: 0 6px; }
+.exrow .tag { font-size: 10px; font-weight: 600; white-space: nowrap; }
+.seg.methods button { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; }
+.seg.methods button:disabled { opacity: 0.35; cursor: not-allowed; }
+.diff { flex: 1; overflow: auto; font-family: var(--font-mono); font-size: 12px; background: var(--surface); }
+.dl { display: flex; height: 19px; line-height: 19px; white-space: pre; }
+.dl .n { width: 44px; flex-shrink: 0; text-align: right; padding-right: 8px; color: var(--content-ghost); user-select: none; }
+.dl .sg { width: 16px; flex-shrink: 0; color: var(--content-ghost); user-select: none; }
+.dl.add { background: color-mix(in oklch, var(--ok) 9%, transparent); }
+.dl.add .sg { color: var(--ok); }
+.dl.add .n { color: color-mix(in oklch, var(--ok) 70%, var(--content-ghost)); }
+.dl.ctx { opacity: 0.6; }
+.dl.gap { color: var(--content-ghost); font-family: var(--font-sans); font-size: 11px; padding-left: 60px; height: 22px; line-height: 22px; }
+.sq-chg { background: color-mix(in oklch, var(--ok) 26%, transparent); border-radius: 2px; }
+.ptabs { display: flex; gap: 2px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); background: var(--bg); }
+.ptab { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; font-size: 12px; color: var(--content-faint); border-radius: 6px 6px 0 0; cursor: pointer; }
+.ptab.on { background: var(--surface); color: var(--content); box-shadow: inset 0 2px 0 var(--accent); }
+.ptab .plus { color: var(--ok); font-family: var(--font-mono); font-size: 11px; font-weight: 700; }
+.newfile { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-bottom: 1px solid var(--line-secondary); font-size: 12px; }
+.newfile .mono { font-size: 11.5px; }
+.toast .act { margin-left: 6px; height: 22px; padding: 0 8px; border-radius: 4px; font-size: 12px; font-weight: 600; color: var(--accent); }
+.toast .act:hover { background: var(--accent-dim); }
+/* settings screen */
+.set-nav { width: 180px; flex-shrink: 0; padding: 10px 8px; border-right: 1px solid var(--line); background: var(--bg); }
+.set-nav button { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border-radius: 6px; font-size: 12.5px; color: var(--content-muted); text-align: left; }
+.set-nav button:hover { color: var(--content); background: var(--hover-overlay); }
+.set-nav button.on { background: var(--surface-2); color: var(--content); font-weight: 600; }
+.set-body { flex: 1; overflow: auto; padding: 18px 22px 24px; }
+.set-body h4 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+.set-row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line-secondary); }
+.set-row:last-child { border-bottom: 0; }
+.set-row .txt2 { flex: 1; }
+.set-row .t1 { font-size: 12.5px; color: var(--content); }
+.set-row .t2 { font-size: 11.5px; color: var(--content-faint); margin-top: 2px; }
+.sw-toggle { width: 32px; height: 18px; border-radius: 9px; background: var(--surface-3); border: 1px solid var(--line); position: relative; flex-shrink: 0; }
+.sw-toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--content-muted); transition: left 0.12s; }
+.sw-toggle.on { background: var(--accent); border-color: var(--accent); }
+.sw-toggle.on::after { left: 16px; background: var(--accent-ink); }
+.theme-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+.tcard { border: 1px solid var(--line); border-radius: 8px; padding: 6px; text-align: left; }
+.tcard.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+.tcard .pv { height: 62px; border-radius: 5px; overflow: hidden; display: flex; }
+.tcard .nm { font-size: 12px; font-weight: 600; margin: 6px 2px 0; }
+.sel { height: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-input); color: var(--content); font-size: 12px; }
+
 /* popovers, menus, palette, toast */
 .pop { position: fixed; z-index: 50; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; min-width: 200px; }
 .mi { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; border-radius: 4px; font-size: 12.5px; color: var(--content-secondary); text-align: left; }
@@ -429,8 +498,6 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
       <button class="rail-btn" data-rail="api" title="API (Ctrl Shift A)"><span data-ic="api" data-s="18"></span></button>
       <button class="rail-btn" data-rail="files" title="Files (Ctrl Shift E)"><span data-ic="files" data-s="18"></span></button>
       <button class="rail-btn" data-rail="problems" title="Problems (Ctrl J)"><span data-ic="alert" data-s="18"></span><span class="badge" id="railBadge"></span></button>
-      <div style="flex:1"></div>
-      <button class="rail-btn" id="railSettings" title="Settings"><span data-ic="settings" data-s="18"></span></button>
     </nav>
 
     <aside class="side" id="side">
@@ -475,6 +542,8 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
 <div id="layer"></div>
 
 <script>
+const APP_NAME = 'API Designer Studio'; // working name, one place to change it
+
 // ---------- Icons (24px grid, stroke 1.5, like DataWeave Studio's Icons.tsx) ----------
 const IC = {
   chevDown: '<polyline points="6 9 12 15 18 9"/>',
@@ -882,7 +951,7 @@ const S = {
   rail: 'api', tabs: [MAIN, LIBS.ordersLib, 'examples/get-order-response.json'], active: MAIN,
   cursor: { line: 0, col: 0 }, dirty: new Set([MAIN]), sel: null, popup: null, filter: '',
   closedSecs: new Set(['Resource types', 'Security schemes']), collapsed: new Set(), openDirs: new Set(['data-types', 'examples', 'traits']),
-  sev: 'all', scope: 'all', fixed: new Set(), engine: 'ready', parseMs: 180, checkMs: 1940, checkedAgo: 4,
+  undo: null, sev: 'all', scope: 'all', fixed: new Set(), engine: 'ready', parseMs: 180, checkMs: 1940, checkedAgo: 4,
   side: true, insp: true, problems: true, menu: null,
 };
 const cursorByFile = {};
@@ -1204,9 +1273,10 @@ function renderLayout() {
 function renderAll(keepScroll = true) { renderLayout(); renderTree(); renderTabs(); renderCrumbs(); renderEditor(keepScroll); renderProblems(); renderInspector(); renderStatus(); }
 
 // ---------- Menus, palette, toasts ----------
-function toast(msg, icon = 'check') {
-  const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = `<span class="ico">${ic(icon, 15, 2)}</span>${esc(msg)}`;
-  $('toasts').appendChild(t); setTimeout(() => t.remove(), 3200);
+function toast(msg, icon = 'check', action) {
+  const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = `<span class="ico">${ic(icon, 15, 2)}</span><span>${esc(msg)}</span>`;
+  if (action) { const b = document.createElement('button'); b.className = 'act'; b.textContent = action.label; b.onclick = () => { t.remove(); action.run(); }; t.appendChild(b); }
+  $('toasts').appendChild(t); setTimeout(() => t.remove(), action ? 7000 : 3200);
 }
 function closeLayer() { $('layer').innerHTML = ''; S.menu = null; }
 function popAt(anchor, html, cls = '') {
@@ -1228,7 +1298,7 @@ function nodeMenu(id) {
 }
 function doAct(act, id) {
   const n = id && byId(id); closeLayer();
-  if (act === 'dup') toast(`Duplicate as… for ${n ? (n.m ? n.m.toUpperCase() + ' ' : '') + n.path : 'this'} opens the dialog. That's the next mockup.`, 'dup');
+  if (act === 'dup') { if (n && (n.kind === 'res' || n.kind === 'method')) openDuplicate(n); else toast('Pick a resource or a method first, in the tree or with the cursor.', 'dup'); }
   else if (act === 'code' && n) select(n, true);
   else if (act === 'copypath' && n) { try { navigator.clipboard.writeText(n.path); } catch {} toast('Copied ' + n.path, 'copy'); }
   else if (act === 'usages' && n) { select(n, false); toast(`${usagesOfType(n).length} usages listed in the Inspector`, 'search'); }
@@ -1303,18 +1373,292 @@ function applyTheme() {
   $('themeBtn').innerHTML = ic(isDark() ? 'sun' : 'moon', 15); $('themeBtn').title = isDark() ? 'Switch to Paper' : 'Switch to Dusk';
   try { localStorage.setItem('ads.theme', pref); localStorage.setItem('ads.accent', accent); } catch {}
 }
-function setTheme(t) { pref = t; applyTheme(); if ($('pop')?.classList.contains('settings')) openSettings(); }
-function openSettings(anchor = $('settingsBtn')) {
-  const p = popAt(anchor, `<h5>Theme</h5><div class="seg wide">${[['dark', 'Dusk'], ['light', 'Paper'], ['system', 'System']].map(([id, nm]) => `<button data-theme="${id}" class="${pref === id ? 'on' : ''}">${nm}</button>`).join('')}</div>
+function setTheme(t) { pref = t; applyTheme(); refreshSettings(); }
+// Quick settings: theme and accent. Re-rendered in place, so the popover never moves.
+const settingsHtml = () => `<h5>Theme</h5><div class="seg wide">${[['dark', 'Dusk'], ['light', 'Paper'], ['system', 'System']].map(([id, nm]) => `<button data-theme="${id}" class="${pref === id ? 'on' : ''}">${nm}</button>`).join('')}</div>
     <h5 style="margin-top:14px">Accent</h5><div class="swatches">${ACCENTS.map(a => `<button class="sw${accent === a.id ? ' on' : ''}" data-accent="${a.id}" title="${a.name}" style="background:oklch(${isDark() ? 72 : 55}% ${a.chroma} ${a.hue})"></button>`).join('')}</div>
-    <div class="msep" style="margin:14px 0 8px"></div><button class="mi" data-act-settings="all">All settings…<span class="sc">Ctrl ,</span></button>`, 'settings');
+    <div class="msep" style="margin:14px 0 8px"></div><button class="mi" data-act-settings="all">All settings…<span class="sc">Ctrl ,</span></button>`;
+function refreshSettings() { const p = $('pop'); if (p?.classList.contains('settings')) p.innerHTML = settingsHtml(); }
+function openSettings() {
+  const p = popAt($('settingsBtn'), settingsHtml(), 'settings');
   p.onclick = e => {
     const t = e.target.closest('[data-theme]'), a = e.target.closest('[data-accent]');
-    if (t) setTheme(t.dataset.theme); if (a) { accent = a.dataset.accent; applyTheme(); openSettings(anchor); }
-    if (e.target.closest('[data-act-settings]')) { closeLayer(); toast('The full settings screen is copied from DataWeave Studio'); }
+    if (t) setTheme(t.dataset.theme);
+    if (a) { accent = a.dataset.accent; applyTheme(); refreshSettings(); }
+    if (e.target.closest('[data-act-settings]')) openSettingsScreen();
   };
 }
 function saveAll() { const n = S.dirty.size; S.dirty.clear(); renderAll(); toast(n ? `Saved ${n} ${n === 1 ? 'file' : 'files'}. Line endings kept.` : 'Nothing to save'); }
+
+// ---------- Duplicate as… (the first edit operation: a text splice, M0.2) ----------
+const VERB_WORDS = { get: ['get', 'list'], post: ['create', 'add'], put: ['update', 'replace'], patch: ['patch', 'update'], delete: ['delete', 'cancel', 'remove'] };
+const METHOD_COLOR = { get: 'cyan', post: 'ok', put: 'warn', patch: 'violet', delete: 'err' };
+const lastLiteral = path => path.split('/').filter(x => x && !x.startsWith('{')).pop() || '';
+const singular = w => w.replace(/ies$/, 'y').replace(/s$/, '');
+function blockEnd(L, E, k) {
+  let end = L.length;
+  for (let j = k + 1; j < E.length; j++) if (E[j].ind <= E[k].ind) { end = E[j].i; break; }
+  while (end - 1 > E[k].i && !L[end - 1].trim()) end--;
+  return end;
+}
+// get-order-response.json under /orders -> get-return-response.json under /returns; falls back to -copy
+function renameExample(p, oldPath, newPath, oldVerb, newVerb, taken) {
+  const name = base(p), dir = p.slice(0, p.length - name.length);
+  let out = name;
+  const o = singular(lastLiteral(oldPath)), n = singular(lastLiteral(newPath));
+  if (o && n && o !== n) out = out.replace(new RegExp(`(^|[-_.])${o}(s?)(?=[-_.])`, 'gi'), `$1${n}$2`);
+  if (oldVerb && newVerb && oldVerb !== newVerb) { const w = out.split(/[-_.]/)[0]; if (VERB_WORDS[oldVerb]?.includes(w)) out = VERB_WORDS[newVerb][0] + out.slice(w.length); }
+  if (out === name) out = name.replace(/(\.[^.]+)$/, '-copy$1');
+  let cand = dir + out, i = 2;
+  while (allPaths().includes(cand) || taken.has(cand)) cand = dir + out.replace(/(\.[^.]+)$/, `-${i++}$1`);
+  taken.add(cand); return cand;
+}
+function swapVerb(name, oldVerb, newVerb) {
+  if (!name || oldVerb === newVerb) return name;
+  const w = name.split(' ')[0].toLowerCase();
+  if (!VERB_WORDS[oldVerb]?.includes(w)) return name;
+  const nv = VERB_WORDS[newVerb][0]; return nv[0].toUpperCase() + nv.slice(1) + name.slice(w.length);
+}
+// Works out the whole change without touching anything: where it goes, the copied lines, the renamed examples.
+function planDuplicate(D) {
+  const L = lines(MAIN), E = entries(MAIN), src = D.node;
+  const ress = MODEL.all.filter(n => n.kind === 'res');
+  const k = E.findIndex(e => e.i === src.line);
+  const end = blockEnd(L, E, k);
+  const plan = { error: '', pathError: false, hint: '', insertAt: 0, lines: [], marks: [], examples: [] };
+  let newInd, insertAt, firstLine;
+  if (src.kind === 'res') {
+    const np = D.path.trim();
+    if (!/^\/[\w\-{}.\/]*[^\/]$/.test(np) || np.includes('//')) { plan.error = 'A path starts with / and has no spaces, like /returns or /orders/{orderId}/notes.'; plan.pathError = true; return plan; }
+    if (ress.some(r => r.path === np)) { plan.error = `${np} already exists. Pick a new path, or add a method to it instead.`; plan.pathError = true; return plan; }
+    const parent = ress.filter(r => np.startsWith(r.path + '/')).sort((a, b) => b.path.length - a.path.length)[0];
+    const key = np.slice(parent ? parent.path.length : 0);
+    const srcParentPath = src.path.slice(0, src.path.length - src.key.length);
+    if (parent) {
+      const pk = E.findIndex(e => e.i === parent.line); const ck = kids(E, pk)[0];
+      newInd = ck != null ? E[ck].ind : E[pk].ind + 2;
+      const same = srcParentPath === parent.path;
+      insertAt = same ? end : blockEnd(L, E, pk);
+      plan.hint = same ? `Goes right after ${src.key}, inside ${parent.path}` : `Goes at the end of ${parent.path}`;
+    } else {
+      newInd = 0;
+      insertAt = E[k].ind === 0 ? end : L.length;
+      plan.hint = E[k].ind === 0 ? `Goes right after ${src.key}, at the top level` : 'Goes at the end of the file, at the top level';
+    }
+    firstLine = ' '.repeat(newInd) + key + ':';
+    plan.marks.push([0, newInd, newInd + key.length]);
+    plan.newId = 'res:' + np; D.oldPath = src.path; D.newPath = np; D.oldVerb = D.newVerb = null;
+  } else {
+    const target = ress.find(r => r.path === D.path.trim());
+    if (!target) { plan.error = `There's no resource at ${D.path.trim() || 'that path'}. To make a new path, duplicate the resource instead.`; plan.pathError = true; return plan; }
+    if (target.methods.some(m => m.m === D.verb)) { plan.error = `${D.verb.toUpperCase()} already exists on ${target.path}. Pick another method.`; return plan; }
+    const tk = E.findIndex(e => e.i === target.line);
+    const first = kids(E, tk)[0];
+    const childRes = kids(E, tk).find(j => E[j].key.startsWith('/'));
+    newInd = first != null ? E[first].ind : E[tk].ind + 2;
+    insertAt = childRes != null ? E[childRes].i : blockEnd(L, E, tk);
+    while (insertAt - 1 > target.line && !L[insertAt - 1].trim()) insertAt--;
+    firstLine = ' '.repeat(newInd) + D.verb + ':';
+    plan.marks.push([0, newInd, newInd + D.verb.length]);
+    plan.hint = `Goes into ${target.path}, after its methods`;
+    plan.newId = 'm:' + D.verb + ':' + target.path; D.oldPath = src.path; D.newPath = target.path; D.oldVerb = src.m; D.newVerb = D.verb;
+  }
+  // re-indent the copied block to its new depth
+  const delta = newInd - E[k].ind;
+  const body = L.slice(src.line + 1, end).map(l => !l.trim() ? l : delta >= 0 ? ' '.repeat(delta) + l : l.slice(Math.min(-delta, l.match(/^\s*/)[0].length)));
+  plan.lines = [firstLine, ...body];
+  if (src.kind === 'method') {
+    const di = plan.lines.findIndex(l => /^\s*displayName:/.test(l));
+    if (di >= 0 && D.name.trim()) { const pre = plan.lines[di].match(/^(\s*displayName:\s*)/)[1]; plan.lines[di] = pre + D.name.trim(); plan.marks.push([di, pre.length, plan.lines[di].length]); }
+  }
+  // example files: copy, rename, re-point the copy's includes
+  const taken = new Set(); const seen = new Map();
+  plan.lines.forEach((l, i) => {
+    const m = l.match(/!include\s+(\S+)/); if (!m || !/examples\//.test(m[1])) return;
+    const from = m[1].replace(/^\//, '');
+    if (!seen.has(from)) {
+      const missing = !allPaths().includes(from);
+      const auto = renameExample(from, D.oldPath, D.newPath, D.oldVerb, D.newVerb, taken);
+      const to = D.exNames[from] ?? auto;
+      const clash = !missing && D.copyEx && (allPaths().includes(to) || [...seen.values()].some(x => x.to === to));
+      seen.set(from, { from, to, missing, clash });
+    }
+    const ex = seen.get(from);
+    if (D.copyEx && !ex.missing) { const at = l.indexOf(m[1]); const lead = m[1].startsWith('/') ? '/' : ''; plan.lines[i] = l.slice(0, at) + lead + ex.to + l.slice(at + m[1].length); plan.marks.push([i, at, at + lead.length + ex.to.length]); }
+  });
+  plan.examples = [...seen.values()];
+  if (D.copyEx && plan.examples.some(x => x.clash)) plan.error = 'An example file name is already taken. Rename it.';
+  plan.insertAt = insertAt; plan.newInd = newInd;
+  return plan;
+}
+function openDuplicate(n) {
+  const isRes = n.kind === 'res';
+  const D = { node: n, path: n.path, verb: n.m, name: n.name || '', copyEx: true, exNames: {}, tab: 'raml' };
+  let selFrom = 0, selTo = 0;
+  if (isRes) { const lit = lastLiteral(n.path); const at = n.path.lastIndexOf('/' + lit) + 1; D.path = n.path.slice(0, at + lit.length) + '-copy' + n.path.slice(at + lit.length); selFrom = at; selTo = at + lit.length + 5; }
+  else { const free = ['get', 'post', 'put', 'patch', 'delete'].find(v => !n.parent.methods.some(m => m.m === v)); D.verb = free || n.m; D.name = swapVerb(n.name, n.m, D.verb); }
+  const title = isRes ? n.path : n.m.toUpperCase() + ' ' + n.path;
+  $('layer').innerHTML = `<div class="modal-scrim" id="dupScrim"><div class="modal" style="width:min(1040px, 100%);height:min(640px, 100%)" role="dialog" aria-label="Duplicate as">
+    <div class="modal-head"><div style="flex:1"><h3>Duplicate as…</h3><div class="sub">Copies <span class="mono" style="color:var(--content)">${esc(title)}</span> with its traits, parameters, responses and example files.</div></div>
+      <button class="mini-btn" id="dupX" title="Close (Esc)">${ic('x', 14)}</button></div>
+    <div style="flex:1;min-height:0;display:flex">
+      <div style="width:430px;flex-shrink:0;padding:16px;overflow:auto;border-right:1px solid var(--line)" id="dupForm"></div>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column" id="dupPrev"></div>
+    </div>
+    <div class="modal-foot"><p class="note">Ctrl Z undoes the whole duplicate, files included. Nothing is written to disk until you save.</p>
+      <button class="btn" id="dupCancel">Cancel</button><button class="btn primary" id="dupGo">${ic('dup', 13)}Duplicate<span class="kbd" style="background:transparent;color:inherit;opacity:0.7">Enter</span></button></div>
+  </div></div>`;
+  const ress = MODEL.all.filter(x => x.kind === 'res');
+  let plan;
+  const drawForm = () => {
+    const target = ress.find(r => r.path === D.path.trim());
+    $('dupForm').innerHTML = (isRes ? `
+      <div class="field"><label for="dupPath">New path</label><input class="inp mono" id="dupPath" value="${esc(D.path)}" spellcheck="false" autocomplete="off"><div class="hint" id="dupHint"></div></div>` : `
+      <div class="field"><span class="lab">Method</span><div class="seg methods" id="dupVerbs">${['get', 'post', 'put', 'patch', 'delete'].map(v => { const taken = target && target.methods.some(m => m.m === v);
+        return `<button data-verb="${v}" class="${D.verb === v ? 'on' : ''}" ${taken ? `disabled title="${v.toUpperCase()} already exists on this path"` : ''} style="color:var(--${METHOD_COLOR[v]})">${v.toUpperCase()}</button>`; }).join('')}</div></div>
+      <div class="field"><label for="dupPath">On resource</label><input class="inp mono" id="dupPath" list="dupPaths" value="${esc(D.path)}" spellcheck="false" autocomplete="off"><datalist id="dupPaths">${ress.map(r => `<option value="${esc(r.path)}">`).join('')}</datalist><div class="hint" id="dupHint"></div></div>
+      <div class="field"><label for="dupName">Display name</label><input class="inp" id="dupName" value="${esc(D.name)}" spellcheck="false"></div>`) + `
+      <div class="field" id="dupEx"></div>
+      <div class="note" style="display:flex;gap:6px;align-items:flex-start">${ic('link', 13)}<span>Types, traits and libraries stay shared. Only this block of text is copied.</span></div>`;
+    $('dupPath').oninput = e => { D.path = e.target.value; D.exNames = {}; if (!isRes) { drawVerbs(); } drawLive(); };
+    if (!isRes) {
+      $('dupName').oninput = e => { D.name = e.target.value; drawLive(); };
+      $('dupVerbs').onclick = e => { const b = e.target.closest('[data-verb]'); if (!b || b.disabled) return; D.name = swapVerb(D.name, D.verb, b.dataset.verb); D.verb = b.dataset.verb; D.exNames = {}; $('dupName').value = D.name; drawVerbs(); drawLive(); };
+    }
+    drawLive();
+  };
+  const drawVerbs = () => {
+    const target = ress.find(r => r.path === D.path.trim());
+    $('dupVerbs').querySelectorAll('[data-verb]').forEach(b => { const taken = target && target.methods.some(m => m.m === b.dataset.verb);
+      b.disabled = !!taken; b.title = taken ? `${b.dataset.verb.toUpperCase()} already exists on this path` : ''; b.classList.toggle('on', b.dataset.verb === D.verb); });
+  };
+  const drawLive = () => {
+    plan = planDuplicate(D);
+    $('dupPath').classList.toggle('bad', plan.pathError);
+    const showErr = plan.error && !plan.error.startsWith('An example');
+    $('dupHint').className = 'hint' + (showErr ? ' err' : '');
+    $('dupHint').innerHTML = showErr ? esc(plan.error) : `${ic('chevRight', 12, 2)}<span>${esc(plan.hint)}, line ${plan.insertAt + 1}</span>`;
+    const ex = plan.examples;
+    $('dupEx').innerHTML = !ex.length ? '' : `<label class="check"><input type="checkbox" id="dupCopy" ${D.copyEx ? 'checked' : ''}>Copy the example files <span class="pill">${ex.filter(x => !x.missing).length}</span></label>
+      ${D.copyEx ? ex.map(x => `<div class="exrow"><span class="from" title="${esc(x.from)}">${esc(base(x.from))}</span><span style="color:var(--content-ghost);display:inline-flex">${ic('chevRight', 12, 2)}</span>
+        ${x.missing ? `<span class="from" style="color:var(--err)">missing, kept as is</span><span></span>` : `<input class="inp mono${x.clash ? ' bad' : ''}" data-ex="${esc(x.from)}" value="${esc(base(x.to))}" spellcheck="false"><span class="tag" style="color:var(--${x.clash ? 'err' : 'ok'})">${x.clash ? 'taken' : 'new'}</span>`}</div>`).join('')
+      : '<div class="hint">The copy will point at the same example files as the original.</div>'}`;
+    const cb = $('dupCopy'); if (cb) cb.onchange = () => { D.copyEx = cb.checked; drawLive(); };
+    $('dupEx').querySelectorAll('[data-ex]').forEach(inp => inp.oninput = () => {
+      const f = inp.dataset.ex, pos = inp.selectionStart; D.exNames[f] = f.slice(0, f.length - base(f).length) + inp.value.trim(); drawLive();
+      const again = $('dupEx').querySelector(`[data-ex="${CSS.escape(f)}"]`); again.focus(); again.setSelectionRange(pos, pos); });
+    $('dupGo').disabled = !!plan.error;
+    drawPreview();
+  };
+  const drawPreview = () => {
+    const P = $('dupPrev'); const newFiles = D.copyEx ? plan.examples.filter(x => !x.missing) : [];
+    let h = `<div class="ptabs"><span class="ptab${D.tab === 'raml' ? ' on' : ''}" data-ptab="raml"><span class="ficon f-raml">R</span>${MAIN}<span class="plus">+${plan.lines.length}</span></span>
+      <span class="ptab${D.tab === 'files' ? ' on' : ''}" data-ptab="files">${ic('files', 13)}New files<span class="plus">${newFiles.length}</span></span></div>`;
+    if (!plan.lines.length) h += `<div class="i-empty" style="padding-top:80px">${ic('alert', 22)}<div style="margin-top:8px">Fix the path to see the change.</div></div>`;
+    else if (D.tab === 'raml') {
+      const L = lines(MAIN); let d = '';
+      const ctx = (a, b) => { for (let i = Math.max(0, a); i < Math.min(L.length, b); i++) d += `<div class="dl ctx"><span class="n">${i + 1}</span><span class="sg"></span><span>${renderLine(L[i], MAIN, [])}</span></div>`; };
+      if (plan.insertAt > 3) d += `<div class="dl gap">${plan.insertAt - 3} lines above, unchanged</div>`;
+      ctx(plan.insertAt - 3, plan.insertAt);
+      plan.lines.forEach((l, i) => { const mk = plan.marks.filter(m => m[0] === i).map(m => ({ from: m[1], to: m[2], sev: 'chg' }));
+        d += `<div class="dl add"><span class="n">${plan.insertAt + i + 1}</span><span class="sg">+</span><span>${renderLine(l, MAIN, mk)}</span></div>`; });
+      ctx(plan.insertAt, plan.insertAt + 3);
+      if (L.length - plan.insertAt > 3) d += `<div class="dl gap">${L.length - plan.insertAt - 3} lines below, unchanged</div>`;
+      h += `<div class="diff" style="padding:6px 0 20px">${d}</div>`;
+    } else {
+      h += `<div class="diff" style="font-family:var(--font-sans)">${newFiles.length ? newFiles.map(x => `<div class="newfile"><span class="ficon f-json">{}</span><span class="mono" style="color:var(--content)">${esc(x.to)}</span><span style="margin-left:auto;color:var(--content-faint);font-size:11.5px">copied from ${esc(base(x.from))}</span></div>`).join('') : '<div class="p-empty">No new files. The copy shares the original examples.</div>'}
+        ${plan.examples.some(x => x.missing) ? `<div class="newfile" style="color:var(--err)">${ic('alert', 13)}<span>${plan.examples.filter(x => x.missing).map(x => base(x.from)).join(', ')} doesn't exist, so it can't be copied. Its include stays as it is.</span></div>` : ''}</div>`;
+    }
+    P.innerHTML = h;
+    P.querySelectorAll('[data-ptab]').forEach(t => t.onclick = () => { D.tab = t.dataset.ptab; drawPreview(); });
+  };
+  const apply = () => {
+    if (plan.error) return;
+    S.undo = { files: JSON.parse(JSON.stringify(FILES)), dirty: [...S.dirty], tabs: [...S.tabs] };
+    const L = lines(MAIN); L.splice(plan.insertAt, 0, ...plan.lines); FILES[MAIN] = L.join('\n'); S.dirty.add(MAIN);
+    let made = 0;
+    if (D.copyEx) plan.examples.filter(x => !x.missing).forEach(x => { FILES[x.to] = fileText(x.from); S.dirty.add(x.to); made++; });
+    closeLayer(); buildModel();
+    S.sel = plan.newId; S.collapsed.delete(plan.newId);
+    openAt(MAIN, plan.insertAt, plan.newInd, { keepSel: true, flash: false });
+    for (let i = plan.insertAt; i < plan.insertAt + plan.lines.length; i++) { const el = $('code').querySelector(`[data-line="${i}"]`); if (el) el.classList.add('flash'); }
+    reparse();
+    toast(`Duplicated as ${D.newVerb ? D.newVerb.toUpperCase() + ' ' : ''}${D.newPath}: ${plan.lines.length} lines${made ? `, ${made} example ${made === 1 ? 'file' : 'files'}` : ''}.`, 'dup', { label: 'Undo', run: undoLast });
+  };
+  $('dupX').onclick = $('dupCancel').onclick = closeLayer;
+  $('dupGo').onclick = apply;
+  $('dupScrim').onmousedown = e => { if (e.target.id === 'dupScrim') closeLayer(); };
+  $('dupScrim').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); apply(); } };
+  drawForm();
+  const el = $('dupPath'); el.focus();
+  if (isRes) el.setSelectionRange(selFrom, selTo);
+}
+function undoLast() {
+  const u = S.undo; if (!u) return;
+  Object.keys(FILES).forEach(k => delete FILES[k]); Object.assign(FILES, u.files);
+  S.dirty = new Set(u.dirty); S.tabs = u.tabs; if (!S.tabs.includes(S.active)) S.active = MAIN;
+  S.undo = null; S.cursor.line = Math.min(S.cursor.line, lines(S.active).length - 1); S.cursor.col = 0;
+  buildModel(); syncSelFromCursor(); reparse(); toast('Duplicate undone. Every file is back as it was.', 'refresh');
+}
+
+// ---------- Full settings (All settings…, Ctrl ,) ----------
+const SET = { section: 'appearance', font: 'JetBrains Mono', size: 12.5, guides: true, suggest: true, check: 'pause', exchangeProblems: false, region: 'US' };
+const FONTS = ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'IBM Plex Mono', 'Geist Mono'];
+function openSettingsScreen() {
+  closeLayer();
+  $('layer').innerHTML = `<div class="modal-scrim" id="setScrim"><div class="modal" style="width:min(820px, 100%);height:min(560px, 100%)" role="dialog" aria-label="Settings">
+    <div class="modal-head"><div style="flex:1"><h3>Settings</h3></div><button class="mini-btn" id="setX" title="Close (Esc)">${ic('x', 14)}</button></div>
+    <div style="flex:1;min-height:0;display:flex"><nav class="set-nav" id="setNav"></nav><div class="set-body" id="setBody"></div></div></div></div>`;
+  const NAV = [['appearance', 'Appearance', 'sun'], ['editor', 'Editor', 'files'], ['checking', 'Checking', 'check'], ['anypoint', 'Anypoint', 'cloud'], ['about', 'About', 'target']];
+  const tog = (key, t1, t2) => `<div class="set-row"><div class="txt2"><div class="t1">${t1}</div><div class="t2">${t2}</div></div><button class="sw-toggle${SET[key] ? ' on' : ''}" data-tog="${key}" role="switch" aria-checked="${SET[key]}"></button></div>`;
+  const preview = (bg, side, line) => `<div class="pv" style="background:${bg}"><div style="width:22%;background:${side};border-right:1px solid ${line}"></div><div style="flex:1;padding:8px 6px;display:flex;flex-direction:column;gap:5px"><div style="height:4px;width:60%;border-radius:2px;background:var(--accent)"></div><div style="height:4px;width:80%;border-radius:2px;background:${line}"></div><div style="height:4px;width:45%;border-radius:2px;background:${line}"></div></div></div>`;
+  const draw = () => {
+    $('setNav').innerHTML = NAV.map(([id, nm, icn]) => `<button data-sec="${id}" class="${SET.section === id ? 'on' : ''}">${ic(icn, 14)}${nm}</button>`).join('');
+    let h = '';
+    if (SET.section === 'appearance') {
+      const dusk = preview('oklch(14% 0.004 80)', 'oklch(12% 0.004 80)', 'oklch(26% 0.004 80)'), paper = preview('oklch(100% 0 0)', 'oklch(96% 0.003 80)', 'oklch(90% 0.004 80)');
+      h += `<h4>Theme</h4><div class="theme-cards">${[['dark', 'Dusk', dusk], ['light', 'Paper', paper], ['system', 'Match Windows', `<div class="pv"><div style="flex:1;display:flex">${dusk}</div><div style="flex:1;display:flex">${paper}</div></div>`]].map(([id, nm, pv]) => `<button class="tcard${pref === id ? ' on' : ''}" data-theme="${id}">${pv}<div class="nm">${nm}</div></button>`).join('')}</div>
+        <h4 style="margin-top:22px">Accent</h4><div class="swatches" style="margin-top:10px">${ACCENTS.map(a => `<button class="sw${accent === a.id ? ' on' : ''}" data-accent="${a.id}" title="${a.name}" style="background:oklch(${isDark() ? 72 : 55}% ${a.chroma} ${a.hue})"></button>`).join('')}</div>`;
+    } else if (SET.section === 'editor') {
+      h += `<h4>Editor</h4>
+        <div class="set-row"><div class="txt2"><div class="t1">Font</div><div class="t2">Bundled with the app, so it looks the same on every machine.</div></div><select class="sel" data-set="font">${FONTS.map(f => `<option ${SET.font === f ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
+        <div class="set-row"><div class="txt2"><div class="t1">Font size</div><div class="t2">Ctrl + and Ctrl - change it from the editor too.</div></div><select class="sel" data-set="size">${[11.5, 12, 12.5, 13, 14, 15].map(z => `<option ${SET.size === z ? 'selected' : ''}>${z}</option>`).join('')}</select></div>
+        <div style="margin:4px 0 8px;font-family:'${SET.font}', monospace;font-size:${SET.size}px;background:var(--bg);border-radius:6px;padding:10px 12px;border:1px solid var(--line);white-space:pre"><span class="t-key">type</span><span class="t-punc">:</span> <span class="t-alias">ordersLib.</span><span class="t-type">Order</span>   <span class="t-com"># 0O il1 {} [] =&gt;</span></div>
+        ${tog('guides', 'Indent guides', 'Faint lines that show which block a line belongs to.')}
+        ${tog('suggest', 'Suggestions as you type', 'Types, traits and !include paths. Ctrl Space shows them any time.')}`;
+    } else if (SET.section === 'checking') {
+      h += `<h4>Checking</h4>
+        <div class="set-row"><div class="txt2"><div class="t1">Full check</div><div class="t2">Broken references and missing files show right after each edit either way. The full check also tests examples against their types.</div></div>
+          <select class="sel" data-set="check"><option value="pause" ${SET.check === 'pause' ? 'selected' : ''}>When I pause typing</option><option value="save" ${SET.check === 'save' ? 'selected' : ''}>When I save</option></select></div>
+        ${tog('exchangeProblems', 'Problems inside Exchange dependencies', "Off by default, since you usually can't change those files.")}
+        <div class="set-row"><div class="txt2"><div class="t1">Engine</div><div class="t2"><span style="color:var(--accent)">●</span> AMF 5.15.0 on the bundled Java 17. Ready, using 412 MB.</div></div><button class="btn" data-restart>${ic('refresh', 12)}Restart</button></div>`;
+    } else if (SET.section === 'anypoint') {
+      h += `<h4>Anypoint</h4><div style="font-size:12px;color:var(--content-faint);margin-bottom:6px">Needed only to pull, push and publish. Everything else works offline.</div>
+        <div class="set-row"><div class="txt2"><div class="t1">Not connected</div><div class="t2">Sign in with your Anypoint account. SSO and MFA work as usual.</div></div><button class="btn primary" data-connect>${ic('cloud', 13)}Sign in with Anypoint</button></div>
+        <div class="set-row"><div class="txt2"><div class="t1">Your own Connected App</div><div class="t2">For companies that only allow their own. The secret goes in the system keychain.</div></div><button class="btn" data-connect>Set up…</button></div>
+        <div class="set-row"><div class="txt2"><div class="t1">Region</div><div class="t2">Where your Anypoint organization lives.</div></div><select class="sel" data-set="region">${['US', 'EU', 'Canada', 'Japan', 'India', 'Australia'].map(r => `<option ${SET.region === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>`;
+    } else {
+      h += `<div style="display:flex;align-items:center;gap:12px"><svg width="40" height="40" viewBox="0 0 24 24"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)"/><g fill="none" stroke="var(--accent-ink)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h4M7 12h3M9 7v10h3"/><circle cx="15.5" cy="12" r="1.7"/><circle cx="15.5" cy="17" r="1.7"/></g></svg>
+        <div><h4 style="margin:0">${APP_NAME}</h4><div style="font-size:12px;color:var(--content-faint)">Version 0.1.0 · AMF 5.15.0 · MIT licence</div></div></div>
+        <div class="set-row" style="margin-top:12px"><div class="txt2"><div class="t1">Updates</div><div class="t2">You're on the latest version.</div></div><button class="btn" data-upd>${ic('refresh', 12)}Check again</button></div>
+        <div class="set-row"><div class="txt2"><div class="t2">Independent project, not affiliated with MuleSoft or Salesforce. Uses AMF (Apache 2.0) by MuleSoft.</div></div></div>`;
+    }
+    $('setBody').innerHTML = h;
+  };
+  $('setScrim').onclick = e => {
+    if (e.target.id === 'setScrim' || e.target.closest('#setX')) return closeLayer();
+    const sec = e.target.closest('[data-sec]'); if (sec) { SET.section = sec.dataset.sec; draw(); return; }
+    const th = e.target.closest('[data-theme]'); if (th) { pref = th.dataset.theme; applyTheme(); draw(); return; }
+    const ac = e.target.closest('[data-accent]'); if (ac) { accent = ac.dataset.accent; applyTheme(); draw(); return; }
+    const tg = e.target.closest('[data-tog]'); if (tg) { SET[tg.dataset.tog] = !SET[tg.dataset.tog]; draw(); return; }
+    if (e.target.closest('[data-restart]')) { reparse(); toast('Engine restarted and warmed up', 'refresh'); }
+    if (e.target.closest('[data-connect]')) toast('Opens the connect flow. The start screen mockup shows it.', 'cloud');
+    if (e.target.closest('[data-upd]')) toast("You're on the latest version");
+  };
+  $('setScrim').onchange = e => { const k = e.target.dataset.set; if (!k) return; SET[k] = k === 'size' ? +e.target.value : e.target.value;
+    document.documentElement.style.setProperty('--editor-font', `"${SET.font}", ui-monospace, Consolas, monospace`); document.documentElement.style.setProperty('--editor-size', SET.size + 'px'); draw(); };
+  draw();
+}
 
 // ---------- Events ----------
 $('tree').addEventListener('click', e => {
@@ -1374,7 +1718,6 @@ document.querySelectorAll('.rail-btn[data-rail]').forEach(b => b.onclick = () =>
   if (S.rail === r && S.side) S.side = false; else { S.rail = r; S.side = true; }
   renderLayout(); renderTree();
 });
-$('railSettings').onclick = () => openSettings($('railSettings'));
 $('hideSide').onclick = () => { S.side = false; renderLayout(); };
 $('hideInsp').onclick = () => { S.insp = false; renderLayout(); };
 $('hideProblems').onclick = () => { S.problems = false; renderLayout(); };
@@ -1402,6 +1745,7 @@ $('projBtn').onclick = () => {
 document.addEventListener('mousedown', e => { if ($('pop') && !e.target.closest('#pop') && !e.target.closest('[data-menu]')) closeLayer(); });
 document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  if (document.querySelector('.modal-scrim')) { if (e.key === 'Escape') closeLayer(); return; }
   if (S.popup && document.activeElement === document.body) {
     if (e.key === 'ArrowDown') { S.popup.idx = Math.min(S.popup.idx + 1, Math.min(8, S.popup.items.length - 1)); renderEditor(); e.preventDefault(); return; }
     if (e.key === 'ArrowUp') { S.popup.idx = Math.max(S.popup.idx - 1, 0); renderEditor(); e.preventDefault(); return; }
@@ -1416,7 +1760,8 @@ document.addEventListener('keydown', e => {
   else if (mod && k === 'b') { e.preventDefault(); S.side = !S.side; renderLayout(); }
   else if (mod && k === 'j') { e.preventDefault(); S.problems = !S.problems; renderLayout(); }
   else if (mod && k === 'd') { e.preventDefault(); doAct('dup', S.sel); }
-  else if (mod && k === ',') { e.preventDefault(); openSettings(); }
+  else if (mod && k === ',') { e.preventDefault(); openSettingsScreen(); }
+  else if (mod && k === 'z' && S.undo && document.activeElement === document.body) { e.preventDefault(); undoLast(); }
   else if (e.key === '/' && document.activeElement === document.body) { e.preventDefault(); S.side = true; renderLayout(); $('filter').focus(); }
 });
 
