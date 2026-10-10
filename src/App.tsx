@@ -12,6 +12,8 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
+import { Inspector } from './Inspector';
+import { diff } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
 // What the Rust side returns for an opened folder (src-tauri/src/lib.rs, open_project).
@@ -174,7 +176,7 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onRemove }: {
 }) {
   return (
     <div className="flex-1 min-h-0 overflow-auto flex justify-center">
-      <div className="w-full max-w-[1000px] grid grid-cols-[340px_1fr] gap-12 px-10 pt-14 pb-8 content-start">
+      <div className="w-full max-w-[1000px] grid grid-cols-[340px_minmax(0,1fr)] gap-12 px-10 pt-14 pb-8 content-start">
         <section>
           <img src="/logo.svg" width={44} height={44} alt="" />
           <h1 className="mt-4 mb-1.5 text-[22px] font-bold">Design Center specs, on your desktop</h1>
@@ -250,6 +252,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const [outline, setOutline] = useState<Outline | null>(null);
   const [shelf, setShelf] = useState<ShelfCtx | null>(null);
   const [shelfOpen, setShelfOpen] = useState(true);
+  const [inspOpen, setInspOpen] = useState(() => { try { return localStorage.getItem('ads.inspector') !== '0'; } catch { return true; } });
+  useEffect(() => { try { localStorage.setItem('ads.inspector', inspOpen ? '1' : '0'); } catch { /* ignore */ } }, [inspOpen]);
+  // What the Inspector shows: the active file's text and the cursor's line.
+  const [doc, setDoc] = useState<{ path: string; text: string; line: number } | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
   const [closedSecs, setClosedSecs] = useState<Set<string>>(new Set(['Resource types', 'Security schemes']));
   const libTexts = useRef(new Map<string, string>());
@@ -280,6 +286,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       setCursor({ line: line.number, col: pos - line.from + 1 });
       setCrumb(/\.(raml|ya?ml)$/i.test(path) ? yamlPathAt(u.state, pos) : []);
       updateCursorViews(path, u.state);
+      setDoc({ path, text: u.state.doc.toString(), line: line.number - 1 });
     }
     if (u.docChanged) scheduleRef.current();
     if (u.docChanged && (path === project.main || libraryFiles.current.has(path))) {
@@ -329,6 +336,19 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     v.focus();
   }
 
+  // A form edit from the Inspector: the smallest change to the active file, one undo step, editor focus left alone.
+  function applyForm(fn: (t: string) => string) {
+    const v = view.current; if (!v || !activeRef.current || isReadOnly(activeRef.current)) return;
+    const t = v.state.doc.toString(), nt = fn(t); if (nt === t) return;
+    v.dispatch({ changes: diff(t, nt), userEvent: 'input.form' });
+  }
+  // Selecting something in the Inspector selects it in the code.
+  function goLine(n: number) {
+    const v = view.current; if (!v) return;
+    const l = v.state.doc.line(Math.min(n + 1, v.state.doc.lines)), pos = l.from + (l.text.match(/^\s*(- )?/)?.[0].length ?? 0);
+    v.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'nearest', yMargin: 60 }) });
+  }
+
   useEffect(() => {
     view.current = new EditorView({ parent: host.current! });
     if (import.meta.env.DEV) (window as unknown as { __view: EditorView }).__view = view.current; // for UI checks over CDP
@@ -344,6 +364,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const pos = f.state.selection.main.head, line = f.state.doc.lineAt(pos);
     setCursor({ line: line.number, col: pos - line.from + 1 });
     setCrumb(/\.(raml|ya?ml)$/i.test(path) ? yamlPathAt(f.state, pos) : []);
+    setDoc({ path, text: f.state.doc.toString(), line: line.number - 1 });
+    updateCursorViews(path, f.state);
     v.focus();
   }
 
@@ -797,6 +819,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) [...dirty].forEach(save); else if (activeRef.current) save(activeRef.current); }
       else if (mod && k === 'w' && activeRef.current) { e.preventDefault(); closeTab(activeRef.current); }
       else if (mod && k === 'j') { e.preventDefault(); setProblemsOpen((o) => !o); }
+      else if (mod && e.altKey && k === 'b') { e.preventDefault(); setInspOpen((o) => !o); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -924,6 +947,25 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             </div>
           )}
         </main>
+        {inspOpen && (
+          <aside className="w-[330px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
+            <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
+            {doc && active === doc.path && /\.raml$/i.test(doc.path) ? (
+              <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} rootFile={project.main ?? ''} outline={outline} textOf={textOf}
+                onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)}
+                onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }} />
+            ) : (
+              <div className="p-4 text-[12.5px] text-content-faint">{active ? 'Forms are for RAML files. OAS forms come later.' : 'Open a file to see it here.'}</div>
+            )}
+          </aside>
+        )}
+        <nav className="w-10 shrink-0 bg-rail border-l border-line flex flex-col items-center py-2.5">
+          <button title="Inspector (Ctrl Alt B)" onClick={() => setInspOpen((o) => !o)}
+            className={`relative w-8 h-9 rounded-md flex items-center justify-center ${inspOpen ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
+            {inspOpen && <span className="absolute -right-1 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
+            <Icons.Target size={17} />
+          </button>
+        </nav>
       </div>
       {menu && (
         <div className="fixed inset-0 z-40" onMouseDown={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}>

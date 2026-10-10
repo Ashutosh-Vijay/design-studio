@@ -248,6 +248,12 @@ export const Icons = {
       <path d="M14 3v5h5" />
     </>,
   ),
+  Target: mk(
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3" />
+    </>,
+  ),
   Lock: mk(
     <>
       <rect x="5" y="11" width="14" height="10" rx="2" />

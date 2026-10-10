@@ -10,12 +10,16 @@ export type Entry = { line: number; ind: number; key: string; val: string; from:
 
 export function entries(text: string): Entry[] {
   const out: Entry[] = [];
-  let pos = 0;
+  let pos = 0, block = -1; // inside a | or > text block: lines indented deeper than its key are text, not keys
   for (const [i, l] of text.split('\n').entries()) {
+    if (block >= 0 && (!l.trim() || l.match(/^\s*/)![0].length > block)) { pos += l.length + 1; continue; }
+    block = -1;
     const m = l.match(KEY_RE);
     if (m && !l.trimStart().startsWith('#')) {
       const ind = m[1].length + (m[2] ? 2 : 0);
-      out.push({ line: i, ind, key: m[3].replace(/^["']|["']$/g, ''), val: (m[4] || '').replace(/\s+#.*$/, '').trim(), from: pos + ind });
+      const val = (m[4] || '').replace(/\s+#.*$/, '').trim();
+      out.push({ line: i, ind, key: m[3].replace(/^["']|["']$/g, ''), val, from: pos + ind });
+      if (/^[|>][-+0-9]*$/.test(val)) block = ind;
     }
     pos += l.length + 1;
   }
