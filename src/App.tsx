@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type MutableR
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { METHODS, baseExtensions, languageFor, yamlPathAt } from './editor';
+import { BUILTIN_TYPES, buildOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Icons } from './components/Icons';
@@ -204,6 +205,14 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
   const [crumb, setCrumb] = useState<{ key: string; from: number }[]>([]);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [notice, setNotice] = useState<string | null>(null);
+  const [rail, setRail] = useState<'files' | 'api'>('api');
+  const [outline, setOutline] = useState<Outline | null>(null);
+  const [shelf, setShelf] = useState<ShelfCtx | null>(null);
+  const [shelfOpen, setShelfOpen] = useState(true);
+  const [selId, setSelId] = useState<string | null>(null);
+  const [closedSecs, setClosedSecs] = useState<Set<string>>(new Set(['Resource types', 'Security schemes']));
+  const libTexts = useRef(new Map<string, string>());
+  const outlineTimer = useRef<number>(0);
   const files = useRef(new Map<string, OpenFile>());
   const activeRef = useRef<string | null>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -223,8 +232,54 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
       const pos = u.state.selection.main.head, line = u.state.doc.lineAt(pos);
       setCursor({ line: line.number, col: pos - line.from + 1 });
       setCrumb(/\.(raml|ya?ml)$/i.test(path) ? yamlPathAt(u.state, pos) : []);
+      updateCursorViews(path, u.state);
     }
-  }), []);
+    if (u.docChanged && (path === project.main || libraryFiles.current.has(path))) {
+      clearTimeout(outlineTimer.current);
+      outlineTimer.current = window.setTimeout(rebuildOutline, 120);
+    }
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const libraryFiles = useRef(new Set<string>());
+
+  // The text of a file as the user sees it: the editor's when it's open, else what we read from disk.
+  const textOf = (path: string): string | undefined => {
+    if (path === activeRef.current && view.current) return view.current.state.doc.toString();
+    return files.current.get(path)?.state.doc.toString() ?? libTexts.current.get(path);
+  };
+
+  async function rebuildOutline() {
+    const main = project.main; if (!main || !/\.raml$/i.test(main)) { setOutline(null); return; }
+    const rootText = textOf(main); if (rootText == null) return;
+    const libs = libraryPaths(main, rootText);
+    libraryFiles.current = new Set(libs.map((l) => l.path));
+    for (const l of libs) {
+      if (textOf(l.path) == null && project.files.some((f) => f.path === l.path)) {
+        try { libTexts.current.set(l.path, (await invoke<string>('read_text_file', { root: project.root, path: l.path })).replace(/\r\n/g, '\n')); } catch { /* a missing library shows as a problem later */ }
+      }
+    }
+    const texts = new Map<string, string>();
+    libs.forEach((l) => { const t = textOf(l.path); if (t != null) texts.set(l.path, t); });
+    setOutline(buildOutline(main, rootText, texts));
+  }
+
+  // Shelf context and tree selection follow the cursor in the root file.
+  function updateCursorViews(path: string, state: EditorState) {
+    if (path !== project.main || !/\.raml$/i.test(path)) { setShelf(null); return; }
+    const pos = state.selection.main.head, line = state.doc.lineAt(pos), text = state.doc.toString();
+    setShelf(shelfContext(text, line.number - 1, pos - line.from));
+    const kp = keyPathAt(text, line.number - 1);
+    const mi = kp.findIndex((e) => METHODS.includes(e.key));
+    const resPath = kp.filter((e, i) => e.key.startsWith('/') && (mi < 0 || i < mi)).map((e) => e.key).join('');
+    setSelId(mi >= 0 ? `m:${kp[mi].key}:${resPath}` : resPath ? 'res:' + resPath : null);
+  }
+
+  function shelfInsert(item: string) {
+    const v = view.current, path = activeRef.current; if (!v || !path || !shelf) return;
+    const pos = v.state.selection.main.head, line = v.state.doc.lineAt(pos).number - 1;
+    const edit = shelfEdit(v.state.doc.toString(), line, shelf, item); if (!edit) return;
+    v.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.insert }, selection: { anchor: edit.cursor }, scrollIntoView: true });
+    v.focus();
+  }
 
   useEffect(() => {
     view.current = new EditorView({ parent: host.current! });
@@ -259,7 +314,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
   }
   openFileRef.current = openFile;
 
-  useEffect(() => { if (project.main) openFile(project.main); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (project.main) openFile(project.main).then(rebuildOutline); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function save(path: string) {
     const f = files.current.get(path); if (!f) return;
@@ -296,6 +351,10 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  async function reveal(path: string, from: number) {
+    await openFile(path);
+    const v = view.current!; v.dispatch({ selection: { anchor: Math.min(from, v.state.doc.length) }, effects: EditorView.scrollIntoView(Math.min(from, v.state.doc.length), { y: 'center' }) }); v.focus();
+  }
   function jumpTo(from: number) {
     const v = view.current!; v.dispatch({ selection: { anchor: from }, scrollIntoView: true }); v.focus();
   }
@@ -320,20 +379,27 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
     <>
       <div className="flex-1 min-h-0 flex">
         <nav className="w-12 shrink-0 bg-rail border-r border-line flex flex-col py-2.5">
-          <button title="Files" className="relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center bg-surface-2 text-content">
-            <span className="absolute -left-2 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />
-            <Icons.File size={18} />
-          </button>
+          {([['files', 'Files', <Icons.File size={18} />], ['api', 'API', <Icons.ApiSpec size={18} />]] as const).map(([id, title, icon]) => (
+            <button key={id} title={title} onClick={() => setRail(id)}
+              className={`relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center ${rail === id ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
+              {rail === id && <span className="absolute -left-2 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
+              {icon}
+            </button>
+          ))}
           <div className="flex-1" />
           {settingsButton}
         </nav>
 
         <aside className="w-[272px] shrink-0 bg-surface border-r border-line flex flex-col min-h-0">
-          <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold">Files</div>
+          <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold">{rail === 'files' ? 'Files' : 'API'}</div>
           <label className="m-2 mb-1 flex items-center gap-1.5 h-[26px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
             <Icons.Search size={12} />
-            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
+            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={rail === 'files' ? 'Filter' : 'Filter resources and types'} spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
           </label>
+          {rail === 'api' ? (
+            <ApiTree outline={outline} rootFile={project.main ?? ''} filter={filter} selId={selId} closed={closedSecs} setClosed={setClosedSecs} noRoot={!project.main}
+              onPick={(file, from, id) => { setSelId(id); reveal(file, from); }} />
+          ) : (
           <div className="flex-1 overflow-auto pb-3">
             {rows.map((r) => r.kind === 'dir' ? (
               <div key={'d' + r.path} style={{ paddingLeft: 8 + r.depth * 14 }}
@@ -356,6 +422,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
             ))}
             {rows.length === 0 && <div className="p-3 text-[12px] text-content-faint">No files match.</div>}
           </div>
+          )}
         </aside>
 
         <main className="flex-1 min-w-0 flex flex-col bg-surface">
@@ -386,6 +453,10 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
             {active && isReadOnly(active) && <span className="ml-auto flex items-center gap-1"><Icons.Lock size={11} />Read-only: managed by Exchange</span>}
           </div>
           <div ref={host} className="flex-1 min-h-0 select-text" style={{ display: active ? 'block' : 'none' }} />
+          {active === project.main && shelf && (
+            <Shelf ctx={shelf} open={shelfOpen} setOpen={setShelfOpen} onPick={shelfInsert}
+              types={(outline?.types ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} traits={(outline?.traits ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} />
+          )}
           {!active && <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">{project.main ? 'Opening…' : 'No root file found. Pick a file on the left.'}</div>}
           {notice && (
             <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line bg-surface-2 text-[12px] text-err">
@@ -403,6 +474,126 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
         <span>{project.files.length} files</span>
       </footer>
     </>
+  );
+}
+
+const METHOD_STYLE: Record<string, string> = {
+  get: 'text-cyan bg-cyan-tint', post: 'text-[var(--ok)] bg-[color-mix(in_oklch,var(--ok)_14%,transparent)]', put: 'text-warn bg-warn-tint',
+  patch: 'text-violet bg-violet-tint', delete: 'text-err bg-err-tint', head: 'text-content-muted bg-surface-3', options: 'text-content-muted bg-surface-3',
+};
+function MethodBadge({ m }: { m: string }) {
+  return <span className={`font-mono text-[9.5px] font-bold w-[38px] h-4 rounded-[3px] shrink-0 inline-flex items-center justify-center ${METHOD_STYLE[m] ?? ''}`}>{m.toUpperCase()}</span>;
+}
+
+function ApiTree({ outline, rootFile, filter, selId, closed, setClosed, noRoot, onPick }: {
+  outline: Outline | null; rootFile: string; filter: string; selId: string | null; closed: Set<string>; setClosed: (s: Set<string>) => void; noRoot: boolean;
+  onPick: (file: string, from: number, id: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  if (!outline) return <div className="p-3 text-[12px] text-content-faint">{noRoot ? 'No root file found, so there is no API to show. Open a file from Files.' : 'Reading the API…'}</div>;
+  const q = filter.trim().toLowerCase();
+  const match = (s: string) => !q || s.toLowerCase().includes(q);
+  const resMatch = (r: Resource): boolean => match(r.path) || r.methods.some((m) => match(m.m + ' ' + m.name)) || r.children.some(resMatch);
+  const row = (id: string, depth: number, inner: ReactNode, onClick: () => void, tail?: ReactNode) => (
+    <div key={id} onClick={onClick} style={{ paddingLeft: 8 + depth * 14 }}
+      className={`relative flex items-center gap-1.5 h-6 pr-2 text-[12.5px] whitespace-nowrap cursor-pointer ${selId === id ? 'bg-accent-dim text-content' : 'text-content-secondary hover:bg-[var(--hover-overlay)]'}`}>
+      {selId === id && <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent" />}
+      {inner}
+      {tail && <span className="ml-auto flex items-center gap-1">{tail}</span>}
+    </div>
+  );
+  const sec = (name: string, count: ReactNode, body: ReactNode[]) => {
+    const isClosed = closed.has(name) && !q;
+    return (
+      <div key={name}>
+        <div onClick={() => { const n = new Set(closed); n.has(name) ? n.delete(name) : n.add(name); setClosed(n); }}
+          className="flex items-center gap-1 h-[26px] mt-1.5 pl-1.5 pr-2.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint cursor-pointer hover:text-content-secondary">
+          {isClosed ? <Icons.ChevronRight size={11} /> : <Icons.ChevronDown size={11} />}{name}
+          <span className="ml-auto normal-case tracking-normal font-medium text-[11px] text-content-ghost">{count}</span>
+        </div>
+        {!isClosed && body}
+      </div>
+    );
+  };
+  const resRows: ReactNode[] = [];
+  const walk = (r: Resource, depth: number) => {
+    if (!resMatch(r)) return;
+    const open = !collapsed.has(r.id) || !!q;
+    resRows.push(row(r.id, depth, <>
+      <span className="w-3.5 flex justify-center text-content-ghost" onClick={(e) => { e.stopPropagation(); const n = new Set(collapsed); n.has(r.id) ? n.delete(r.id) : n.add(r.id); setCollapsed(n); }}>
+        {open ? <Icons.ChevronDown size={11} /> : <Icons.ChevronRight size={11} />}
+      </span>
+      <span className="font-mono text-[12px] text-content truncate">{r.key}</span>
+    </>, () => onPick(rootFile, r.from, r.id)));
+    if (!open) return;
+    r.methods.forEach((m) => { if (match(r.path) || match(m.m + ' ' + m.name)) resRows.push(row(m.id, depth + 1, <><span className="w-3.5" /><MethodBadge m={m.m} /><span className="text-[11.5px] text-content-faint truncate">{m.name}</span></>, () => onPick(rootFile, m.from, m.id))); });
+    r.children.forEach((c) => walk(c, depth + 1));
+  };
+  outline.resources.forEach((r) => walk(r, 0));
+  const all: Resource[] = []; const flat = (r: Resource) => { all.push(r); r.children.forEach(flat); }; outline.resources.forEach(flat);
+  const nMethods = all.reduce((a, r) => a + r.methods.length, 0);
+  const declRows = (list: Decl[], letter: string, color: string) => list.filter((d) => match((d.alias ? d.alias + '.' : '') + d.name)).map((d) =>
+    row(d.id, 0, <><span className="w-3.5" /><span className={`font-mono text-[9.5px] font-bold w-4 h-4 rounded-[3px] inline-flex items-center justify-center ${color}`}>{letter}</span><span className="truncate">{d.name}</span></>,
+      () => onPick(d.file, d.from, d.id), d.alias ? <span className="text-[11px] text-content-ghost">{d.alias}</span> : null));
+  return (
+    <div className="flex-1 overflow-auto pb-3">
+      {sec('Resources', `${all.length} · ${nMethods} methods`, resRows)}
+      {sec('Types', outline.types.length, declRows(outline.types, 'T', 'text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]'))}
+      {sec('Traits', outline.traits.length, declRows(outline.traits, 'Tr', 'text-violet bg-violet-tint'))}
+      {sec('Resource types', outline.resourceTypes.length, declRows(outline.resourceTypes, 'RT', 'text-cyan bg-cyan-tint'))}
+      {sec('Security schemes', outline.securitySchemes.length, declRows(outline.securitySchemes, 'S', 'text-warn bg-warn-tint'))}
+      {sec('Libraries', outline.libraries.length, outline.libraries.filter((l) => match(l.alias)).map((l) =>
+        row('lib:' + l.alias, 0, <><span className="w-3.5" /><span className="font-mono text-[9.5px] font-bold w-4 h-4 rounded-[3px] inline-flex items-center justify-center text-accent bg-accent-dim">L</span><span className="truncate">{l.alias}</span></>,
+          () => onPick(l.path, 0, 'lib:' + l.alias), l.path.startsWith('exchange_modules/') ? <span className="text-[9.5px] font-semibold px-1 rounded border border-cyan-border text-cyan">Exchange</span> : null)))}
+    </div>
+  );
+}
+
+const SHELF_BAR: Record<string, string> = {
+  Methods: 'var(--content-muted)', Docs: 'var(--cyan)', 'Types and Traits': 'var(--violet)', Security: 'var(--err)', Parameters: 'var(--cyan)', Body: 'var(--ok)',
+  Responses: 'var(--warn)', Success: 'var(--ok)', 'Client errors': 'var(--warn)', 'Server errors': 'var(--err)', 'Media types': 'var(--cyan)',
+  'Types and Examples': 'var(--violet)', Root: 'var(--content-muted)', Declarations: 'var(--violet)', Protocols: 'var(--content-muted)', Headers: 'var(--cyan)', Traits: 'var(--violet)',
+};
+// Design Center's shelf: what can go at the cursor, one click to insert.
+function Shelf({ ctx, open, setOpen, onPick, types, traits }: {
+  ctx: ShelfCtx; open: boolean; setOpen: (b: boolean) => void; onPick: (item: string) => void; types: string[]; traits: string[];
+}) {
+  let cols: { title: string; items: string[] }[] = [];
+  if (ctx.kind === 'keys') cols = ctx.cols;
+  else if (ctx.kind === 'type') {
+    const groups = new Map<string, string[]>();
+    types.forEach((t) => { const g = t.includes('.') ? t.split('.')[0] : 'This file'; groups.set(g, [...(groups.get(g) ?? []), t]); });
+    cols = [...[...groups].map(([title, items]) => ({ title, items })), { title: 'Built-in', items: BUILTIN_TYPES.slice(0, 10) }];
+  } else if (ctx.kind === 'is') cols = [{ title: 'Traits', items: traits }];
+  return (
+    <section className="shrink-0 flex flex-col bg-bg border-t border-line-subtle" style={{ height: open ? 136 : 26 }}>
+      <div className="h-[26px] shrink-0 flex items-center gap-2 pl-3.5 pr-2 text-[11px] text-content-faint">
+        <span>Shelf</span><span className="font-mono text-content-muted truncate">{ctx.label}</span>
+        <span className="flex-1" />
+        <button onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen(!open)} title={open ? 'Hide the shelf' : 'Show the shelf'}
+          className="w-[22px] h-[22px] rounded flex items-center justify-center hover:bg-surface-2 hover:text-content">
+          {open ? <Icons.ChevronDown size={12} /> : <span className="rotate-180 flex"><Icons.ChevronDown size={12} /></span>}
+        </button>
+      </div>
+      {open && (cols.length ? (
+        <div className="flex-1 overflow-auto flex gap-6 px-3.5 pb-2.5 items-start">
+          {cols.map((c) => (
+            <div key={c.title} className="min-w-[96px]">
+              <div className="text-[11.5px] font-semibold text-content-secondary mb-1">{c.title}</div>
+              {c.items.map((it) => (
+                <button key={it} onMouseDown={(e) => { e.preventDefault(); onPick(it); }}
+                  style={{ borderLeftColor: SHELF_BAR[c.title] ?? 'var(--syn-number)' }}
+                  className="block text-left h-[22px] px-2 mb-px font-mono text-[12px] text-content-secondary border-l-2 rounded-r hover:bg-surface-2 hover:text-content whitespace-nowrap">
+                  {it}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="px-3.5 py-1.5 text-[12px] text-content-faint">Nothing to add here. Put the cursor in a resource, method, responses or body.</div>
+      ))}
+    </section>
   );
 }
 

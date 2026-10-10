@@ -1,0 +1,174 @@
+// A fast line-based reading of RAML: the outline (tree, autocomplete) and the shelf's context.
+// It runs on every cursor move and edit, so it never waits on AMF. AMF still has the final word on errors.
+
+export const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
+export const BUILTIN_TYPES = ['string', 'number', 'integer', 'boolean', 'date-only', 'time-only', 'datetime', 'datetime-only', 'file', 'object', 'array', 'any', 'nil'];
+
+// One "key:" line. Handles "key : value" (a corpus quirk) and "- key:" list items.
+const KEY_RE = /^(\s*)(- )?("[^"]*"|'[^']*'|[^\s#:][^:#]*?)\s*:(?:\s+(.*))?$/;
+export type Entry = { line: number; ind: number; key: string; val: string; from: number };
+
+export function entries(text: string): Entry[] {
+  const out: Entry[] = [];
+  let pos = 0;
+  for (const [i, l] of text.split('\n').entries()) {
+    const m = l.match(KEY_RE);
+    if (m && !l.trimStart().startsWith('#')) {
+      const ind = m[1].length + (m[2] ? 2 : 0);
+      out.push({ line: i, ind, key: m[3].replace(/^["']|["']$/g, ''), val: (m[4] || '').replace(/\s+#.*$/, '').trim(), from: pos + ind });
+    }
+    pos += l.length + 1;
+  }
+  return out;
+}
+export function kids(E: Entry[], k: number): number[] {
+  const out: number[] = []; let ci: number | null = null;
+  for (let j = k + 1; j < E.length; j++) {
+    if (E[j].ind <= E[k].ind) break;
+    if (ci === null) ci = E[j].ind;
+    if (E[j].ind === ci) out.push(j);
+  }
+  return out;
+}
+export const kid = (E: Entry[], k: number, key: string) => kids(E, k).find((j) => E[j].key === key);
+const topIndex = (E: Entry[], key: string) => E.findIndex((e) => e.ind === 0 && e.key === key);
+
+export type Method = { kind: 'method'; id: string; m: string; path: string; name: string; from: number };
+export type Resource = { kind: 'res'; id: string; key: string; path: string; from: number; methods: Method[]; children: Resource[] };
+export type Decl = { kind: 'type' | 'trait' | 'rt' | 'sec'; id: string; name: string; alias: string | null; file: string; from: number };
+export type Library = { alias: string; path: string };
+export type Outline = { resources: Resource[]; types: Decl[]; traits: Decl[]; resourceTypes: Decl[]; securitySchemes: Decl[]; libraries: Library[] };
+
+// Library paths in uses: can be relative to the root file or start with / (project root).
+export function libraryPaths(rootPath: string, rootText: string): Library[] {
+  const E = entries(rootText), u = topIndex(E, 'uses');
+  if (u < 0) return [];
+  const dir = rootPath.includes('/') ? rootPath.slice(0, rootPath.lastIndexOf('/') + 1) : '';
+  return kids(E, u).map((j) => ({ alias: E[j].key, path: E[j].val.startsWith('/') ? E[j].val.slice(1) : normalize(dir + E[j].val) }));
+}
+function normalize(p: string) {
+  const out: string[] = [];
+  for (const part of p.split('/')) { if (part === '..') out.pop(); else if (part && part !== '.') out.push(part); }
+  return out.join('/');
+}
+
+function declsOf(text: string, file: string, alias: string | null, key: string, kind: Decl['kind']): Decl[] {
+  const E = entries(text), t = topIndex(E, key);
+  if (t < 0) return [];
+  return kids(E, t).map((j) => ({ kind, id: `${kind}:${alias ? alias + '.' : ''}${E[j].key}`, name: E[j].key, alias, file, from: E[j].from }));
+}
+
+export function buildOutline(rootPath: string, rootText: string, libTexts: Map<string, string>): Outline {
+  const E = entries(rootText);
+  const walk = (k: number, parent: string): Resource => {
+    const path = parent + E[k].key;
+    const r: Resource = { kind: 'res', id: 'res:' + path, key: E[k].key, path, from: E[k].from, methods: [], children: [] };
+    for (const j of kids(E, k)) {
+      if (E[j].key.startsWith('/')) r.children.push(walk(j, path));
+      else if (METHODS.includes(E[j].key)) {
+        const dn = kid(E, j, 'displayName');
+        r.methods.push({ kind: 'method', id: `m:${E[j].key}:${path}`, m: E[j].key, path, name: dn != null ? E[dn].val : '', from: E[j].from });
+      }
+    }
+    return r;
+  };
+  const resources = E.flatMap((e, k) => (e.ind === 0 && e.key.startsWith('/') ? [walk(k, '')] : []));
+  const libraries = libraryPaths(rootPath, rootText);
+  const types = [...declsOf(rootText, rootPath, null, 'types', 'type')];
+  const traits = [...declsOf(rootText, rootPath, null, 'traits', 'trait')];
+  const resourceTypes = [...declsOf(rootText, rootPath, null, 'resourceTypes', 'rt')];
+  const securitySchemes = [...declsOf(rootText, rootPath, null, 'securitySchemes', 'sec')];
+  for (const lib of libraries) {
+    const text = libTexts.get(lib.path); if (text == null) continue;
+    types.push(...declsOf(text, lib.path, lib.alias, 'types', 'type'));
+    traits.push(...declsOf(text, lib.path, lib.alias, 'traits', 'trait'));
+    resourceTypes.push(...declsOf(text, lib.path, lib.alias, 'resourceTypes', 'rt'));
+    securitySchemes.push(...declsOf(text, lib.path, lib.alias, 'securitySchemes', 'sec'));
+  }
+  return { resources, types, traits, resourceTypes, securitySchemes, libraries };
+}
+
+// The keys around a line, outermost first (for selecting the tree node under the cursor).
+export function keyPathAt(text: string, line: number): Entry[] {
+  const E = entries(text), at = new Map(E.map((e) => [e.line, e]));
+  const out: Entry[] = []; let cur = Infinity;
+  for (let i = line; i >= 0; i--) {
+    const e = at.get(i); if (!e) continue;
+    if (i === line || e.ind < cur) { out.unshift(e); cur = e.ind; if (cur === 0) break; }
+  }
+  return out;
+}
+
+// ---------- The shelf: what can go at the cursor, Design Center's columns ----------
+export type ShelfCol = { title: string; items: string[] };
+export type ShelfCtx =
+  | { kind: 'type'; line: number; label: string }
+  | { kind: 'is'; line: number; label: string }
+  | { kind: 'keys'; cols: ShelfCol[]; label: string; container: number; E: Entry[] }
+  | { kind: 'none'; label: string };
+
+const SHELF: Record<string, [string, string[]][]> = {
+  root: [['Root', ['title', 'version', 'baseUri', 'mediaType', 'protocols', 'description']], ['Docs', ['documentation']], ['Declarations', ['uses', 'types', 'traits', 'resourceTypes', 'securitySchemes', 'annotationTypes']], ['Security', ['securedBy']]],
+  resource: [['Methods', METHODS], ['Docs', ['description', 'displayName']], ['Types and Traits', ['is', 'type']], ['Security', ['securedBy']], ['Parameters', ['uriParameters']]],
+  method: [['Docs', ['description', 'displayName']], ['Types and Traits', ['is']], ['Security', ['securedBy']], ['Parameters', ['queryParameters', 'headers', 'queryString']], ['Body', ['body']], ['Responses', ['responses']], ['Protocols', ['protocols']]],
+  responses: [['Success', ['200', '201', '202', '204']], ['Client errors', ['400', '401', '403', '404', '409', '422']], ['Server errors', ['500', '502', '503']]],
+  response: [['Docs', ['description']], ['Body', ['body']], ['Headers', ['headers']]],
+  body: [['Media types', ['application/json', 'application/xml', 'text/plain', 'multipart/form-data', 'application/x-www-form-urlencoded']]],
+  media: [['Types and Examples', ['type', 'example', 'examples']]],
+};
+// Keys that take a value on the same line, so the cursor lands after "key: ".
+export const SCALAR_KEYS = ['title', 'version', 'baseUri', 'mediaType', 'description', 'displayName', 'type', 'example', 'securedBy', 'protocols', 'is'];
+
+export function shelfContext(text: string, line: number, col: number): ShelfCtx {
+  const E = entries(text), L = text.split('\n');
+  const here = E.findIndex((e) => e.line === line);
+  if (here >= 0 && (E[here].key === 'type' || E[here].key === 'items')) return { kind: 'type', line, label: E[here].key };
+  if (here >= 0 && E[here].key === 'is') return { kind: 'is', line, label: 'is' };
+  let ck = -1;
+  if (here >= 0 && !E[here].val) ck = here; // on a block key: suggest what goes inside it
+  else if (here >= 0) { for (let j = here - 1; j >= 0; j--) if (E[j].ind < E[here].ind) { ck = j; break; } }
+  else {
+    const t = L[line] ?? '';
+    const ind = t.trim() ? t.match(/^\s*/)![0].length : col;
+    for (let j = E.length - 1; j >= 0; j--) if (E[j].line < line && E[j].ind < ind) { ck = j; break; }
+  }
+  const key = ck >= 0 ? E[ck].key : null;
+  const kind = ck < 0 ? 'root' : key!.startsWith('/') ? 'resource' : METHODS.includes(key!) ? 'method' : key === 'responses' ? 'responses'
+    : /^\d{3}$/.test(key!) ? 'response' : key === 'body' ? 'body' : key!.includes('/') ? 'media' : null;
+  const label = ck < 0 ? 'top level' : keyPathAt(text, E[ck].line).map((e) => e.key).join(' › ');
+  if (!kind) return { kind: 'none', label };
+  const have = new Set((ck < 0 ? E.filter((e) => e.ind === 0) : kids(E, ck).map((j) => E[j])).map((e) => e.key));
+  const cols = SHELF[kind].map(([title, items]) => ({ title, items: items.filter((i) => !have.has(i)) })).filter((c) => c.items.length);
+  return { kind: 'keys', cols, label, container: ck, E };
+}
+
+// Where and what to insert for a shelf item. Returns the change and where the cursor goes.
+export function shelfEdit(text: string, line: number, ctx: ShelfCtx, item: string): { from: number; to: number; insert: string; cursor: number } | null {
+  const L = text.split('\n');
+  const lineStart = (n: number) => L.slice(0, n).reduce((a, l) => a + l.length + 1, 0);
+  if (ctx.kind === 'type') {
+    const s = lineStart(line), l = L[line], c = l.indexOf(':') + 1;
+    const insert = ' ' + item;
+    return { from: s + c, to: s + l.length, insert, cursor: s + c + insert.length };
+  }
+  if (ctx.kind === 'is') {
+    const s = lineStart(line), l = L[line];
+    const cur = (l.match(/\[(.*)\]/) || ['', ''])[1].split(',').map((x) => x.trim()).filter(Boolean);
+    if (cur.includes(item)) return null;
+    const c = l.indexOf(':') + 1, insert = ` [ ${[...cur, item].join(', ')} ]`;
+    return { from: s + c, to: s + l.length, insert, cursor: s + c + insert.length };
+  }
+  if (ctx.kind !== 'keys') return null;
+  const E = ctx.E, ck = ctx.container;
+  const first = ck >= 0 ? kids(E, ck)[0] : undefined;
+  const ind = ck < 0 ? 0 : first != null ? E[first].ind : E[ck].ind + 2;
+  const keyText = ' '.repeat(ind) + item + ':' + (SCALAR_KEYS.includes(item) ? ' ' : '');
+  if (!(L[line] ?? '').trim()) { const s = lineStart(line); return { from: s, to: s + L[line].length, insert: keyText, cursor: s + keyText.length }; }
+  // Otherwise at the end of the container's block, so siblings stay in reading order.
+  let end = L.length;
+  if (ck >= 0) { for (let j = ck + 1; j < E.length; j++) if (E[j].ind <= E[ck].ind) { end = E[j].line; break; } }
+  while (end - 1 > (ck >= 0 ? E[ck].line : -1) && !L[end - 1].trim()) end--;
+  const at = end >= L.length ? text.length : lineStart(end);
+  const insert = end >= L.length ? (text.endsWith('\n') ? '' : '\n') + keyText : keyText + '\n';
+  return { from: at, to: at, insert, cursor: at + (end >= L.length ? insert.length : keyText.length) };
+}

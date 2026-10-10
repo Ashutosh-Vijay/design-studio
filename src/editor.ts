@@ -108,7 +108,10 @@ export function baseExtensions(): Extension[] {
 // The keys of the YAML pairs around the cursor, from the live Lezer tree (M0.4: about 0.01 ms).
 export function yamlPathAt(state: EditorState, pos: number): { key: string; from: number }[] {
   const out: { key: string; from: number }[] = [];
-  for (let n: ReturnType<ReturnType<typeof syntaxTree>['resolveInner']> | null = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) {
+  // At the start of a line (or in its indent) look to the right, so the cursor counts as inside that line's key.
+  const line = state.doc.lineAt(pos);
+  const side = /^\s*$/.test(state.sliceDoc(line.from, pos)) ? 1 : -1;
+  for (let n: ReturnType<ReturnType<typeof syntaxTree>['resolveInner']> | null = syntaxTree(state).resolveInner(pos, side); n; n = n.parent) {
     if (n.name === 'Pair') {
       const k = n.getChild('Key');
       if (k) out.unshift({ key: state.sliceDoc(k.from, k.to), from: n.from });
