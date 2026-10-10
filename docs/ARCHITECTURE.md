@@ -230,7 +230,7 @@ Code: `spikes/m0-5-als/run.mjs`. ALS 7.1.6 (73 jars, 61 MB, AMF 5.9.2), `org.mul
 
 ```ts
 type FileEdit = { path: string; edits: { from: number; to: number; text: string }[] } | { path: string; create: string };
-duplicateResource(project, resourcePath, newPath, { copyExamples: true }): FileEdit[]
+duplicateFile(project, path, newPath, format): FileEdit[]   // same format = byte copy; else amf-server `convert`
 renameType(project, typeRef, newName): FileEdit[]
 addResponse(project, methodRef, code, template): FileEdit[]
 ```
@@ -350,7 +350,7 @@ Each step ends usable and tested:
 3. **Editor:** Monaco tabs, the RAML grammar, dirty tracking and save with line endings kept, zip import with duplicate handling.
 4. **Outline and tree:** resources, methods, types, traits, libraries; the tree selects with the cursor and the cursor follows the tree; breadcrumbs.
 5. **Autocomplete and hover:** the context table in section 5; hover on a type shows its definition; F12 goes to the definition.
-6. **Duplicate as…:** the first edit operation, end to end with a preview, example copying and golden tests. Then rename type and add response.
+6. **Edit operations:** rename type (Design Center's "Rename Symbol") and add response, end to end with a preview and golden tests. Then the Files menu: Set as root file, Rename (updates every `!include`), Duplicate As (copy, or RAML/OAS conversion through amf-server's `convert`), Delete.
 7. **Hardening:** the file watcher, recovery journal, failure banners, budgets checked on all three corpus specs.
 
 **Exit (from PLAN.md):** I do my real copy-paste-edit work in it faster than in Design Center, on the three corpus specs.

@@ -365,7 +365,7 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
 @keyframes spin { to { transform: rotate(360deg); } }
 
 
-/* modal dialogs (Duplicate as…, settings) */
+/* modal dialogs (Duplicate As, settings) */
 .modal-scrim { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .light .modal-scrim { background: rgba(0,0,0,0.18); }
 .modal { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; max-height: calc(100vh - 48px); overflow: hidden; animation: min 0.14s ease-out; }
@@ -385,29 +385,7 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
 .hint { margin-top: 5px; font-size: 11.5px; color: var(--content-faint); display: flex; gap: 5px; align-items: flex-start; }
 .hint.err { color: var(--err); }
 .check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
-.check input { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
-.exrow { display: grid; grid-template-columns: minmax(0, 0.8fr) 14px minmax(0, 1.2fr) 30px; align-items: center; gap: 6px; margin-top: 6px; }
-.exrow .from { font-family: var(--font-mono); font-size: 11px; color: var(--content-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.exrow .inp { height: 26px; font-size: 11px; padding: 0 6px; }
-.exrow .tag { font-size: 10px; font-weight: 600; white-space: nowrap; }
-.seg.methods button { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; }
-.seg.methods button:disabled { opacity: 0.35; cursor: not-allowed; }
-.diff { flex: 1; overflow: auto; font-family: var(--font-mono); font-size: 12px; background: var(--surface); }
-.dl { display: flex; height: 19px; line-height: 19px; white-space: pre; }
-.dl .n { width: 44px; flex-shrink: 0; text-align: right; padding-right: 8px; color: var(--content-ghost); user-select: none; }
-.dl .sg { width: 16px; flex-shrink: 0; color: var(--content-ghost); user-select: none; }
-.dl.add { background: color-mix(in oklch, var(--ok) 9%, transparent); }
-.dl.add .sg { color: var(--ok); }
-.dl.add .n { color: color-mix(in oklch, var(--ok) 70%, var(--content-ghost)); }
-.dl.ctx { opacity: 0.6; }
-.dl.gap { color: var(--content-ghost); font-family: var(--font-sans); font-size: 11px; padding-left: 60px; height: 22px; line-height: 22px; }
-.sq-chg { background: color-mix(in oklch, var(--ok) 26%, transparent); border-radius: 2px; }
-.ptabs { display: flex; gap: 2px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); background: var(--bg); }
-.ptab { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; font-size: 12px; color: var(--content-faint); border-radius: 6px 6px 0 0; cursor: pointer; }
-.ptab.on { background: var(--surface); color: var(--content); box-shadow: inset 0 2px 0 var(--accent); }
-.ptab .plus { color: var(--ok); font-family: var(--font-mono); font-size: 11px; font-weight: 700; }
-.newfile { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-bottom: 1px solid var(--line-secondary); font-size: 12px; }
-.newfile .mono { font-size: 11.5px; }
+.check input { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; flex-shrink: 0; }
 .toast .act { margin-left: 6px; height: 22px; padding: 0 8px; border-radius: 4px; font-size: 12px; font-weight: 600; color: var(--accent); }
 .toast .act:hover { background: var(--accent-dim); }
 /* settings screen */
@@ -563,6 +541,7 @@ const IC = {
   panelBottom: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/>',
   collapse: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   dup: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/><path d="M14.5 11.5v6M11.5 14.5h6"/>',
   target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
@@ -846,7 +825,7 @@ const TRAIT_ADDS = { 'client-id-policy': 'headers client_id, client_secret', 'co
 const fileText = p => FILES[p] ?? (p.endsWith('.json') ? '{\n  "note": "sample example"\n}' : '#%RAML 1.0 DataType\ntype: object');
 const lines = p => fileText(p).split('\n');
 const base = p => p.split('/').pop();
-const lang = p => p.endsWith('.raml') ? 'raml' : p.endsWith('.json') ? 'json' : 'other';
+const lang = p => /\.(raml|ya?ml)$/.test(p) ? 'raml' : p.endsWith('.json') ? 'json' : 'other';
 
 // ---------- Fast YAML-ish outline: the stand-in for the real `yaml` CST parse ----------
 const KEY_RE = /^(\s*)(- )?("[^"]*"|[^\s#:][^:#]*?)(\s*:)(?:(\s+)(.*))?$/;
@@ -947,7 +926,7 @@ const S = {
   rail: 'api', tabs: [MAIN, LIBS.ordersLib, 'examples/get-order-response.json'], active: MAIN,
   cursor: { line: 0, col: 0 }, dirty: new Set([MAIN]), sel: null, popup: null, filter: '',
   closedSecs: new Set(['Resource types', 'Security schemes']), collapsed: new Set(), openDirs: new Set(['data-types', 'examples', 'traits']),
-  undo: null, sev: 'all', scope: 'all', fixed: new Set(), engine: 'ready', parseMs: 180, checkMs: 1940, checkedAgo: 4,
+  root: MAIN, undo: null, sev: 'all', scope: 'all', fixed: new Set(), engine: 'ready', parseMs: 180, checkMs: 1940, checkedAgo: 4,
   side: true, insp: true, problems: true, menu: null,
 };
 const cursorByFile = {};
@@ -1144,7 +1123,7 @@ function renderFiles() {
     });
     (n.__f || []).forEach(p => {
       const ps = probs.filter(x => x.file === p); const l = lang(p);
-      h += `<div class="row${S.active === p ? ' sel' : ''}" data-file="${p}" style="padding-left:${8 + depth * 14}px"><span class="twist"></span><span class="ficon f-${l}">${l === 'raml' ? 'R' : l === 'json' ? '{}' : '·'}</span><span class="lbl" style="${p === MAIN ? 'font-weight:600;color:var(--content)' : ''}">${base(p)}</span><span class="tail">${p === MAIN ? '<span class="xtag" style="color:var(--accent);border-color:var(--accent-border)">Root file</span>' : ''}${ps.length ? `<span class="${ps.some(x => x.sev === 'error') ? 'cnt-err' : 'cnt-warn'}">${ps.length}</span>` : ''}${S.dirty.has(p) ? '<span class="dot" style="background:var(--content-muted)" title="Unsaved changes"></span>' : ''}</span></div>`;
+      h += `<div class="row${S.active === p ? ' sel' : ''}" data-file="${p}" style="padding-left:${8 + depth * 14}px"><span class="twist"></span><span class="ficon f-${l}">${l === 'raml' ? 'R' : l === 'json' ? '{}' : '·'}</span><span class="lbl" style="${p === S.root ? 'font-weight:600;color:var(--content)' : ''}">${base(p)}</span><span class="tail">${p === S.root ? '<span class="xtag" style="color:var(--accent);border-color:var(--accent-border)">Root file</span>' : ''}${readOnly(p) ? `<span style="color:var(--content-faint);display:inline-flex" title="Read-only">${ic('lock', 12)}</span>` : ''}${ps.length ? `<span class="${ps.some(x => x.sev === 'error') ? 'cnt-err' : 'cnt-warn'}">${ps.length}</span>` : ''}${S.dirty.has(p) ? '<span class="dot" style="background:var(--content-muted)" title="Unsaved changes"></span>' : ''}<button class="mini-btn more" data-fmenu="${esc(p)}" title="More actions">${ic('more', 13)}</button></span></div>`;
     });
   };
   walk(tree, 0, '');
@@ -1206,7 +1185,7 @@ function renderInspector() {
   if (n.kind === 'method') {
     const k = n.k; const is = kid(E, k, 'is'); const traits = is != null ? E[is].val.replace(/[\[\]]/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
     h += `<div class="i-title"><span class="m m-${n.m}">${n.m.toUpperCase()}</span><span class="path">${esc(n.path)}</span></div><div class="i-sub">${esc(n.name) || '<span style="color:var(--content-faint)">No display name</span>'}</div>${loc}`;
-    h += `<div class="i-actions"><button class="btn primary" data-act="dup" data-id="${n.id}">${ic('dup', 13)}Duplicate as…</button><button class="btn" data-act="addresp">${ic('plus', 13)}Add response</button></div>`;
+    h += `<div class="i-actions"><button class="btn" data-act="addresp">${ic('plus', 13)}Add response</button></div>`;
     if (traits.length) h += `<div class="i-sec"><h4>Traits <span class="count">${traits.length}</span></h4><div class="tchips">${traits.map(t => `<span class="tchip" data-goto="trait:${t}">${esc(t)}</span>`).join('')}</div><div class="note">Adds ${traits.map(t => `<span class="mono">${esc(TRAIT_ADDS[t] || t)}</span>`).join(', ')}</div></div>`;
     // uri params from ancestor resources
     const uri = []; const kp = keyPath(MAIN, n.line);
@@ -1223,7 +1202,7 @@ function renderInspector() {
         return `<div class="resp"><div class="resp-top"><span class="code-badge c${code[0]}">${code}</span>${bs.length ? `<span class="media">${esc(bs[0].media)}</span><span style="margin-left:auto">${tref(bs[0].type)}</span>` : '<span class="media">no body</span>'}</div>${bs.length ? exampleRow(bs[0].ex) : ''}</div>`; }).join('')}</div>`; }
   } else if (n.kind === 'res') {
     h += `<div class="i-title"><span class="path">${esc(n.path)}</span></div><div class="i-sub">${n.methods.length} ${n.methods.length === 1 ? 'method' : 'methods'}${n.children.length ? `, ${n.children.length} nested` : ''}</div>${loc}`;
-    h += `<div class="i-actions"><button class="btn primary" data-act="dup" data-id="${n.id}">${ic('dup', 13)}Duplicate as…</button><button class="btn" data-act="addmethod">${ic('plus', 13)}Add method</button></div>`;
+    h += `<div class="i-actions"><button class="btn" data-act="addmethod">${ic('plus', 13)}Add method</button></div>`;
     h += `<div class="i-sec"><h4>Methods</h4>${n.methods.map(m => `<div class="usage" data-goto="${m.id}"><span class="m m-${m.m}">${m.m.toUpperCase()}</span><span class="p" style="font-family:var(--font-sans)">${esc(m.name)}</span></div>`).join('') || '<div class="note">None yet.</div>'}</div>`;
     if (n.children.length) h += `<div class="i-sec"><h4>Nested resources</h4>${n.children.map(c => `<div class="usage" data-goto="${c.id}"><span class="p">${esc(c.key)}</span><span class="w">${c.methods.map(m => m.m.toUpperCase()).join(' ')}</span></div>`).join('')}</div>`;
   } else if (n.kind === 'type') {
@@ -1286,14 +1265,13 @@ function popAtPoint(x, y, html) {
 function nodeMenu(id) {
   const n = byId(id); if (!n) return '';
   const mi = (act, icon, label, sc = '', dis = false) => `<button class="mi" data-act="${act}" data-id="${id}" ${dis ? 'disabled' : ''}><span class="ico">${icon ? ic(icon, 14) : ''}</span>${label}<span class="sc">${sc}</span></button>`;
-  if (n.kind === 'method' || n.kind === 'res') return mi('dup', 'dup', 'Duplicate as…', 'Ctrl D') + (n.kind === 'res' ? mi('addmethod', 'plus', 'Add method') + mi('addres', 'plus', 'Add nested resource') : mi('addresp', 'plus', 'Add response')) + '<div class="msep"></div>' + mi('code', 'files', 'Show in code', 'Enter') + mi('copypath', 'copy', 'Copy path') + '<div class="msep"></div>' + mi('delete', null, 'Delete…', 'Del');
+  if (n.kind === 'method' || n.kind === 'res') return (n.kind === 'res' ? mi('addmethod', 'plus', 'Add method') + mi('addres', 'plus', 'Add nested resource') : mi('addresp', 'plus', 'Add response')) + '<div class="msep"></div>' + mi('code', 'files', 'Show in code', 'Enter') + mi('copypath', 'copy', 'Copy path') + '<div class="msep"></div>' + mi('delete', null, 'Delete…', 'Del');
   if (n.kind === 'type') return mi('code', 'files', 'Go to definition', 'F12') + mi('usages', 'search', 'Find usages', 'Shift F12') + mi('rename', null, 'Rename…', 'F2') + '<div class="msep"></div>' + mi('jsonschema', 'copy', 'Copy as JSON Schema');
   return mi('code', 'files', 'Show in code') + mi('openfile', 'link', 'Open file');
 }
 function doAct(act, id) {
   const n = id && byId(id); closeLayer();
-  if (act === 'dup') { if (n && (n.kind === 'res' || n.kind === 'method')) openDuplicate(n); else toast('Pick a resource or a method first, in the tree or with the cursor.', 'dup'); }
-  else if (act === 'code' && n) select(n, true);
+  if (act === 'code' && n) select(n, true);
   else if (act === 'copypath' && n) { try { navigator.clipboard.writeText(n.path); } catch {} toast('Copied ' + n.path, 'copy'); }
   else if (act === 'usages' && n) { select(n, false); toast(`${usagesOfType(n).length} usages listed in the Inspector`, 'search'); }
   else if (act === 'openfile' && n) openAt(n.kind === 'lib' ? n.file : n.target, 0, 0);
@@ -1313,7 +1291,6 @@ function openPalette() {
   closeLayer();
   const cmds = [
     { g: 'Commands', label: 'Check the whole spec now', run: () => { reparse(); toast('Full check started'); } },
-    { g: 'Commands', label: 'Duplicate as…', det: 'Ctrl D', run: () => doAct('dup', S.sel) },
     { g: 'Commands', label: 'Switch to Paper', det: 'theme', run: () => setTheme('light') },
     { g: 'Commands', label: 'Switch to Dusk', det: 'theme', run: () => setTheme('dark') },
     { g: 'Commands', label: 'Open folder…', det: 'Ctrl O', run: () => toast('Opens the system folder picker') },
@@ -1383,215 +1360,114 @@ function openSettings() {
 }
 function saveAll() { const n = S.dirty.size; S.dirty.clear(); renderAll(); toast(n ? `Saved ${n} ${n === 1 ? 'file' : 'files'}. Line endings kept.` : 'Nothing to save'); }
 
-// ---------- Duplicate as… (the first edit operation: a text splice, M0.2) ----------
-const VERB_WORDS = { get: ['get', 'list'], post: ['create', 'add'], put: ['update', 'replace'], patch: ['patch', 'update'], delete: ['delete', 'cancel', 'remove'] };
-const METHOD_COLOR = { get: 'cyan', post: 'ok', put: 'warn', patch: 'violet', delete: 'err' };
-const lastLiteral = path => path.split('/').filter(x => x && !x.startsWith('{')).pop() || '';
-const singular = w => w.replace(/ies$/, 'y').replace(/s$/, '');
-function blockEnd(L, E, k) {
-  let end = L.length;
-  for (let j = k + 1; j < E.length; j++) if (E[j].ind <= E[k].ind) { end = E[j].i; break; }
-  while (end - 1 > E[k].i && !L[end - 1].trim()) end--;
-  return end;
+// ---------- Files menu and Duplicate (Design Center's "Duplicate As": copy a file, or convert a spec between RAML and OAS) ----------
+const isSpec = p => p === MAIN || /\.(ya?ml)$/.test(p) || (p.endsWith('.json') && /"(openapi|swagger)"/.test(FILES[p] || ''));
+const readOnly = p => p === 'exchange.json' || p.startsWith('exchange_modules/');
+function fileMenu(p) {
+  const mi = (act, icon, label, dis = false) => `<button class="mi" data-fact="${act}" data-path="${esc(p)}" ${dis ? 'disabled' : ''}><span class="ico">${icon ? ic(icon, 14) : ''}</span>${label}</button>`;
+  if (readOnly(p)) return mi('show', 'folder', 'Show in folder') + (p.startsWith('exchange_modules/') ? mi('exchange', 'link', 'Open in Exchange') : '');
+  return (isSpec(p) && p !== S.root ? mi('root', 'check', 'Set as root file') + '<div class="msep"></div>' : '')
+    + mi('rename', null, 'Rename…') + mi('dupfile', 'copy', 'Duplicate…') + mi('show', 'folder', 'Show in folder')
+    + '<div class="msep"></div>' + mi('delete', null, 'Delete…', p === S.root);
 }
-// get-order-response.json under /orders -> get-return-response.json under /returns; falls back to -copy
-function renameExample(p, oldPath, newPath, oldVerb, newVerb, taken) {
-  const name = base(p), dir = p.slice(0, p.length - name.length);
-  let out = name;
-  const o = singular(lastLiteral(oldPath)), n = singular(lastLiteral(newPath));
-  if (o && n && o !== n) out = out.replace(new RegExp(`(^|[-_.])${o}(s?)(?=[-_.])`, 'gi'), `$1${n}$2`);
-  if (oldVerb && newVerb && oldVerb !== newVerb) { const w = out.split(/[-_.]/)[0]; if (VERB_WORDS[oldVerb]?.includes(w)) out = VERB_WORDS[newVerb][0] + out.slice(w.length); }
-  if (out === name) out = name.replace(/(\.[^.]+)$/, '-copy$1');
-  let cand = dir + out, i = 2;
-  while (allPaths().includes(cand) || taken.has(cand)) cand = dir + out.replace(/(\.[^.]+)$/, `-${i++}$1`);
-  taken.add(cand); return cand;
+function doFileAct(act, p) {
+  closeLayer();
+  if (act === 'root') { S.root = p; renderTree(); toast(`${base(p)} is the root file now. Checks and publishing start from it.`); }
+  else if (act === 'dupfile') openDuplicateFile(p);
+  else if (act === 'show') toast(`Opens the folder with ${base(p)} selected`, 'folder');
+  else if (act === 'exchange') toast('Opens this asset in Exchange, in your browser', 'link');
+  else if (act === 'rename') toast('Renames the file and updates every !include that points at it', 'files');
+  else if (act === 'delete') toast('Asks first, and lists the files that include it', 'alert');
 }
-function swapVerb(name, oldVerb, newVerb) {
-  if (!name || oldVerb === newVerb) return name;
-  const w = name.split(' ')[0].toLowerCase();
-  if (!VERB_WORDS[oldVerb]?.includes(w)) return name;
-  const nv = VERB_WORDS[newVerb][0]; return nv[0].toUpperCase() + nv.slice(1) + name.slice(w.length);
-}
-// Works out the whole change without touching anything: where it goes, the copied lines, the renamed examples.
-function planDuplicate(D) {
-  const L = lines(MAIN), E = entries(MAIN), src = D.node;
-  const ress = MODEL.all.filter(n => n.kind === 'res');
-  const k = E.findIndex(e => e.i === src.line);
-  const end = blockEnd(L, E, k);
-  const plan = { error: '', pathError: false, hint: '', insertAt: 0, lines: [], marks: [], examples: [] };
-  let newInd, insertAt, firstLine;
-  if (src.kind === 'res') {
-    const np = D.path.trim();
-    if (!/^\/[\w\-{}.\/]*[^\/]$/.test(np) || np.includes('//')) { plan.error = 'A path starts with / and has no spaces, like /returns or /orders/{orderId}/notes.'; plan.pathError = true; return plan; }
-    if (ress.some(r => r.path === np)) { plan.error = `${np} already exists. Pick a new path, or add a method to it instead.`; plan.pathError = true; return plan; }
-    const parent = ress.filter(r => np.startsWith(r.path + '/')).sort((a, b) => b.path.length - a.path.length)[0];
-    const key = np.slice(parent ? parent.path.length : 0);
-    const srcParentPath = src.path.slice(0, src.path.length - src.key.length);
-    if (parent) {
-      const pk = E.findIndex(e => e.i === parent.line); const ck = kids(E, pk)[0];
-      newInd = ck != null ? E[ck].ind : E[pk].ind + 2;
-      const same = srcParentPath === parent.path;
-      insertAt = same ? end : blockEnd(L, E, pk);
-      plan.hint = same ? `Goes right after ${src.key}, inside ${parent.path}` : `Goes at the end of ${parent.path}`;
-    } else {
-      newInd = 0;
-      insertAt = E[k].ind === 0 ? end : L.length;
-      plan.hint = E[k].ind === 0 ? `Goes right after ${src.key}, at the top level` : 'Goes at the end of the file, at the top level';
-    }
-    firstLine = ' '.repeat(newInd) + key + ':';
-    plan.marks.push([0, newInd, newInd + key.length]);
-    plan.newId = 'res:' + np; D.oldPath = src.path; D.newPath = np; D.oldVerb = D.newVerb = null;
-  } else {
-    const target = ress.find(r => r.path === D.path.trim());
-    if (!target) { plan.error = `There's no resource at ${D.path.trim() || 'that path'}. To make a new path, duplicate the resource instead.`; plan.pathError = true; return plan; }
-    if (target.methods.some(m => m.m === D.verb)) { plan.error = `${D.verb.toUpperCase()} already exists on ${target.path}. Pick another method.`; return plan; }
-    const tk = E.findIndex(e => e.i === target.line);
-    const first = kids(E, tk)[0];
-    const childRes = kids(E, tk).find(j => E[j].key.startsWith('/'));
-    newInd = first != null ? E[first].ind : E[tk].ind + 2;
-    insertAt = childRes != null ? E[childRes].i : blockEnd(L, E, tk);
-    while (insertAt - 1 > target.line && !L[insertAt - 1].trim()) insertAt--;
-    firstLine = ' '.repeat(newInd) + D.verb + ':';
-    plan.marks.push([0, newInd, newInd + D.verb.length]);
-    plan.hint = `Goes into ${target.path}, after its methods`;
-    plan.newId = 'm:' + D.verb + ':' + target.path; D.oldPath = src.path; D.newPath = target.path; D.oldVerb = src.m; D.newVerb = D.verb;
-  }
-  // re-indent the copied block to its new depth
-  const delta = newInd - E[k].ind;
-  const body = L.slice(src.line + 1, end).map(l => !l.trim() ? l : delta >= 0 ? ' '.repeat(delta) + l : l.slice(Math.min(-delta, l.match(/^\s*/)[0].length)));
-  plan.lines = [firstLine, ...body];
-  if (src.kind === 'method') {
-    const di = plan.lines.findIndex(l => /^\s*displayName:/.test(l));
-    if (di >= 0 && D.name.trim()) { const pre = plan.lines[di].match(/^(\s*displayName:\s*)/)[1]; plan.lines[di] = pre + D.name.trim(); plan.marks.push([di, pre.length, plan.lines[di].length]); }
-  }
-  // example files: copy, rename, re-point the copy's includes
-  const taken = new Set(); const seen = new Map();
-  plan.lines.forEach((l, i) => {
-    const m = l.match(/!include\s+(\S+)/); if (!m || !/examples\//.test(m[1])) return;
-    const from = m[1].replace(/^\//, '');
-    if (!seen.has(from)) {
-      const missing = !allPaths().includes(from);
-      const auto = renameExample(from, D.oldPath, D.newPath, D.oldVerb, D.newVerb, taken);
-      const to = D.exNames[from] ?? auto;
-      const clash = !missing && D.copyEx && (allPaths().includes(to) || [...seen.values()].some(x => x.to === to));
-      seen.set(from, { from, to, missing, clash });
-    }
-    const ex = seen.get(from);
-    if (D.copyEx && !ex.missing) { const at = l.indexOf(m[1]); const lead = m[1].startsWith('/') ? '/' : ''; plan.lines[i] = l.slice(0, at) + lead + ex.to + l.slice(at + m[1].length); plan.marks.push([i, at, at + lead.length + ex.to.length]); }
+
+// RAML to OAS through the outline. In the app this is AMF's Compatibility pipeline (ARCHITECTURE 4.1).
+function ramlToOas(v2) {
+  const L = lines(MAIN), top = k => (L.find(l => l.startsWith(k + ':')) || '').slice(k.length + 1).trim();
+  const ref = n => (v2 ? '#/definitions/' : '#/components/schemas/') + n;
+  const schemaOf = t => {
+    const arr = t.endsWith('[]'), name = t.replace('[]', '').split('.').pop();
+    const prim = { string: { type: 'string' }, number: { type: 'number' }, integer: { type: 'integer' }, boolean: { type: 'boolean' }, datetime: { type: 'string', format: 'date-time' }, 'date-only': { type: 'string', format: 'date' } }[name];
+    const one = prim || { $ref: ref(name) };
+    return arr ? { type: 'array', items: one } : one;
+  };
+  const schemas = {};
+  MODEL.types.forEach(t => {
+    if (t.enumVals) schemas[t.name] = { type: 'string', enum: t.enumVals.replace(/[\[\]]/g, '').split(',').map(s => s.trim()) };
+    else { const props = {}; t.props.forEach(p => props[p.name] = schemaOf(p.type)); const req = t.props.filter(p => !p.opt).map(p => p.name);
+      schemas[t.name] = { type: 'object', properties: props, ...(req.length ? { required: req } : {}) }; }
   });
-  plan.examples = [...seen.values()];
-  if (D.copyEx && plan.examples.some(x => x.clash)) plan.error = 'An example file name is already taken. Rename it.';
-  plan.insertAt = insertAt; plan.newInd = newInd;
-  return plan;
+  const E = entries(MAIN), paths = {};
+  MODEL.all.filter(n => n.kind === 'method').forEach(n => {
+    const op = { summary: n.name || undefined, parameters: [] };
+    keyPath(MAIN, n.line).filter(e => e.key.startsWith('/')).forEach(e => { const k = E.findIndex(x => x.i === e.i); const u = kid(E, k, 'uriParameters');
+      if (u != null) kids(E, u).forEach(j => op.parameters.push({ name: E[j].key, in: 'path', required: true, ...(v2 ? { type: 'string' } : { schema: { type: 'string' } }) })); });
+    const qp = kid(E, n.k, 'queryParameters');
+    if (qp != null) kids(E, qp).forEach(j => { const t = kid(E, j, 'type'); const s = schemaOf(t != null ? E[t].val : 'string'); op.parameters.push({ name: E[j].key, in: 'query', ...(v2 ? (s.$ref ? { type: 'string' } : s) : { schema: s }) }); });
+    if (!op.parameters.length) delete op.parameters;
+    const bodyType = bk => { const mj = bk != null ? kids(E, bk)[0] : null; const t = mj != null ? kid(E, mj, 'type') : null; return t != null ? E[t].val : null; };
+    const body = bodyType(kid(E, n.k, 'body'));
+    if (body) { if (v2) (op.parameters ||= []).push({ name: 'body', in: 'body', required: true, schema: schemaOf(body) }); else op.requestBody = { content: { 'application/json': { schema: schemaOf(body) } } }; }
+    op.responses = {};
+    const rs = kid(E, n.k, 'responses');
+    if (rs != null) kids(E, rs).forEach(cj => { const t = bodyType(kid(E, cj, 'body')); const desc = { 2: 'Success', 4: 'Client error', 5: 'Server error' }[E[cj].key[0]] || 'Response';
+      op.responses[E[cj].key] = t ? (v2 ? { description: desc, schema: schemaOf(t) } : { description: desc, content: { 'application/json': { schema: schemaOf(t) } } }) : { description: desc }; });
+    (paths[n.path] ||= {})[n.m] = JSON.parse(JSON.stringify(op));
+  });
+  const info = { title: top('title'), version: top('version') };
+  return v2 ? { swagger: '2.0', info, host: 'api.example.com', basePath: '/orders/' + info.version, schemes: ['https'], consumes: ['application/json'], produces: ['application/json'], paths, definitions: schemas }
+    : { openapi: '3.0.0', info, servers: [{ url: top('baseUri').replace('{version}', info.version) }], paths, components: { schemas } };
 }
-function openDuplicate(n) {
-  const isRes = n.kind === 'res';
-  const D = { node: n, path: n.path, verb: n.m, name: n.name || '', copyEx: true, exNames: {}, tab: 'raml' };
-  let selFrom = 0, selTo = 0;
-  if (isRes) { const lit = lastLiteral(n.path); const at = n.path.lastIndexOf('/' + lit) + 1; D.path = n.path.slice(0, at + lit.length) + '-copy' + n.path.slice(at + lit.length); selFrom = at; selTo = at + lit.length + 5; }
-  else { const free = ['get', 'post', 'put', 'patch', 'delete'].find(v => !n.parent.methods.some(m => m.m === v)); D.verb = free || n.m; D.name = swapVerb(n.name, n.m, D.verb); }
-  const title = isRes ? n.path : n.m.toUpperCase() + ' ' + n.path;
-  $('layer').innerHTML = `<div class="modal-scrim" id="dupScrim"><div class="modal" style="width:min(1040px, 100%);height:min(640px, 100%)" role="dialog" aria-label="Duplicate as">
-    <div class="modal-head"><div style="flex:1"><h3>Duplicate as…</h3><div class="sub">Copies <span class="mono" style="color:var(--content)">${esc(title)}</span> with its traits, parameters, responses and example files.</div></div>
-      <button class="mini-btn" id="dupX" title="Close (Esc)">${ic('x', 14)}</button></div>
-    <div style="flex:1;min-height:0;display:flex">
-      <div style="width:430px;flex-shrink:0;padding:16px;overflow:auto;border-right:1px solid var(--line)" id="dupForm"></div>
-      <div style="flex:1;min-width:0;display:flex;flex-direction:column" id="dupPrev"></div>
-    </div>
-    <div class="modal-foot"><p class="note">Ctrl Z undoes the whole duplicate, files included. Nothing is written to disk until you save.</p>
-      <button class="btn" id="dupCancel">Cancel</button><button class="btn primary" id="dupGo">${ic('dup', 13)}Duplicate<span class="kbd" style="background:transparent;color:inherit;opacity:0.7">Enter</span></button></div>
-  </div></div>`;
-  const ress = MODEL.all.filter(x => x.kind === 'res');
-  let plan;
-  const drawForm = () => {
-    const target = ress.find(r => r.path === D.path.trim());
-    $('dupForm').innerHTML = (isRes ? `
-      <div class="field"><label for="dupPath">New path</label><input class="inp mono" id="dupPath" value="${esc(D.path)}" spellcheck="false" autocomplete="off"><div class="hint" id="dupHint"></div></div>` : `
-      <div class="field"><span class="lab">Method</span><div class="seg methods" id="dupVerbs">${['get', 'post', 'put', 'patch', 'delete'].map(v => { const taken = target && target.methods.some(m => m.m === v);
-        return `<button data-verb="${v}" class="${D.verb === v ? 'on' : ''}" ${taken ? `disabled title="${v.toUpperCase()} already exists on this path"` : ''} style="color:var(--${METHOD_COLOR[v]})">${v.toUpperCase()}</button>`; }).join('')}</div></div>
-      <div class="field"><label for="dupPath">On resource</label><input class="inp mono" id="dupPath" list="dupPaths" value="${esc(D.path)}" spellcheck="false" autocomplete="off"><datalist id="dupPaths">${ress.map(r => `<option value="${esc(r.path)}">`).join('')}</datalist><div class="hint" id="dupHint"></div></div>
-      <div class="field"><label for="dupName">Display name</label><input class="inp" id="dupName" value="${esc(D.name)}" spellcheck="false"></div>`) + `
-      <div class="field" id="dupEx"></div>
-      <div class="note" style="display:flex;gap:6px;align-items:flex-start">${ic('link', 13)}<span>Types, traits and libraries stay shared. Only this block of text is copied.</span></div>`;
-    $('dupPath').oninput = e => { D.path = e.target.value; D.exNames = {}; if (!isRes) { drawVerbs(); } drawLive(); };
-    if (!isRes) {
-      $('dupName').oninput = e => { D.name = e.target.value; drawLive(); };
-      $('dupVerbs').onclick = e => { const b = e.target.closest('[data-verb]'); if (!b || b.disabled) return; D.name = swapVerb(D.name, D.verb, b.dataset.verb); D.verb = b.dataset.verb; D.exNames = {}; $('dupName').value = D.name; drawVerbs(); drawLive(); };
-    }
-    drawLive();
+function toYaml(v, ind = 0) {
+  const pad = ' '.repeat(ind);
+  const scalar = s => typeof s !== 'string' ? String(s) : (/^[\w./{}$#-][^:#]*$/.test(s) && !/^(true|false|null|\d+(\.\d+)?)$/.test(s) && !/^[#{]/.test(s) ? s : `'${s.replace(/'/g, "''")}'`);
+  const key = k => /^\d+$/.test(k) ? `'${k}'` : (/^[\w./{}$-]+$/.test(k) && !k.startsWith('{') ? k : `'${k}'`);
+  if (Array.isArray(v)) return v.map(x => typeof x === 'object' ? `${pad}- ${toYaml(x, ind + 2).trimStart()}` : `${pad}- ${scalar(x)}`).join('\n');
+  return Object.entries(v).map(([k, x]) => typeof x === 'object' && x !== null
+    ? (Array.isArray(x) && x.every(y => typeof y !== 'object') ? `${pad}${key(k)}: [ ${x.map(scalar).join(', ')} ]` : `${pad}${key(k)}:\n${toYaml(x, ind + 2)}`)
+    : `${pad}${key(k)}: ${scalar(x)}`).join('\n');
+}
+function openDuplicateFile(p) {
+  const canConvert = p === MAIN;
+  const stem = base(p).replace(/\.[^.]+$/, ''), dir = p.slice(0, p.length - base(p).length), ext = (base(p).match(/\.[^.]+$/) || [''])[0];
+  const FORMATS = canConvert ? [['raml', 'RAML 1.0', '.raml'], ['oas3y', 'OAS 3.0 (YAML)', '.yaml'], ['oas3j', 'OAS 3.0 (JSON)', '.json'], ['oas2y', 'OAS 2.0 (YAML)', '.yaml'], ['oas2j', 'OAS 2.0 (JSON)', '.json']] : [['copy', 'Same format', ext]];
+  const D = { fmt: FORMATS[0][0], name: stem + '-copy', touched: false };
+  $('layer').innerHTML = `<div class="modal-scrim" id="fdScrim"><div class="modal" style="width:min(480px, 100%)" role="dialog" aria-label="Duplicate As">
+    <div class="modal-head"><div style="flex:1"><h3>Duplicate As</h3><div class="sub">Makes a new file from <span class="mono" style="color:var(--content)">${esc(base(p))}</span>${canConvert ? ', in the same format or converted' : ''}.</div></div><button class="mini-btn" data-close>${ic('x', 14)}</button></div>
+    <div style="padding:16px" id="fdBody"></div>
+    <div class="modal-foot"><span class="note" style="margin:0;flex:1"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="fdGo">Duplicate</button></div></div></div>`;
+  const draw = () => {
+    const f = FORMATS.find(x => x[0] === D.fmt); const target = dir + D.name.trim() + f[2];
+    const clash = !D.name.trim() || allPaths().includes(target);
+    $('fdBody').innerHTML = (canConvert ? `<div class="field"><span class="lab">Format</span>${FORMATS.map(([id, label]) => `<label class="check" style="height:26px"><input type="radio" name="fdf" value="${id}" ${D.fmt === id ? 'checked' : ''}>${label}${id === 'raml' ? '<span style="color:var(--content-faint);font-size:11.5px;margin-left:2px">(exact copy)</span>' : ''}</label>`).join('')}</div>` : '')
+      + `<div class="field" style="margin:0"><label for="fdName">File name</label><div style="display:flex;align-items:center;gap:6px"><input class="inp mono${clash ? ' bad' : ''}" id="fdName" value="${esc(D.name)}" spellcheck="false"><span class="mono" style="color:var(--content-faint)">${f[2]}</span></div>
+        <div class="hint${clash ? ' err' : ''}">${clash ? (D.name.trim() ? `${esc(base(target))} already exists.` : 'Give it a name.') : `Saved as ${esc(target)}`}</div></div>`
+      + (D.fmt !== 'raml' && D.fmt !== 'copy' ? `<div class="note" style="display:flex;gap:6px;margin-top:12px">${ic('alert', 13)}<span>Converted by AMF, the same engine Design Center uses. Check the result: a converted spec isn't always valid.</span></div>` : '');
+    $('fdGo').disabled = clash;
+    const inp = $('fdName'); inp.oninput = () => { D.name = inp.value; D.touched = true; const pos = inp.selectionStart; draw(); $('fdName').focus(); $('fdName').setSelectionRange(pos, pos); };
+    $('fdBody').querySelectorAll('[name=fdf]').forEach(r => r.onchange = () => { D.fmt = r.value; if (!D.touched) D.name = D.fmt === 'raml' ? stem + '-copy' : stem + (D.fmt.startsWith('oas2') ? '-oas2' : ''); draw(); });
   };
-  const drawVerbs = () => {
-    const target = ress.find(r => r.path === D.path.trim());
-    $('dupVerbs').querySelectorAll('[data-verb]').forEach(b => { const taken = target && target.methods.some(m => m.m === b.dataset.verb);
-      b.disabled = !!taken; b.title = taken ? `${b.dataset.verb.toUpperCase()} already exists on this path` : ''; b.classList.toggle('on', b.dataset.verb === D.verb); });
-  };
-  const drawLive = () => {
-    plan = planDuplicate(D);
-    $('dupPath').classList.toggle('bad', plan.pathError);
-    const showErr = plan.error && !plan.error.startsWith('An example');
-    $('dupHint').className = 'hint' + (showErr ? ' err' : '');
-    $('dupHint').innerHTML = showErr ? esc(plan.error) : `${ic('chevRight', 12, 2)}<span>${esc(plan.hint)}, line ${plan.insertAt + 1}</span>`;
-    const ex = plan.examples;
-    $('dupEx').innerHTML = !ex.length ? '' : `<label class="check"><input type="checkbox" id="dupCopy" ${D.copyEx ? 'checked' : ''}>Copy the example files <span class="pill">${ex.filter(x => !x.missing).length}</span></label>
-      ${D.copyEx ? ex.map(x => `<div class="exrow"><span class="from" title="${esc(x.from)}">${esc(base(x.from))}</span><span style="color:var(--content-ghost);display:inline-flex">${ic('chevRight', 12, 2)}</span>
-        ${x.missing ? `<span class="from" style="color:var(--err)">missing, kept as is</span><span></span>` : `<input class="inp mono${x.clash ? ' bad' : ''}" data-ex="${esc(x.from)}" value="${esc(base(x.to))}" spellcheck="false"><span class="tag" style="color:var(--${x.clash ? 'err' : 'ok'})">${x.clash ? 'taken' : 'new'}</span>`}</div>`).join('')
-      : '<div class="hint">The copy will point at the same example files as the original.</div>'}`;
-    const cb = $('dupCopy'); if (cb) cb.onchange = () => { D.copyEx = cb.checked; drawLive(); };
-    $('dupEx').querySelectorAll('[data-ex]').forEach(inp => inp.oninput = () => {
-      const f = inp.dataset.ex, pos = inp.selectionStart; D.exNames[f] = f.slice(0, f.length - base(f).length) + inp.value.trim(); drawLive();
-      const again = $('dupEx').querySelector(`[data-ex="${CSS.escape(f)}"]`); again.focus(); again.setSelectionRange(pos, pos); });
-    $('dupGo').disabled = !!plan.error;
-    drawPreview();
-  };
-  const drawPreview = () => {
-    const P = $('dupPrev'); const newFiles = D.copyEx ? plan.examples.filter(x => !x.missing) : [];
-    let h = `<div class="ptabs"><span class="ptab${D.tab === 'raml' ? ' on' : ''}" data-ptab="raml"><span class="ficon f-raml">R</span>${MAIN}<span class="plus">+${plan.lines.length}</span></span>
-      <span class="ptab${D.tab === 'files' ? ' on' : ''}" data-ptab="files">${ic('files', 13)}New files<span class="plus">${newFiles.length}</span></span></div>`;
-    if (!plan.lines.length) h += `<div class="i-empty" style="padding-top:80px">${ic('alert', 22)}<div style="margin-top:8px">Fix the path to see the change.</div></div>`;
-    else if (D.tab === 'raml') {
-      const L = lines(MAIN); let d = '';
-      const ctx = (a, b) => { for (let i = Math.max(0, a); i < Math.min(L.length, b); i++) d += `<div class="dl ctx"><span class="n">${i + 1}</span><span class="sg"></span><span>${renderLine(L[i], MAIN, [])}</span></div>`; };
-      if (plan.insertAt > 3) d += `<div class="dl gap">${plan.insertAt - 3} lines above, unchanged</div>`;
-      ctx(plan.insertAt - 3, plan.insertAt);
-      plan.lines.forEach((l, i) => { const mk = plan.marks.filter(m => m[0] === i).map(m => ({ from: m[1], to: m[2], sev: 'chg' }));
-        d += `<div class="dl add"><span class="n">${plan.insertAt + i + 1}</span><span class="sg">+</span><span>${renderLine(l, MAIN, mk)}</span></div>`; });
-      ctx(plan.insertAt, plan.insertAt + 3);
-      if (L.length - plan.insertAt > 3) d += `<div class="dl gap">${L.length - plan.insertAt - 3} lines below, unchanged</div>`;
-      h += `<div class="diff" style="padding:6px 0 20px">${d}</div>`;
-    } else {
-      h += `<div class="diff" style="font-family:var(--font-sans)">${newFiles.length ? newFiles.map(x => `<div class="newfile"><span class="ficon f-json">{}</span><span class="mono" style="color:var(--content)">${esc(x.to)}</span><span style="margin-left:auto;color:var(--content-faint);font-size:11.5px">copied from ${esc(base(x.from))}</span></div>`).join('') : '<div class="p-empty">No new files. The copy shares the original examples.</div>'}
-        ${plan.examples.some(x => x.missing) ? `<div class="newfile" style="color:var(--err)">${ic('alert', 13)}<span>${plan.examples.filter(x => x.missing).map(x => base(x.from)).join(', ')} doesn't exist, so it can't be copied. Its include stays as it is.</span></div>` : ''}</div>`;
-    }
-    P.innerHTML = h;
-    P.querySelectorAll('[data-ptab]').forEach(t => t.onclick = () => { D.tab = t.dataset.ptab; drawPreview(); });
-  };
-  const apply = () => {
-    if (plan.error) return;
+  const go = () => {
+    const f = FORMATS.find(x => x[0] === D.fmt); const target = dir + D.name.trim() + f[2];
+    if (!D.name.trim() || allPaths().includes(target)) return;
+    const text = D.fmt === 'raml' || D.fmt === 'copy' ? fileText(p)
+      : D.fmt.endsWith('j') ? JSON.stringify(ramlToOas(D.fmt.startsWith('oas2')), null, 2) : toYaml(ramlToOas(D.fmt.startsWith('oas2'))) + '\n';
     S.undo = { files: JSON.parse(JSON.stringify(FILES)), dirty: [...S.dirty], tabs: [...S.tabs] };
-    const L = lines(MAIN); L.splice(plan.insertAt, 0, ...plan.lines); FILES[MAIN] = L.join('\n'); S.dirty.add(MAIN);
-    let made = 0;
-    if (D.copyEx) plan.examples.filter(x => !x.missing).forEach(x => { FILES[x.to] = fileText(x.from); S.dirty.add(x.to); made++; });
-    closeLayer(); buildModel();
-    S.sel = plan.newId; S.collapsed.delete(plan.newId);
-    openAt(MAIN, plan.insertAt, plan.newInd, { keepSel: true, flash: false });
-    for (let i = plan.insertAt; i < plan.insertAt + plan.lines.length; i++) { const el = $('code').querySelector(`[data-line="${i}"]`); if (el) el.classList.add('flash'); }
-    reparse();
-    toast(`Duplicated as ${D.newVerb ? D.newVerb.toUpperCase() + ' ' : ''}${D.newPath}: ${plan.lines.length} lines${made ? `, ${made} example ${made === 1 ? 'file' : 'files'}` : ''}.`, 'dup', { label: 'Undo', run: undoLast });
+    FILES[target] = text; S.dirty.add(target); closeLayer();
+    openAt(target, 0, 0); reparse();
+    toast(`Created ${base(target)}${D.fmt === 'raml' || D.fmt === 'copy' ? '' : ' as ' + f[1]}`, 'copy', { label: 'Undo', run: undoLast });
   };
-  $('dupX').onclick = $('dupCancel').onclick = closeLayer;
-  $('dupGo').onclick = apply;
-  $('dupScrim').onmousedown = e => { if (e.target.id === 'dupScrim') closeLayer(); };
-  $('dupScrim').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); apply(); } };
-  drawForm();
-  const el = $('dupPath'); el.focus();
-  if (isRes) el.setSelectionRange(selFrom, selTo);
+  $('fdScrim').onclick = e => { if (e.target.id === 'fdScrim' || e.target.closest('[data-close]')) closeLayer(); };
+  $('fdScrim').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+  $('fdGo').onclick = go;
+  draw(); const el = $('fdName'); el.focus(); el.select();
 }
+
 function undoLast() {
   const u = S.undo; if (!u) return;
   Object.keys(FILES).forEach(k => delete FILES[k]); Object.assign(FILES, u.files);
   S.dirty = new Set(u.dirty); S.tabs = u.tabs; if (!S.tabs.includes(S.active)) S.active = MAIN;
   S.undo = null; S.cursor.line = Math.min(S.cursor.line, lines(S.active).length - 1); S.cursor.col = 0;
-  buildModel(); syncSelFromCursor(); reparse(); toast('Duplicate undone. Every file is back as it was.', 'refresh');
+  buildModel(); syncSelFromCursor(); reparse(); toast('Undone. Every file is back as it was.', 'refresh');
 }
 
 // ---------- Full settings (All settings…, Ctrl ,) ----------
@@ -1659,10 +1535,12 @@ $('tree').addEventListener('click', e => {
   const m = e.target.closest('[data-menu]'); if (m) { e.stopPropagation(); popAt(m, nodeMenu(m.dataset.menu)).onclick = ev => { const b = ev.target.closest('[data-act]'); if (b && !b.disabled) doAct(b.dataset.act, b.dataset.id); }; return; }
   const tw = e.target.closest('[data-twist]'); if (tw && (tw.classList.contains('twist') || tw.classList.contains('row'))) { const id = tw.dataset.twist; S.collapsed.has(id) ? S.collapsed.delete(id) : S.collapsed.add(id); renderTree(); return; }
   const d = e.target.closest('[data-dir]'); if (d) { const id = d.dataset.dir; S.openDirs.has(id) ? S.openDirs.delete(id) : S.openDirs.add(id); renderTree(); return; }
+  const fm = e.target.closest('[data-fmenu]'); if (fm) { e.stopPropagation(); popAt(fm, fileMenu(fm.dataset.fmenu)).onclick = ev => { const b = ev.target.closest('[data-fact]'); if (b && !b.disabled) doFileAct(b.dataset.fact, b.dataset.path); }; return; }
   const f = e.target.closest('[data-file]'); if (f) { openAt(f.dataset.file); return; }
   const r = e.target.closest('[data-id]'); if (r) select(byId(r.dataset.id), true);
 });
 $('tree').addEventListener('contextmenu', e => {
+  const fr = e.target.closest('[data-file]'); if (fr) { e.preventDefault(); popAtPoint(e.clientX, e.clientY, fileMenu(fr.dataset.file)).onclick = ev => { const b = ev.target.closest('[data-fact]'); if (b && !b.disabled) doFileAct(b.dataset.fact, b.dataset.path); }; return; }
   const r = e.target.closest('[data-id]'); if (!r) return; e.preventDefault(); S.sel = r.dataset.id; renderTree(); renderInspector();
   popAtPoint(e.clientX, e.clientY, nodeMenu(r.dataset.id)).onclick = ev => { const b = ev.target.closest('[data-act]'); if (b && !b.disabled) doAct(b.dataset.act, b.dataset.id); };
   paintIcons($('pop'));
@@ -1747,7 +1625,6 @@ document.addEventListener('keydown', e => {
   else if (mod && e.altKey && k === 'b') { e.preventDefault(); S.insp = !S.insp; renderLayout(); }
   else if (mod && k === 'b') { e.preventDefault(); S.side = !S.side; renderLayout(); }
   else if (mod && k === 'j') { e.preventDefault(); S.problems = !S.problems; renderLayout(); }
-  else if (mod && k === 'd') { e.preventDefault(); doAct('dup', S.sel); }
   else if (mod && k === ',') { e.preventDefault(); openSettingsScreen(); }
   else if (mod && k === 'z' && S.undo && document.activeElement === document.body) { e.preventDefault(); undoLast(); }
   else if (e.key === '/' && document.activeElement === document.body) { e.preventDefault(); S.side = true; renderLayout(); $('filter').focus(); }

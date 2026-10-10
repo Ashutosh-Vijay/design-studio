@@ -57,7 +57,7 @@ Design Center gets these from ALS (the AML Language Server, M0.5).
 | `exchange.json` is read-only there | Decide: we can show it read-only too, with the fields that matter (main, dependencies) in a small form |
 | Import: file or zip, a URL (single file, no includes), or **from Exchange** (business group, name, version, type, language RAML or OAS, include snapshots) | Mock (zip on the start screen). Gap: import into an open project (file, URL, Exchange) |
 
-**Naming clash:** their **"Duplicate As"** converts a file between RAML and OAS. Our "Duplicate as…" copies an endpoint. People who know Design Center will expect the format conversion. Rename ours, for example **"Duplicate endpoint…"** (resources) and **"Duplicate method…"** (methods), and keep "Download as" for the format conversion.
+**Decided 2026-10-10:** we have Design Center's **Duplicate** (the "Duplicate As" dialog: a copy, or RAML/OAS conversion) in the Files menu, under the same name. The endpoint duplicate from the first mockups is gone. "Download" becomes "Show in folder" on the desktop, since the files are already on disk, and "Download as" isn't needed: Duplicate As already makes the converted file.
 
 ## 5. Exchange dependencies and governance
 
@@ -109,7 +109,7 @@ Three panels: left (API name, add resources, data types, security schemes, all i
 3. **Dependencies panel**: fragments and rulesets, versions, add dialog, Show in Files, Open in Exchange.
 4. **Docs tab in the Inspector**: a small API Console-style page for the selected endpoint, with Try it against the local mock and the MS2 headers.
 5. **Publish dialog** with Design Center's pre-fill rules and the unreferenced-files prompt.
-6. **Editor polish**: highlight uses, tab context menu, F1 and Ctrl Shift O, Copy on problem rows, and the rename of "Duplicate as…".
+6. **Editor polish**: highlight uses, tab context menu, F1 and Ctrl Shift O, Copy on problem rows, and the Files menu (done: Set as root file, Rename, Duplicate As, Show in folder, Delete).
 
 ## Sources
 
