@@ -5,9 +5,10 @@ import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import { listen } from '@tauri-apps/api/event';
 import { METHODS, baseExtensions, languageFor, yamlPathAt } from './editor';
-import { BUILTIN_TYPES, SCALAR_KEYS, normalizePath, buildOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
+import { BUILTIN_TYPES, SCALAR_KEYS, entries, kids, normalizePath, buildOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
@@ -127,6 +128,7 @@ export default function App() {
           key={project.root}
           project={project}
           onDirtyCount={setDirtyCount}
+          onRefresh={async () => { const p = await invoke<Project>('open_project', { root: project.root }); setProject(p); }}
           openFileRef={openFileRef}
           settingsButton={settingsBtn('relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center text-content-faint hover:text-content-secondary')}
         />
@@ -206,8 +208,8 @@ function StartView({ recent, opening, error, onOpen, onRemove }: {
 // One open file: its editor state and the text on disk (with LF line endings, as the editor holds it).
 type OpenFile = { state: EditorState; disk: string };
 
-function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
-  project: Project; onDirtyCount: (n: number) => void; openFileRef: MutableRefObject<(path: string) => void>; settingsButton: ReactNode;
+function ProjectView({ project, onDirtyCount, onRefresh, openFileRef, settingsButton }: {
+  project: Project; onDirtyCount: (n: number) => void; onRefresh: () => Promise<void>; openFileRef: MutableRefObject<(path: string) => void>; settingsButton: ReactNode;
 }) {
   const [filter, setFilter] = useState('');
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
@@ -216,7 +218,8 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [crumb, setCrumb] = useState<{ key: string; from: number }[]>([]);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; err: boolean } | null>(null);
+  const fail = (e: unknown) => setNotice({ text: String(e), err: true });
   const [rail, setRail] = useState<'files' | 'api'>('api');
   const [outline, setOutline] = useState<Outline | null>(null);
   const [shelf, setShelf] = useState<ShelfCtx | null>(null);
@@ -322,7 +325,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
     if (!files.current.has(path)) {
       let text: string;
       try { text = (await invoke<string>('read_text_file', { root: project.root, path })).replace(/\r\n/g, '\n'); }
-      catch (e) { setNotice(String(e)); return; }
+      catch (e) { fail(e); return; }
       const ro = isReadOnly(path);
       files.current.set(path, {
         disk: text,
@@ -405,7 +408,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
       const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
       const target = inc[1].startsWith('/') ? inc[1].slice(1) : normalizePath(dir + inc[1]);
       if (project.files.some((f) => f.path === target)) { await openFile(target); return true; }
-      setNotice(`${target} doesn't exist.`); return true;
+      fail(`${target} doesn't exist.`); return true;
     }
     const d = findDecl(path, w.text); if (!d) return false;
     await reveal(d.file, d.from); setSelId(d.id); return true;
@@ -424,16 +427,174 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
       return { dom };
     } };
   });
+
+  // Rename Symbol (F2), as Design Center's: the declaration and every use, never plain mentions in descriptions.
+  async function renameSymbol(path: string, state: EditorState, pos: number) {
+    const w = wordAt(state, pos); const d = w.text ? findDecl(path, w.text) : null;
+    if (!d) { fail('Put the cursor on a type, trait, resource type or security scheme name to rename it.'); return; }
+    setDialog(<TextDialog title={`Rename ${d.alias ? d.alias + '.' : ''}${d.name}`} label="New name" value={d.name} okLabel="Rename"
+      hint="Changes the declaration and every place it's used, in every file." onCancel={() => setDialog(null)}
+      onOk={async (nu) => {
+        setDialog(null);
+        if (!/^[A-Za-z_][\w-]*$/.test(nu)) { fail(`${nu} isn't a valid name.`); return; }
+        const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let uses = 0;
+        for (const f of project.files.map((x) => x.path).filter((p) => /\.(raml|ya?ml)$/i.test(p))) {
+          let text = await readAny(f);
+          const before = text;
+          // Qualified uses through this file's own aliases for the declaring library.
+          const dir = f.includes('/') ? f.slice(0, f.lastIndexOf('/') + 1) : '';
+          const E = entries(text), u = E.findIndex((e) => e.ind === 0 && e.key === 'uses');
+          const aliases = u < 0 ? [] : kids(E, u).filter((j) => (E[j].val.startsWith('/') ? E[j].val.slice(1) : normalizePath(dir + E[j].val)) === d.file).map((j) => E[j].key);
+          for (const a of aliases) text = text.replace(new RegExp(`\\b${esc(a)}\\.${esc(d.name)}\\b`, 'g'), () => { uses++; return `${a}.${nu}`; });
+          if (f === d.file) {
+            // Bare uses inside the declaring file, in value positions only (type: X, X[], X | Y, [X, Y]).
+            text = text.split('\n').map((line) => {
+              const m = line.match(/^(\s*(?:- )?[^:#]+?\s*:\s*)(.+)$/);
+              if (!m || /^\s*(description|displayName|usage|title|example)\s*:/.test(line)) return line;
+              const v = m[2].replace(new RegExp(`(^|[\\s|(\\[,])${esc(d.name)}(?=(\\[\\])?($|[\\s|),\\]]))`, 'g'), (_x, pre) => { uses++; return pre + nu; });
+              return m[1] + v;
+            }).join('\n');
+            // The declaration itself.
+            const L = text.split('\n'), at = before.slice(0, d.from).split('\n').length - 1;
+            L[at] = L[at].replace(new RegExp(`^(\\s*)${esc(d.name)}(\\s*:)`), `$1${nu}$2`);
+            text = L.join('\n');
+          }
+          if (text !== before) await writeAny(f, text);
+        }
+        setNotice({ text: `Renamed ${d.name} to ${nu} and ${uses} ${uses === 1 ? 'use' : 'uses'}.`, err: false });
+        rebuildOutline(); runCheck('validate');
+      }} />);
+  }
+
   const assist = (path: string): Extension[] => [
     autocompletion({ override: [completions(path)], icons: false }),
     hover(path),
-    keymap.of([{ key: 'F12', run: (v) => { goToDefinition(path, v.state, v.state.selection.main.head); return true; } }]),
+    keymap.of([{ key: 'F12', run: (v) => { goToDefinition(path, v.state, v.state.selection.main.head); return true; } },
+      { key: 'F2', run: (v) => { renameSymbol(path, v.state, v.state.selection.main.head); return true; } }]),
     EditorView.domEventHandlers({ mousedown: (e, v) => {
       if (!(e.ctrlKey || e.metaKey)) return false;
       const pos = v.posAtCoords({ x: e.clientX, y: e.clientY }); if (pos == null) return false;
       e.preventDefault(); goToDefinition(path, v.state, pos); return true;
     } }),
   ];
+
+  // ---------- Design Center's file actions (M1 step 6) ----------
+  const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+  const [dialog, setDialog] = useState<ReactNode>(null);
+  const isSpecFile = (p: string) => /\.(raml|ya?ml|json)$/i.test(p) && !p.startsWith('exchange_modules/') && p !== 'exchange.json' && !p.startsWith('examples/');
+
+  // Text of any project file: the editor's when open, else the disk.
+  async function readAny(path: string) {
+    const t = textOf(path); if (t != null) return t;
+    return (await invoke<string>('read_text_file', { root: project.root, path })).replace(/\r\n/g, '\n');
+  }
+  // Apply a whole-file edit: in the editor when the file is open (it becomes unsaved), else straight to disk.
+  async function writeAny(path: string, text: string) {
+    const f = files.current.get(path);
+    if (f) {
+      const state = path === activeRef.current ? view.current!.state : f.state;
+      const tr = state.update({ changes: { from: 0, to: state.doc.length, insert: text } });
+      const hadEdits = state.doc.toString() !== f.disk;
+      if (path === activeRef.current) view.current!.dispatch(tr); else { f.state = tr.state; setDirty((d) => new Set(d).add(path)); }
+      if (!hadEdits) await save(path); // a file operation saves what it changes, unless you had unsaved work there
+    } else await invoke('save_text_file', { root: project.root, path, text });
+  }
+
+  async function setRootFile(path: string) {
+    let ex = project.files.some((f) => f.path === 'exchange.json') ? await readAny('exchange.json') : '';
+    ex = /"main"\s*:\s*"[^"]*"/.test(ex) ? ex.replace(/"main"\s*:\s*"[^"]*"/, `"main": "${path}"`) : `{\n  "main": "${path}"\n}\n`;
+    await invoke('save_text_file', { root: project.root, path: 'exchange.json', text: ex });
+    const f = files.current.get('exchange.json'); if (f) { f.disk = ex; f.state = f.state.update({ changes: { from: 0, to: f.state.doc.length, insert: ex } }).state; }
+    await onRefresh();
+  }
+
+  // Every !include and uses: path that points at `from`, rewritten to point at `to`, in its own style.
+  async function retargetReferences(from: string, to: string) {
+    let count = 0;
+    for (const f of project.files.map((x) => x.path).filter((p) => /\.(raml|ya?ml)$/i.test(p) && p !== from)) {
+      const text = await readAny(f);
+      const dir = f.includes('/') ? f.slice(0, f.lastIndexOf('/') + 1) : '';
+      const resolve = (ref: string) => (ref.startsWith('/') ? ref.slice(1) : normalizePath(dir + ref));
+      const restyle = (ref: string) => (ref.startsWith('/') ? '/' + to : relInclude(f, to));
+      let changed = false;
+      const next = text.replace(/(!include\s+)(\S+)/g, (m, a, ref) => { if (resolve(ref) !== from) return m; changed = true; count++; return a + restyle(ref); })
+        .replace(/^(\s+[\w-]+\s*:\s*)(\S+\.raml)\s*$/gm, (m, a, ref) => { if (resolve(ref) !== from) return m; changed = true; count++; return a + restyle(ref); });
+      if (changed) await writeAny(f, next);
+    }
+    return count;
+  }
+
+  async function renameFile(from: string, toName: string) {
+    const dir = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : '';
+    const to = dir + toName;
+    if (to === from) return;
+    await invoke('rename_file', { root: project.root, from, to });
+    const n = await retargetReferences(from, to);
+    // Carry an open editor over to the new name.
+    const f = files.current.get(from);
+    if (f) { files.current.delete(from); files.current.set(to, f); setTabs((t) => t.map((x) => (x === from ? to : x))); if (activeRef.current === from) { activeRef.current = to; setActive(to); } }
+    if (project.main === from) await setRootFile(to); else await onRefresh();
+    setNotice({ text: `Renamed to ${to}${n ? `. Updated ${n} ${n === 1 ? 'reference' : 'references'}.` : '.'}`, err: false });
+  }
+
+  async function deleteFile(path: string) {
+    const refs = [];
+    for (const f of project.files.map((x) => x.path).filter((p) => /\.(raml|ya?ml)$/i.test(p) && p !== path)) {
+      if ((await readAny(f)).includes(base(path))) refs.push(f);
+    }
+    setDialog(<ConfirmDialog title={`Delete ${base(path)}?`} danger okLabel="Move to Recycle Bin"
+      body={<>It goes to the Recycle Bin, so you can get it back.{refs.length ? <> These files mention it and may break: <span className="font-mono text-[11.5px]">{refs.join(', ')}</span></> : null}</>}
+      onCancel={() => setDialog(null)}
+      onOk={async () => {
+        setDialog(null);
+        try { await invoke('delete_file', { root: project.root, path }); } catch (e) { fail(e); return; }
+        if (files.current.has(path)) { setDirty((d) => { const n = new Set(d); n.delete(path); return n; }); closeTabQuiet(path); }
+        await onRefresh();
+      }} />);
+  }
+
+  function closeTabQuiet(path: string) {
+    const rest = tabs.filter((t) => t !== path), i = tabs.indexOf(path);
+    files.current.delete(path); setTabs(rest);
+    if (activeRef.current === path) { activeRef.current = null; const next = rest[Math.min(i, rest.length - 1)]; if (next) show(next); else { setActive(null); view.current!.setState(EditorState.create({ doc: '' })); } }
+  }
+
+  function openDuplicate(path: string) {
+    const canConvert = path === project.main && /\.raml$/i.test(path);
+    setDialog(<DuplicateDialog path={path} canConvert={canConvert} exists={(p) => project.files.some((f) => f.path === p)}
+      onCancel={() => setDialog(null)}
+      onOk={async (target, fmt) => {
+        let text: string;
+        if (fmt === 'copy') text = await readAny(path);
+        else {
+          await syncOverlays();
+          const r = await amf('convert', { path, to: fmt.startsWith('oas2') ? 'oas20' : 'oas30', syntax: fmt.endsWith('j') ? 'json' : 'yaml' });
+          text = r.text;
+        }
+        await invoke('save_text_file', { root: project.root, path: target, text });
+        setDialog(null);
+        await onRefresh();
+        openFile(target);
+      }} />);
+  }
+
+  async function revealInFolder(path: string) {
+    try { await revealItemInDir(project.root.replace(/[\\/]+$/, '') + '/' + path); } catch (e) { fail(e); }
+  }
+
+  function fileMenuItems(path: string): [string, (() => void) | null][] {
+    if (isReadOnly(path)) return [['Show in folder', () => revealInFolder(path)]];
+    return [
+      ...(isSpecFile(path) && path !== project.main ? [['Set as root file', () => setRootFile(path)] as [string, () => void]] : []),
+      ['Rename…', () => setDialog(<TextDialog title={`Rename ${base(path)}`} label="New name" value={base(path)} okLabel="Rename"
+        hint="Every !include and uses: that points at it is updated." onCancel={() => setDialog(null)}
+        onOk={async (v) => { setDialog(null); try { await renameFile(path, v); } catch (e) { fail(e); } }} />)],
+      ['Duplicate…', () => openDuplicate(path)],
+      ['Show in folder', () => revealInFolder(path)],
+      ['Delete…', path === project.main ? null : () => deleteFile(path)],
+    ];
+  }
 
   // ---------- Live errors from amf-server: a quick parse after edits, a full check when idle or on save ----------
   const amf = (op: string, args: Record<string, unknown>) => invoke<any>('amf', { op, args }); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -479,7 +640,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
   useEffect(() => {
     if (project.main) openFile(project.main).then(rebuildOutline);
     if (checkable) amf('open', { root: project.root, main: project.main }).then(() => runCheck('validate')).catch((e) => setEngine({ state: 'failed', detail: String(e) }));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [project.main]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wavy underlines in the editor for the open file's problems.
   useEffect(() => {
@@ -511,7 +672,7 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
       f.disk = text;
       setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
       runCheck('validate');
-    } catch (e) { setNotice(String(e)); }
+    } catch (e) { fail(e); }
   }
 
   function closeTab(path: string) {
@@ -599,12 +760,15 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
               </div>
             ) : (
               <div key={'f' + r.path} onClick={() => openFile(r.path)} title={r.path} style={{ paddingLeft: 8 + r.depth * 14 + 20 }}
-                className={`relative flex items-center gap-1.5 h-6 pr-2 text-[12.5px] cursor-pointer ${active === r.path ? 'bg-accent-dim text-content' : 'text-content-secondary hover:bg-[var(--hover-overlay)]'}`}>
+                onContextMenu={(e) => { e.preventDefault(); setMenu({ path: r.path, x: e.clientX, y: e.clientY }); }}
+                className={`group/row relative flex items-center gap-1.5 h-6 pr-2 text-[12.5px] cursor-pointer ${active === r.path ? 'bg-accent-dim text-content' : 'text-content-secondary hover:bg-[var(--hover-overlay)]'}`}>
                 {active === r.path && <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent" />}
                 <span className="truncate" style={r.path === project.main ? { fontWeight: 600, color: 'var(--content)' } : undefined}>{dirty.has(r.path) ? '* ' : ''}{base(r.path)}</span>
                 <span className="ml-auto flex items-center gap-1.5">
                   {r.path === project.main && <span className="text-[9.5px] font-semibold px-1.5 rounded border border-accent-border text-accent">Root file</span>}
                   {isReadOnly(r.path) && <span className="text-content-faint flex" title="Read-only"><Icons.Lock size={12} /></span>}
+                  <button title="More actions" onClick={(e) => { e.stopPropagation(); const b = e.currentTarget.getBoundingClientRect(); setMenu({ path: r.path, x: b.left, y: b.bottom + 2 }); }}
+                    className="w-[18px] h-[18px] rounded flex items-center justify-center text-content-faint opacity-0 group-hover/row:opacity-100 hover:bg-surface-3 hover:text-content"><Icons.More size={13} /></button>
                 </span>
               </div>
             ))}
@@ -648,13 +812,25 @@ function ProjectView({ project, onDirtyCount, openFileRef, settingsButton }: {
           {checkable && <ProblemsPanel problems={problems} open={problemsOpen} setOpen={setProblemsOpen} engine={engine} onGo={goToProblem} />}
           {!active && <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">{project.main ? 'Opening…' : 'No root file found. Pick a file on the left.'}</div>}
           {notice && (
-            <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line bg-surface-2 text-[12px] text-err">
-              <span className="flex-1 select-text">{notice}</span>
+            <div className={`shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line bg-surface-2 text-[12px] ${notice.err ? 'text-err' : 'text-content-secondary'}`}>
+              {!notice.err && <span className="text-accent flex"><Icons.Dot size={12} /></span>}
+              <span className="flex-1 select-text">{notice.text}</span>
               <button onClick={() => setNotice(null)} className="text-content-faint hover:text-content"><Icons.X size={12} /></button>
             </div>
           )}
         </main>
       </div>
+      {menu && (
+        <div className="fixed inset-0 z-40" onMouseDown={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}>
+          <div className="fixed min-w-[190px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" style={{ left: Math.min(menu.x, window.innerWidth - 210), top: Math.min(menu.y, window.innerHeight - 200) }} onMouseDown={(e) => e.stopPropagation()}>
+            {fileMenuItems(menu.path).map(([label, run]) => (
+              <button key={label} disabled={!run} onClick={() => { setMenu(null); run?.(); }}
+                className="w-full h-7 px-2 rounded text-left text-[12.5px] text-content-secondary hover:bg-surface-3 hover:text-content disabled:text-content-ghost disabled:hover:bg-transparent">{label}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      {dialog}
       <footer className="h-[26px] shrink-0 flex items-center gap-3.5 px-3 bg-rail border-t border-line font-mono text-[11px] text-content-faint">
         <span className="text-content-secondary">{active ? base(active) : project.name}</span>
         {active && <span>{cursor.line}:{cursor.col}</span>}
@@ -839,6 +1015,95 @@ function ProblemsPanel({ problems, open, setOpen, engine, onGo }: {
         </div>
       )}
     </section>
+  );
+}
+
+// ---------- Small dialogs: one look for all of them ----------
+function Modal({ title, sub, children, footer, onCancel, width = 460 }: { title: string; sub?: ReactNode; children: ReactNode; footer: ReactNode; onCancel: () => void; width?: number }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onCancel]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className="rounded-[10px] bg-surface border border-line shadow-[var(--shadow)] overflow-hidden flex flex-col" style={{ width: `min(${width}px, 100%)` }}>
+        <div className="flex items-start gap-2.5 px-4 pt-3.5 pb-3 border-b border-line bg-surface-2">
+          <div className="flex-1"><div className="text-[14px] font-semibold">{title}</div>{sub && <div className="mt-0.5 text-[12px] text-content-muted">{sub}</div>}</div>
+          <button onClick={onCancel} className="w-[22px] h-[22px] rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.X size={13} /></button>
+        </div>
+        <div className="p-4">{children}</div>
+        <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-line bg-surface-2">{footer}</div>
+      </div>
+    </div>
+  );
+}
+const btn = 'h-[28px] px-3 rounded-md text-[12.5px] font-medium border border-line bg-surface-2 text-content-secondary hover:text-content hover:border-content-ghost disabled:opacity-45 disabled:cursor-not-allowed';
+const btnPrimary = 'h-[28px] px-3 rounded-md text-[12.5px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-45 disabled:cursor-not-allowed';
+const inputCls = 'w-full h-[30px] px-2.5 rounded-md border border-line bg-surface-input text-content outline-none text-[12.5px] focus:border-accent';
+
+function TextDialog({ title, label, value, okLabel, hint, onOk, onCancel }: { title: string; label: string; value: string; okLabel: string; hint?: string; onOk: (v: string) => void; onCancel: () => void }) {
+  const [v, setV] = useState(value);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { const i = ref.current!; i.focus(); const dot = value.lastIndexOf('.'); i.setSelectionRange(0, dot > 0 ? dot : value.length); }, [value]);
+  const ok = v.trim() && v.trim() !== value && !/[\\/:*?"<>|]/.test(v);
+  return (
+    <Modal title={title} onCancel={onCancel} footer={<><button className={btn} onClick={onCancel}>Cancel</button><button className={btnPrimary} disabled={!ok} onClick={() => onOk(v.trim())}>{okLabel}</button></>}>
+      <label className="block mb-1.5 text-[11.5px] font-semibold text-content-secondary">{label}</label>
+      <input ref={ref} className={inputCls + ' font-mono'} value={v} spellCheck={false} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && ok) onOk(v.trim()); }} />
+      {hint && <div className="mt-1.5 text-[11.5px] text-content-faint">{hint}</div>}
+    </Modal>
+  );
+}
+
+function ConfirmDialog({ title, body, okLabel, danger, onOk, onCancel }: { title: string; body: ReactNode; okLabel: string; danger?: boolean; onOk: () => void; onCancel: () => void }) {
+  return (
+    <Modal title={title} onCancel={onCancel} footer={<><button className={btn} onClick={onCancel}>Cancel</button>
+      <button className={danger ? 'h-[28px] px-3 rounded-md text-[12.5px] font-semibold bg-err text-white hover:opacity-90' : btnPrimary} onClick={onOk} autoFocus>{okLabel}</button></>}>
+      <div className="text-[12.5px] text-content-secondary leading-relaxed">{body}</div>
+    </Modal>
+  );
+}
+
+// Design Center's "Duplicate As": a copy, or the root spec converted between RAML and OAS.
+function DuplicateDialog({ path, canConvert, exists, onOk, onCancel }: { path: string; canConvert: boolean; exists: (p: string) => boolean; onOk: (target: string, fmt: string) => Promise<void>; onCancel: () => void }) {
+  const name = base(path), dir = path.slice(0, path.length - name.length), ext = (name.match(/\.[^.]+$/) || [''])[0], stem = name.slice(0, name.length - ext.length);
+  const formats: [string, string, string][] = canConvert
+    ? [['copy', 'RAML 1.0 (exact copy)', ext], ['oas3y', 'OAS 3.0 (YAML)', '.yaml'], ['oas3j', 'OAS 3.0 (JSON)', '.json'], ['oas2y', 'OAS 2.0 (YAML)', '.yaml'], ['oas2j', 'OAS 2.0 (JSON)', '.json']]
+    : [['copy', 'Same format', ext]];
+  const [fmt, setFmt] = useState('copy');
+  const [n, setN] = useState(stem + '-copy');
+  const [touched, setTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const fext = formats.find((f) => f[0] === fmt)![2];
+  const target = dir + n.trim() + fext;
+  const clash = !n.trim() || exists(target);
+  const go = async () => { if (clash || busy) return; setBusy(true); setErr(null); try { await onOk(target, fmt); } catch (e) { setErr(String(e)); setBusy(false); } };
+  return (
+    <Modal title="Duplicate As" sub={<>Makes a new file from <span className="font-mono text-content">{name}</span>{canConvert ? ', in the same format or converted' : ''}.</>} onCancel={onCancel}
+      footer={<><button className={btn} onClick={onCancel}>Cancel</button><button className={btnPrimary} disabled={clash || busy} onClick={go}>{busy ? 'Converting…' : 'Duplicate'}</button></>}>
+      {canConvert && (
+        <div className="mb-3.5">
+          <div className="mb-1.5 text-[11.5px] font-semibold text-content-secondary">Format</div>
+          {formats.map(([id, label]) => (
+            <label key={id} className="flex items-center gap-2 h-[26px] text-[12.5px] cursor-pointer">
+              <input type="radio" name="fmt" checked={fmt === id} style={{ accentColor: 'var(--accent)' }}
+                onChange={() => { setFmt(id); if (!touched) setN(id === 'copy' ? stem + '-copy' : stem + (id.startsWith('oas2') ? '-oas2' : '')); }} />{label}
+            </label>
+          ))}
+        </div>
+      )}
+      <label className="block mb-1.5 text-[11.5px] font-semibold text-content-secondary">File name</label>
+      <div className="flex items-center gap-1.5">
+        <input autoFocus className={inputCls + ' font-mono ' + (clash ? '!border-err' : '')} value={n} spellCheck={false}
+          onChange={(e) => { setN(e.target.value); setTouched(true); }} onKeyDown={(e) => { if (e.key === 'Enter') go(); }} />
+        <span className="font-mono text-content-faint">{fext}</span>
+      </div>
+      <div className={`mt-1.5 text-[11.5px] ${clash ? 'text-err' : 'text-content-faint'}`}>{clash ? (n.trim() ? `${base(target)} already exists.` : 'Give it a name.') : `Saved as ${target}`}</div>
+      {fmt !== 'copy' && <div className="mt-3 text-[11.5px] text-content-faint">Converted by AMF, the same engine Design Center uses. Check the result: a converted spec isn't always valid.</div>}
+      {err && <div className="mt-3 text-[12px] text-err select-text">{err}</div>}
+    </Modal>
   );
 }
 

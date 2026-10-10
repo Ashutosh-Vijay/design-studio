@@ -110,16 +110,48 @@ fn save_text_file(root: String, path: String, text: String) -> Result<(), String
   fs::write(&full, out).map_err(|e| format!("Couldn't save {}: {}", path, e))
 }
 
+// Inside the project, or an error. The file itself may not exist yet.
+fn inside(root: &str, path: &str) -> Result<PathBuf, String> {
+  let root_path = PathBuf::from(root).canonicalize().map_err(|e| e.to_string())?;
+  let full = root_path.join(path);
+  let parent = full.parent().ok_or("Bad path")?.canonicalize().map_err(|_| format!("The folder for {} doesn't exist.", path))?;
+  if !parent.starts_with(&root_path) {
+    return Err(format!("{} is outside the project.", path));
+  }
+  Ok(full)
+}
+
+#[tauri::command]
+fn rename_file(root: String, from: String, to: String) -> Result<(), String> {
+  let src = inside(&root, &from)?;
+  let dst_rel = PathBuf::from(&root).join(&to);
+  if let Some(dir) = dst_rel.parent() {
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+  }
+  let dst = inside(&root, &to)?;
+  if dst.exists() {
+    return Err(format!("{} already exists.", to));
+  }
+  fs::rename(&src, &dst).map_err(|e| format!("Couldn't rename {}: {}", from, e))
+}
+
+#[tauri::command]
+fn delete_file(root: String, path: String) -> Result<(), String> {
+  let full = inside(&root, &path)?;
+  trash::delete(&full).map_err(|e| format!("Couldn't move {} to the Recycle Bin: {}", path, e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_opener::init())
     .manage(std::sync::Arc::new(amf::Amf::default()))
     .setup(|app| {
       amf::start_in_background(app.handle());
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, amf::amf])
+    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, rename_file, delete_file, amf::amf])
     .build(tauri::generate_context!())
     .expect("error while building API Designer Studio")
     .run(|app, event| {

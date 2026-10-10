@@ -19,3 +19,6 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.10.3", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+# Delete sends files to the Recycle Bin / Trash, so a mistake can be undone.
+trash = "5"

@@ -3,6 +3,10 @@ package amfserver;
 import amf.apicontract.client.platform.AMFBaseUnitClient;
 import amf.apicontract.client.platform.AMFConfiguration;
 import amf.apicontract.client.platform.APIConfiguration;
+import amf.apicontract.client.platform.OASConfiguration;
+import amf.apicontract.client.platform.RAMLConfiguration;
+import amf.core.client.common.transform.PipelineId;
+import amf.core.client.platform.AMFResult;
 import amf.core.client.common.remote.Content;
 import amf.core.client.platform.AMFParseResult;
 import amf.core.client.platform.resource.FileResourceLoader;
@@ -29,6 +33,7 @@ import java.util.concurrent.*;
  *   open     {root, main}             the project and its root file (path relative to root)
  *   overlay  {files: {path: text}}    unsaved editor text, served before the disk; null removes one
  *   check    {mode: parse|validate}   problems from the parse phase, plus validation when asked
+ *   convert  {path, to, syntax}       a spec file as OAS 3.0 / OAS 2.0 / RAML 1.0, YAML or JSON (Design Center's "Duplicate As")
  *
  * The first line out is {"event":"ready"}. AMF's own logging goes to stderr so it can never
  * corrupt the protocol. One worker: a check that is already outdated by a newer queued check is
@@ -96,6 +101,7 @@ public class Main {
         send(reply(req));
       }
       case "check" -> send(check(req, "validate".equals(req.path("mode").asText())));
+      case "convert" -> send(convert(req));
       default -> send(JSON.createObjectNode().put("id", req.path("id").asLong()).put("ok", false).put("error", "unknown op"));
     }
   }
@@ -136,6 +142,23 @@ public class Main {
     ArrayNode arr = res.putArray("problems");
     problems.forEach(arr::add);
     return res;
+  }
+
+  // AMF's Compatibility pipeline, as Design Center's Download as / Duplicate As. Not guaranteed valid; the result is checked like any file.
+  static ObjectNode convert(JsonNode req) throws Exception {
+    if (root == null) throw new IllegalStateException("no project open");
+    String path = req.path("path").asText(), to = req.path("to").asText();
+    AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient().parse(root.resolve(path).toUri().toString()).get();
+    AMFConfiguration target = switch (to) {
+      case "oas30" -> OASConfiguration.OAS30();
+      case "oas20" -> OASConfiguration.OAS20();
+      case "raml10" -> RAMLConfiguration.RAML10();
+      default -> throw new IllegalArgumentException("unknown target " + to);
+    };
+    var client = target.withResourceLoaders(loaders()).baseUnitClient();
+    AMFResult converted = client.transform(parsed.baseUnit(), PipelineId.Compatibility());
+    String text = client.render(converted.baseUnit(), "json".equals(req.path("syntax").asText()) ? "application/json" : "application/yaml");
+    return reply(req).put("text", text).put("conforms", converted.conforms());
   }
 
   static String key(ObjectNode p) { return p.path("file").asText() + ":" + p.path("line").asInt() + ":" + p.path("col").asInt() + ":" + p.path("message").asText(); }
