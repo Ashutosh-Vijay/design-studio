@@ -124,7 +124,7 @@ public class Main {
     long t0 = System.nanoTime();
     AMFConfiguration config = APIConfiguration.API().withResourceLoaders(loaders());
     AMFBaseUnitClient client = config.baseUnitClient();
-    AMFParseResult parsed = client.parse(root.resolve(main).toUri().toString()).get();
+    AMFParseResult parsed = client.parse(fileUrl(root.resolve(main))).get();
     long t1 = System.nanoTime();
     List<ObjectNode> problems = new ArrayList<>();
     for (AMFValidationResult r : parsed.results()) problems.add(problem(r, "parse"));
@@ -148,7 +148,7 @@ public class Main {
   static ObjectNode convert(JsonNode req) throws Exception {
     if (root == null) throw new IllegalStateException("no project open");
     String path = req.path("path").asText(), to = req.path("to").asText();
-    AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient().parse(root.resolve(path).toUri().toString()).get();
+    AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient().parse(fileUrl(root.resolve(path))).get();
     AMFConfiguration target = switch (to) {
       case "oas30" -> OASConfiguration.OAS30();
       case "oas20" -> OASConfiguration.OAS20();
@@ -192,6 +192,13 @@ public class Main {
     if (s.matches("^/[A-Za-z]:/.*")) s = s.substring(1);
     return s;
   }
+  // AMF's file loader doesn't decode %20, so Path.toUri() breaks on folders with spaces
+  // ("API Designer Studio"). Hand it a plain file:// URL with the path as it is.
+  static String fileUrl(Path p) {
+    String s = p.toAbsolutePath().normalize().toString().replace('\\', '/');
+    return s.startsWith("/") ? "file://" + s : "file:///" + s;
+  }
+
   static String abs(String rel) { return root.resolve(rel).normalize().toString().replace('\\', '/'); }
   static String rel(String resource) {
     String p = pathOf(resource), r = root.toString().replace('\\', '/') + "/";

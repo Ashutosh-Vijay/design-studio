@@ -24,6 +24,8 @@ pub struct Amf {
   stderr_tail: Arc<Mutex<Vec<String>>>,
   last_open: Mutex<Option<Value>>,
   overlays: Mutex<HashMap<String, Value>>,
+  exits: Mutex<Vec<std::time::Instant>>,
+  stopping: std::sync::atomic::AtomicBool,
 }
 
 fn status(app: &AppHandle, state: &str, detail: &str) {
@@ -133,6 +135,23 @@ impl Amf {
       pending.lock().unwrap().clear();
       let last = tail2.lock().unwrap().iter().rev().take(8).cloned().collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
       status(&app2, "stopped", &last);
+      // Restart on its own (the project and unsaved text are replayed), unless it keeps dying:
+      // three exits within a minute stops trying, and the banner stays up.
+      let state = app2.state::<Arc<Amf>>().inner().clone();
+      if state.stopping.load(Ordering::SeqCst) {
+        return;
+      }
+      let now = std::time::Instant::now();
+      let mut recent = state.exits.lock().unwrap();
+      recent.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
+      recent.push(now);
+      if recent.len() >= 3 {
+        status(&app2, "failed", &format!("The checking engine stopped 3 times in a minute, so it's off for now.\n{}", last));
+        return;
+      }
+      drop(recent);
+      std::thread::sleep(Duration::from_millis(800));
+      let _ = state.ensure_started(&app2);
     });
 
     // Handshake with a timeout: endpoint security can block the JRE without an error (DataWeave Studio lesson).
@@ -218,6 +237,7 @@ pub fn start_in_background(app: &AppHandle) {
 
 pub fn stop(app: &AppHandle) {
   if let Some(state) = app.try_state::<Arc<Amf>>() {
+    state.stopping.store(true, Ordering::SeqCst); // the app is closing: don't restart it
     if let Some(mut p) = state.proc.lock().unwrap().take() {
       let _ = p.child.kill();
     }

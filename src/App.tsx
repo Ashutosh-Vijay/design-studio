@@ -717,7 +717,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       setProblems((prev) => (mode === 'validate' ? r.problems : [...r.problems, ...prev.filter((x) => x.phase === 'validate')]));
       setEngine({ state: 'ready', detail: '', ms: mode === 'validate' ? `Checked in ${((r.parseMs + r.validateMs) / 1000).toFixed(1)} s` : `Read in ${(r.parseMs / 1000).toFixed(2)} s` });
     } catch (e) {
-      setEngine({ state: 'failed', detail: String(e) });
+      // The checker answered but couldn't read the spec: that's a problem with the spec, not a dead
+      // checker. (A dead or blocked checker is reported through the amf-status event instead.)
+      const msg = String(e).replace(/^amf\.[\w.]+:\s*/, '');
+      if (/didn't answer|isn't running|Couldn't start Java|didn't start/.test(msg)) { setEngine({ state: 'failed', detail: msg }); return; }
+      setProblems([{ severity: 'error', message: `Couldn't check the spec: ${msg}`, file: project.main ?? '', line: 1, col: 0, endLine: 1, endCol: 0, phase: 'parse', code: '' }]);
+      setEngine({ state: 'ready', detail: '' });
     }
   }
   scheduleRef.current = () => {
