@@ -1159,7 +1159,7 @@ function renderFiles() {
 function renderTabs() {
   $('tabs').innerHTML = S.tabs.map(p => { const l = lang(p);
     return `<div class="tab${p === S.active ? ' active' : ''}" data-tab="${p}" title="${esc(p)}"><span class="ficon f-${l}">${l === 'raml' ? 'R' : l === 'json' ? '{}' : '·'}</span><span class="name">${base(p)}</span><span class="x${S.dirty.has(p) ? ' dirty' : ''}" data-close="${p}" title="${S.dirty.has(p) ? 'Unsaved changes. Close' : 'Close'}"><span class="d"></span>${ic('x', 12, 2)}</span></div>`; }).join('')
-    + `<div class="tabs-end"><button class="mini-btn" id="tglProblems" title="Problems (Ctrl J)">${ic('panelBottom', 14)}</button><button class="mini-btn" id="tglInsp" title="Inspector (Ctrl Alt B)">${ic('panelRight', 14)}</button></div>`;
+    + `<div class="tabs-end">${S.problems ? '' : `<button class="mini-btn" id="tglProblems" title="Show problems (Ctrl J)">${ic('panelBottom', 14)}</button>`}${S.insp ? '' : `<button class="mini-btn" id="tglInsp" title="Show inspector (Ctrl Alt B)">${ic('panelRight', 14)}</button>`}</div>`;
 }
 function renderCrumbs() {
   const p = S.active; const parts = p.split('/');
@@ -1262,6 +1262,7 @@ function renderStatus() {
 }
 
 function renderLayout() {
+  renderTabs();
   $('side').classList.toggle('hidden', !S.side); $('splitL').classList.toggle('hidden', !S.side);
   $('insp').classList.toggle('hidden', !S.insp); $('splitR').classList.toggle('hidden', !S.insp);
   $('problems').classList.toggle('hidden', !S.problems); $('splitB').classList.toggle('hidden', !S.problems);
