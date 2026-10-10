@@ -119,7 +119,7 @@ api-designer-studio/
 
 **Problems** come from merging parse results and validation results (M0.1: broken references and missing includes come from the parse phase). Each problem has severity, message, file, range and a short code. AMF's operating-system error text (mangled on Windows) is replaced with our own wording for file-not-found.
 
-**The outline** is built by walking the AMF model with `annotations().location()` and `lexical()`:
+**The outline** (as planned) is built by walking the AMF model with `annotations().location()` and `lexical()`. **As built in M1:** the tree, autocomplete and shelf use a fast line-based reading in the webview (`src/raml.ts`) instead, so they never wait on the JVM; AMF reports the errors. The AMF outline below stays the plan for `uses` (find usages, the M5 graph):
 
 ```jsonc
 {
