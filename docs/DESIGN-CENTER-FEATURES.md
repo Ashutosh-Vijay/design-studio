@@ -160,7 +160,7 @@ The exact layout of API Designer today, to match where it helps.
 | Branch in the centre, Share, Publish, gear menu | Same place and names. Share opens Design Center in the browser |
 | "Saved N minutes ago" | Ours saves to disk on Ctrl S; show "Unsaved changes" or nothing, and "Pushed N minutes ago" once linked |
 | Project Errors with Problems and Governance tabs | Project errors; a Governance tab when rulesets arrive |
-| Shelf | Left out on purpose: autocomplete covers it, and it's the slow picker people avoid |
+| Shelf | **Included** (decided 2026-10-10): click-and-done beats typing, and Design Center's was only bad because it was slow. Ours follows the cursor instantly, with the same column names, and also lists types after `type:` and traits after `is:` |
 
 ## Sources
 

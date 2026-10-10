@@ -411,6 +411,82 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
 .tcard .nm { font-size: 12px; font-weight: 600; margin: 6px 2px 0; }
 .sel { height: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-input); color: var(--content); font-size: 12px; }
 
+
+/* ===== Alignment with Design Center's layout ===== */
+.brand { height: 28px; border-radius: 6px; }
+.brand:hover { background: var(--surface-2); }
+.save-state { font-size: 12px; color: var(--content-faint); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.save-state .push { height: 22px; padding: 0 8px; border-radius: 5px; font-size: 11.5px; font-weight: 600; color: var(--accent); border: 1px solid var(--accent-border); background: var(--accent-dim); }
+.save-state .push:hover { background: var(--accent); color: var(--accent-ink); }
+.branch-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 6px; font-size: 13px; color: var(--content-secondary); }
+.branch-btn:hover { background: var(--surface-2); color: var(--content); }
+.branch-btn b { color: var(--content); font-weight: 600; }
+.ghost-btn.acc { color: var(--accent); border-color: var(--accent-border); }
+.ghost-btn.acc:hover { background: var(--accent-dim); color: var(--accent); }
+.rrail { border-right: 0; border-left: 1px solid var(--line); }
+.rrail .rail-btn.active::before { left: auto; right: -8px; }
+.ghost-tag { font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: 3px; border: 1px solid var(--line); color: var(--content-muted); }
+
+/* the shelf: Design Center's click-to-insert suggestions, for the cursor's position */
+.shelf { height: var(--shelf-h, 132px); flex-shrink: 0; display: flex; flex-direction: column; background: var(--bg); border-top: 1px solid var(--line-subtle); min-height: 0; }
+.shelf.collapsed { height: 26px; }
+.shelf-head { height: 26px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px; font-size: 11px; color: var(--content-faint); }
+.shelf-head .ctx { font-family: var(--font-mono); font-size: 11px; color: var(--content-muted); }
+.shelf-cols { flex: 1; overflow: auto; display: flex; gap: 26px; padding: 2px 14px 10px; align-items: flex-start; }
+.shelf-col { min-width: 96px; }
+.shelf-col h6 { margin: 0 0 4px; font-size: 11.5px; font-weight: 600; color: var(--content-secondary); }
+.shelf-item { display: block; text-align: left; height: 22px; padding: 0 8px; margin-bottom: 1px; font-family: var(--font-mono); font-size: 12px; color: var(--content-secondary);
+  border-left: 2px solid var(--bar, var(--line)); border-radius: 0 4px 4px 0; white-space: nowrap; }
+.shelf-item:hover { background: var(--surface-2); color: var(--content); }
+.shelf-empty { padding: 6px 14px; font-size: 12px; color: var(--content-faint); }
+
+/* Project errors, Design Center style: a bar that opens into Problems and Governance tabs */
+.problems.collapsed { height: 28px !important; }
+.p-bar { height: 28px; flex-shrink: 0; display: flex; align-items: center; gap: 4px; padding: 0 6px 0 8px; border-bottom: 1px solid var(--line-subtle); }
+.problems.collapsed .p-bar { border-bottom: 0; }
+.p-tab { height: 28px; padding: 0 10px; font-size: 12px; color: var(--content-faint); display: inline-flex; align-items: center; gap: 6px; border-bottom: 2px solid transparent; }
+.p-tab.on { color: var(--content); border-bottom-color: var(--accent); font-weight: 600; }
+.p-main { flex: 1; min-height: 0; display: flex; }
+.problems.collapsed .p-main { display: none; }
+.p-sev { width: 34px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 6px; border-right: 1px solid var(--line-subtle); }
+.p-sev button { width: 24px; height: 24px; border-radius: 5px; display: flex; align-items: center; justify-content: center; opacity: 0.35; }
+.p-sev button.on { opacity: 1; background: var(--surface-2); }
+.p-list { flex: 1; }
+
+/* dependencies and exchange panels */
+.grp { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 10px; font-size: 12.5px; color: var(--content-secondary); cursor: pointer; border-bottom: 1px solid var(--line-subtle); }
+.grp:hover { background: var(--hover-overlay); }
+.grp .cnt { color: var(--content-faint); }
+.dep { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px 8px 26px; border-bottom: 1px solid var(--line-subtle); }
+.dep .nm { font-size: 12.5px; color: var(--content); }
+.dep .sub { font-size: 11px; color: var(--content-faint); margin-top: 2px; }
+.panel-pad { padding: 14px 14px 20px; font-size: 12.5px; color: var(--content-secondary); }
+.panel-pad h5 { margin: 18px 0 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--content-faint); }
+.lnk { color: var(--accent); cursor: pointer; }
+.lnk:hover { text-decoration: underline; }
+.chg { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+.chg .k { width: 14px; text-align: center; font-family: var(--font-mono); font-weight: 700; }
+.ver { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; border-bottom: 1px solid var(--line-subtle); }
+.badge-st { font-size: 10px; font-weight: 600; padding: 0 6px; border-radius: 3px; }
+.badge-st.stable { color: var(--ok); background: color-mix(in oklch, var(--ok) 13%, transparent); }
+.badge-st.dev { color: var(--warn); background: color-mix(in oklch, var(--warn) 13%, transparent); }
+.badge-st.dep { color: var(--err); background: color-mix(in oklch, var(--err) 13%, transparent); }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--content-secondary); padding: 8px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); }
+.tbl td { padding: 7px 8px; border-bottom: 1px solid var(--line-secondary); vertical-align: middle; }
+.tbl tr.depr .n { text-decoration: line-through; color: var(--content-faint); }
+.avatar { width: 20px; height: 20px; border-radius: 50%; background: var(--surface-3); color: var(--content-secondary); font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+
+/* documentation view */
+.doc h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.doc .meta { font-size: 12px; color: var(--content-faint); margin-top: 4px; }
+.doc .ep { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line-subtle); cursor: pointer; font-family: var(--font-mono); font-size: 12px; color: var(--accent); }
+.doc .ep:hover { text-decoration: underline; }
+.doc .mth { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 10px; background: var(--bg); }
+.doc .mth-top { display: flex; align-items: center; gap: 8px; }
+.doc .row2 { display: flex; gap: 8px; font-size: 12px; padding: 3px 0; }
+.doc .row2 .k { width: 74px; color: var(--content-faint); flex-shrink: 0; }
+
 /* popovers, menus, palette, toast */
 .pop { position: fixed; z-index: 50; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; min-width: 200px; }
 .mi { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; border-radius: 4px; font-size: 12.5px; color: var(--content-secondary); text-align: left; }
@@ -450,19 +526,19 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
 <body>
 <div class="app">
   <header>
-    <div class="brand" title="About API Designer Studio">
+    <button class="brand" id="homeBtn" title="All projects">
       <svg width="22" height="22" viewBox="0 0 24 24"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)"/>
         <g fill="none" stroke="var(--accent-ink)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
           <path d="M7 7h4M7 12h3M9 7v10h3"/><circle cx="15.5" cy="12" r="1.7"/><circle cx="15.5" cy="17" r="1.7"/></g></svg>
-    </div>
-    <button class="proj-btn" id="projBtn"><span id="projName">customer-orders-sapi</span><span class="chev" data-ic="chevDown" data-s="13"></span></button>
-    <span class="chip" title="Opened from a folder on this computer. Everything works offline."><span data-ic="folder" data-s="12"></span>Local folder</span>
+    </button>
+    <span class="save-state" id="saveState"></span>
     <div style="flex:1"></div>
-    <button class="palette-trigger" id="palBtn"><span data-ic="search" data-s="13"></span><span style="flex:1;text-align:left">Search resources, types, files…</span><span class="kbd">Ctrl K</span></button>
+    <button class="branch-btn" id="branchBtn" title="Branches"></button>
     <div style="flex:1"></div>
-    <button class="ghost-btn" id="connectBtn" title="Sign in to pull, push and publish with Design Center"><span data-ic="cloud" data-s="14"></span>Connect to Anypoint</button>
-    <div class="vsep"></div>
-    <button class="icon-btn" id="settingsBtn" title="Theme, accent and settings"><span data-ic="settings" data-s="15"></span></button>
+    <button class="icon-btn" id="palBtn" title="Search resources, types and files (Ctrl K)"><span data-ic="search" data-s="15"></span></button>
+    <button class="ghost-btn" id="shareBtn"><span data-ic="share" data-s="14"></span>Share</button>
+    <button class="ghost-btn acc" id="publishBtn"><span data-ic="exchange" data-s="14"></span>Publish</button>
+    <button class="ghost-btn" id="projSettingsBtn" title="Project settings" style="padding:0 6px"><span data-ic="settings" data-s="15"></span><span data-ic="chevDown" data-s="12"></span></button>
     <div class="winctl">
       <button title="Minimize"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg></button>
       <button title="Maximize"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x=".5" y=".5" width="9" height="9" stroke="currentColor"/></svg></button>
@@ -472,16 +548,21 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
 
   <div class="body">
     <nav class="rail">
-      <button class="rail-btn" data-rail="api" title="API (Ctrl Shift A)"><span data-ic="api" data-s="18"></span></button>
       <button class="rail-btn" data-rail="files" title="Files (Ctrl Shift E)"><span data-ic="files" data-s="18"></span></button>
+      <button class="rail-btn" data-rail="api" title="API (Ctrl Shift A)"><span data-ic="api" data-s="18"></span></button>
+      <button class="rail-btn" data-rail="deps" title="Dependencies"><span data-ic="deps" data-s="18"></span></button>
+      <button class="rail-btn" data-rail="exchange" title="Exchange"><span data-ic="exchange" data-s="18"></span></button>
+      <div style="flex:1"></div>
+      <button class="rail-btn" id="appSettingsBtn" title="Theme, accent and settings (Ctrl ,)"><span data-ic="sliders" data-s="18"></span></button>
     </nav>
 
     <aside class="side" id="side">
       <div class="side-head">
         <span class="title" id="sideTitle">API</span>
+        <button class="mini-btn" title="New file" id="newFileBtn"><span data-ic="plus" data-s="14"></span></button>
         <button class="mini-btn" title="Collapse all" id="collapseAll"><span data-ic="collapse" data-s="13"></span></button>
       </div>
-      <label class="filter"><span data-ic="filter" data-s="12"></span><input id="filter" placeholder="Filter resources and types" spellcheck="false"><span class="kbd" id="filterKbd">/</span></label>
+      <label class="filter" id="filterBox"><span data-ic="filter" data-s="12"></span><input id="filter" placeholder="Filter resources and types" spellcheck="false"><span class="kbd" id="filterKbd">/</span></label>
       <div class="tree" id="tree"></div>
     </aside>
     <div class="split-x" id="splitL"></div>
@@ -490,24 +571,24 @@ header { height: 44px; flex-shrink: 0; display: flex; align-items: center; gap: 
       <div class="tabs" id="tabs"></div>
       <div class="crumbs" id="crumbs"></div>
       <div class="editor" id="editor"><div class="code" id="code"></div></div>
+      <div class="split-y" id="splitS"></div>
+      <section class="shelf" id="shelf"></section>
       <div class="split-y" id="splitB"></div>
       <section class="problems" id="problems">
-        <div class="p-head">
-          <span class="p-title">Project errors <span class="pill" id="pCount"></span></span>
-          <div class="seg" id="sevSeg"></div>
-          <span class="p-meta" id="pMeta"></span>
-          <button class="mini-btn" title="Hide problems (Ctrl J)" id="hideProblems"><span data-ic="x" data-s="13"></span></button>
-        </div>
-        <div class="p-list" id="pList"></div>
+        <div class="p-bar" id="pBar"></div>
+        <div class="p-main" id="pMain"><div class="p-sev" id="pSev"></div><div class="p-list" id="pList"></div></div>
       </section>
     </main>
     <div class="split-x" id="splitR"></div>
 
     <aside class="insp" id="insp">
-      <div class="side-head"><span class="title">Inspector</span>
-        <button class="mini-btn" title="Hide inspector (Ctrl Alt B)" id="hideInsp"><span data-ic="panelRight" data-s="13"></span></button></div>
+      <div class="side-head" id="inspHead"></div>
       <div class="insp-body" id="inspBody"></div>
     </aside>
+    <nav class="rail rrail">
+      <button class="rail-btn" data-rrail="insp" title="Inspector (Ctrl Alt B)"><span data-ic="target" data-s="18"></span></button>
+      <button class="rail-btn" data-rrail="docs" title="Documentation"><span data-ic="book" data-s="18"></span></button>
+    </nav>
   </div>
 
   <footer class="status" id="status"></footer>
@@ -541,6 +622,15 @@ const IC = {
   panelBottom: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18"/>',
   collapse: '<path d="m7 20 5-5 5 5M7 4l5 5 5-5"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
+  chevUp: '<polyline points="6 15 12 9 18 15"/>',
+  chevLeft: '<polyline points="15 6 9 12 15 18"/>',
+  branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 4-6 3-11 6"/>',
+  share: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M19 8v6M16 11h6"/>',
+  exchange: '<path d="M4.5 8.5c2.5 0 3.5 7 7.5 7s5-7 7.5-7"/><path d="M4.5 15.5c2.5 0 3.5-7 7.5-7s5 7 7.5 7"/>',
+  deps: '<circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6.5 6.5l3.7 3.7M17.5 6.5l-3.7 3.7M6.5 17.5l3.7-3.7M17.5 17.5l-3.7-3.7"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5V21h16"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   dup: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/><path d="M14.5 11.5v6M11.5 14.5h6"/>',
   target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',
@@ -926,8 +1016,8 @@ const S = {
   rail: 'api', tabs: [MAIN, LIBS.ordersLib, 'examples/get-order-response.json'], active: MAIN,
   cursor: { line: 0, col: 0 }, dirty: new Set([MAIN]), sel: null, popup: null, filter: '',
   closedSecs: new Set(['Resource types', 'Security schemes']), collapsed: new Set(), openDirs: new Set(['data-types', 'examples', 'traits']),
-  root: MAIN, undo: null, sev: 'all', scope: 'all', fixed: new Set(), engine: 'ready', parseMs: 180, checkMs: 1940, checkedAgo: 4,
-  side: true, insp: true, problems: true, menu: null,
+  root: MAIN, rpanel: 'insp', shelf: true, ptab: 'problems', sevOn: { error: true, warning: true, info: true }, toPush: 0, branch: 'master', branches: ['master', 'feature/returns'], published: '1.0.12', docPage: null, undo: null, sev: 'all', scope: 'all', fixed: new Set(), engine: 'ready', parseMs: 180, checkMs: 1940, checkedAgo: 4,
+  side: true, insp: true, problems: false, menu: null,
 };
 const cursorByFile = {};
 
@@ -1073,6 +1163,8 @@ function resMatches(r) { return match(r.path) || r.methods.some(m => match(m.m +
 function renderTree() {
   const T = $('tree'); let h = '';
   if (S.rail === 'files') { T.innerHTML = renderFiles(); return; }
+  if (S.rail === 'deps') { T.innerHTML = renderDeps(); return; }
+  if (S.rail === 'exchange') { T.innerHTML = renderExchange(); return; }
   const probs = liveProblems();
   const sec = (name, count, body) => {
     const closed = S.closedSecs.has(name) && !S.filter;
@@ -1133,8 +1225,7 @@ function renderFiles() {
 // ---------- Tabs, breadcrumb ----------
 function renderTabs() {
   $('tabs').innerHTML = S.tabs.map(p => { const l = lang(p);
-    return `<div class="tab${p === S.active ? ' active' : ''}" data-tab="${p}" title="${esc(p)}"><span class="ficon f-${l}">${l === 'raml' ? 'R' : l === 'json' ? '{}' : '·'}</span><span class="name">${base(p)}</span><span class="x${S.dirty.has(p) ? ' dirty' : ''}" data-close="${p}" title="${S.dirty.has(p) ? 'Unsaved changes. Close' : 'Close'}"><span class="d"></span>${ic('x', 12, 2)}</span></div>`; }).join('')
-    + `<div class="tabs-end">${S.problems ? '' : `<button class="mini-btn" id="tglProblems" title="Show problems (Ctrl J)">${ic('panelBottom', 14)}</button>`}${S.insp ? '' : `<button class="mini-btn" id="tglInsp" title="Show inspector (Ctrl Alt B)">${ic('panelRight', 14)}</button>`}</div>`;
+    return `<div class="tab${p === S.active ? ' active' : ''}" data-tab="${p}" title="${esc(p)}"><span class="ficon f-${l}">${l === 'raml' ? 'R' : l === 'json' ? '{}' : '·'}</span><span class="name">${base(p)}</span><span class="x${S.dirty.has(p) ? ' dirty' : ''}" data-close="${p}" title="${S.dirty.has(p) ? 'Unsaved changes. Close' : 'Close'}"><span class="d"></span>${ic('x', 12, 2)}</span></div>`; }).join('');
 }
 function renderCrumbs() {
   const p = S.active; const parts = p.split('/');
@@ -1146,20 +1237,6 @@ function renderCrumbs() {
 }
 
 // ---------- Problems panel ----------
-function renderProblems() {
-  const all = liveProblems(); const nE = all.filter(p => p.sev === 'error').length, nW = all.length - nE;
-  $('pCount').textContent = all.length;
-  $('sevSeg').innerHTML = `<button data-sev="all" class="${S.sev === 'all' ? 'on' : ''}">All</button><button data-sev="error" class="${S.sev === 'error' ? 'on' : ''}"><span style="color:var(--err);display:inline-flex">${ic('errorDot', 11, 2)}</span>${nE}</button><button data-sev="warning" class="${S.sev === 'warning' ? 'on' : ''}"><span style="color:var(--warn);display:inline-flex">${ic('warnTri', 11, 2)}</span>${nW}</button>`;
-  const engine = S.engine === 'parsing' ? '<span class="spin"></span>Reading…' : S.engine === 'checking' ? `<span class="spin"></span>Read in ${(S.parseMs / 1000).toFixed(2)} s · full check running…` : `Full check ${(S.checkMs / 1000).toFixed(1)} s, ${S.checkedAgo ? S.checkedAgo + ' s ago' : 'just now'}`;
-  $('pMeta').innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px">${engine}</span>`;
-  const shown = all.filter(p => (S.sev === 'all' || p.sev === S.sev) && (S.scope === 'all' || p.file === S.active));
-  if (!shown.length) { $('pList').innerHTML = `<div class="p-empty"><span style="color:var(--ok);display:inline-flex">${ic('check', 15, 2)}</span>${all.length ? 'Nothing here with this filter.' : 'No problems. The spec reads and checks clean.'}</div>`; return; }
-  const files = [...new Set(shown.map(p => p.file))];
-  $('pList').innerHTML = files.map(f => { const l = lang(f);
-    return `<div class="p-file"><span class="ficon f-${l}">${l === 'raml' ? 'R' : '{}'}</span>${base(f)} <span class="path">${f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : ''}</span></div>` +
-    shown.filter(p => p.file === f).map(p => `<div class="p-row" data-prob="${p.id}"><span style="color:var(--${p.sev === 'error' ? 'err' : 'warn'});display:inline-flex">${ic(p.sev === 'error' ? 'errorDot' : 'warnTri', 14, 1.8)}</span><span class="msg">${esc(p.msg)}</span>${p.hint ? `<span class="hint">${esc(p.hint)}</span>` : ''}${p.fix ? `<button class="fix-btn" data-fix="${p.id}">${esc(p.fix.label)}</button>` : ''}<span class="loc">Ln ${p.line + 1}, Col ${p.col + 1}</span><span class="src" title="${p.src === 'parse' ? 'Found while reading the spec, right after your edit' : 'Found by the full check, which runs in the background'}">${p.src}</span></div>`).join(''); }).join('');
-}
-
 // ---------- Inspector ----------
 function tref(v) {
   if (!v) return '<span style="color:var(--content-faint)">none</span>';
@@ -1226,24 +1303,269 @@ function renderInspector() {
   B.innerHTML = h;
 }
 
-// ---------- Status bar ----------
-function renderStatus() {
-  const all = liveProblems(); const nE = all.filter(p => p.sev === 'error').length, nW = all.length - nE;
-  const eng = S.engine === 'ready' ? `<span style="color:var(--accent);display:inline-flex;align-items:center;gap:5px"><span class="dot" style="background:var(--accent)"></span>Ready</span>` : `<span style="color:var(--warn);display:inline-flex;align-items:center;gap:6px"><span class="spin"></span>${S.engine === 'parsing' ? 'Reading' : 'Checking'}</span>`;
-  $('status').innerHTML = `${eng}<button id="stProblems" title="Project errors (Ctrl J)"><span style="color:var(--err);display:inline-flex">${ic('errorDot', 12, 2)}</span>${nE}<span style="color:var(--warn);display:inline-flex;margin-left:6px">${ic('warnTri', 12, 2)}</span>${nW}</button><span style="flex:1"></span><span>Ln ${S.cursor.line + 1}, Col ${S.cursor.col + 1}</span><span>RAML 1.0</span>`;
+function renderAll(keepScroll = true) { renderLayout(); renderHeader(); renderTree(); renderCrumbs(); renderEditor(keepScroll); renderShelf(); renderProblems(); renderRightPanel(); renderStatus(); }
+
+// ---------- Alignment with Design Center: header, rails, shelf, Project errors, panels ----------
+function blockEnd(L, E, k) {
+  let end = L.length;
+  for (let j = k + 1; j < E.length; j++) if (E[j].ind <= E[k].ind) { end = E[j].i; break; }
+  while (end - 1 > E[k].i && !L[end - 1].trim()) end--;
+  return end;
+}
+
+function renderHeader() {
+  const dirty = S.dirty.size;
+  $('saveState').innerHTML = dirty ? `<span title="Ctrl S saves">Unsaved changes</span>`
+    : S.toPush ? `<span>Saved on this computer</span><button class="push" id="pushBtn" title="Send your saved changes to Design Center">Push ${S.toPush} ${S.toPush === 1 ? 'change' : 'changes'}</button>`
+    : `<span>Up to date with Design Center</span>`;
+  $('branchBtn').innerHTML = `${ic('branch', 14)}<span>customer-orders-sapi/<b>${esc(S.branch)}</b></span>${ic('chevDown', 12)}`;
 }
 
 function renderLayout() {
-  renderTabs();
+  renderTabs(); renderProblems(); renderShelf();
   $('side').classList.toggle('hidden', !S.side); $('splitL').classList.toggle('hidden', !S.side);
   $('insp').classList.toggle('hidden', !S.insp); $('splitR').classList.toggle('hidden', !S.insp);
-  $('problems').classList.toggle('hidden', !S.problems); $('splitB').classList.toggle('hidden', !S.problems);
-  document.querySelectorAll('.rail-btn[data-rail]').forEach(b => b.classList.toggle('active', S.side && b.dataset.rail === S.rail || (b.dataset.rail === 'problems' && false)));
-  $('sideTitle').textContent = S.rail === 'files' ? 'Files' : 'API';
-  $('filter').placeholder = S.rail === 'files' ? 'Filter files' : 'Filter resources and types';
-  $('collapseAll').classList.toggle('hidden', S.rail === 'files');
+  $('problems').classList.toggle('collapsed', !S.problems); $('splitB').classList.toggle('hidden', !S.problems);
+  $('shelf').classList.toggle('collapsed', !S.shelf); $('splitS').classList.toggle('hidden', !S.shelf);
+  document.querySelectorAll('.rail-btn[data-rail]').forEach(b => b.classList.toggle('active', S.side && b.dataset.rail === S.rail));
+  document.querySelectorAll('.rail-btn[data-rrail]').forEach(b => b.classList.toggle('active', S.insp && b.dataset.rrail === S.rpanel));
+  $('sideTitle').textContent = { files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[S.rail];
+  $('filterBox').classList.toggle('hidden', S.rail === 'deps' || S.rail === 'exchange');
+  $('filter').placeholder = S.rail === 'files' ? 'Filter' : 'Filter resources and types';
+  $('collapseAll').classList.toggle('hidden', S.rail !== 'api');
+  $('newFileBtn').classList.toggle('hidden', S.rail !== 'files');
 }
-function renderAll(keepScroll = true) { renderLayout(); renderTree(); renderTabs(); renderCrumbs(); renderEditor(keepScroll); renderProblems(); renderInspector(); renderStatus(); }
+
+// ---------- The shelf ----------
+// What can go where the cursor is. Columns and words follow Design Center's shelf.
+const SHELF = {
+  root: [['Root', ['title', 'version', 'baseUri', 'mediaType', 'protocols', 'description']], ['Docs', ['documentation']], ['Declarations', ['uses', 'types', 'traits', 'resourceTypes', 'securitySchemes', 'annotationTypes']], ['Security', ['securedBy']]],
+  resource: [['Methods', METHODS], ['Docs', ['description', 'displayName']], ['Types and Traits', ['is', 'type']], ['Security', ['securedBy']], ['Parameters', ['uriParameters']]],
+  method: [['Docs', ['description', 'displayName']], ['Types and Traits', ['is']], ['Security', ['securedBy']], ['Parameters', ['queryParameters', 'headers', 'queryString']], ['Body', ['body']], ['Responses', ['responses']], ['Protocols', ['protocols']]],
+  responses: [['Success', ['200', '201', '202', '204']], ['Client errors', ['400', '401', '403', '404', '409', '422']], ['Server errors', ['500', '502', '503']]],
+  response: [['Docs', ['description']], ['Body', ['body']], ['Headers', ['headers']]],
+  body: [['Media types', ['application/json', 'application/xml', 'text/plain', 'multipart/form-data', 'application/x-www-form-urlencoded']]],
+  media: [['Types and Examples', ['type', 'example', 'examples']]],
+};
+const BAR = { Methods: 'var(--content-muted)', Docs: 'var(--cyan)', 'Types and Traits': 'var(--violet)', Security: 'var(--err)', Parameters: 'var(--cyan)', Body: 'var(--ok)', Responses: 'var(--warn)',
+  Success: 'var(--ok)', 'Client errors': 'var(--warn)', 'Server errors': 'var(--err)', 'Media types': 'var(--cyan)', 'Types and Examples': 'var(--violet)', Root: 'var(--content-muted)', Declarations: 'var(--violet)', Protocols: 'var(--content-muted)', Headers: 'var(--cyan)', Traits: 'var(--violet)' };
+const SCALAR_KEYS = ['title', 'version', 'baseUri', 'mediaType', 'description', 'displayName', 'type', 'example', 'securedBy', 'protocols', 'is'];
+function shelfContext() {
+  const p = S.active; if (lang(p) !== 'raml' || p !== MAIN) return null;
+  const L = lines(p), E = entries(p), line = S.cursor.line, t = L[line] || '';
+  const here = E.findIndex(e => e.i === line);
+  // a value position: type: and is: get lists of names, not keys
+  if (here >= 0 && (E[here].key === 'type' || E[here].key === 'items')) return { kind: 'typeValue', line, E, L };
+  if (here >= 0 && E[here].key === 'is') return { kind: 'isValue', line, E, L };
+  let ck;
+  if (here >= 0 && !E[here].val) ck = here; // a block key: suggest what goes inside it
+  else {
+    const ind = t.trim() ? t.match(/^\s*/)[0].length : S.cursor.col;
+    ck = -1; for (let j = E.length - 1; j >= 0; j--) if (E[j].i < line && E[j].ind < ind) { ck = j; break; }
+    if (here >= 0) { ck = -1; for (let j = here - 1; j >= 0; j--) if (E[j].ind < E[here].ind) { ck = j; break; } }
+  }
+  const key = ck >= 0 ? E[ck].key : null;
+  const kind = ck < 0 ? 'root' : key.startsWith('/') ? 'resource' : METHODS.includes(key) ? 'method' : key === 'responses' ? 'responses'
+    : /^\d{3}$/.test(key) ? 'response' : key === 'body' ? 'body' : key.includes('/') ? 'media' : null;
+  const have = new Set((ck < 0 ? E.filter(e => e.ind === 0) : kids(E, ck).map(j => E[j])).map(e => e.key));
+  return { kind, ck, E, L, line, have, label: ck < 0 ? 'top level' : keyPath(p, E[ck].i).map(e => e.key).join(' › ') };
+}
+function renderShelf() {
+  const el = $('shelf');
+  if (!S.shelf) { el.innerHTML = `<div class="shelf-head"><span>Shelf</span><span style="flex:1"></span><button class="mini-btn" id="shelfTgl" title="Show the shelf">${ic('chevUp', 13, 2)}</button></div>`; return; }
+  const C = shelfContext();
+  let cols = [];
+  if (C?.kind === 'typeValue') {
+    cols = Object.keys(LIBS).map(a => [a, MODEL.types.filter(t => t.alias === a).map(t => t.q)]);
+    cols.push(['Built-in', ['string', 'number', 'integer', 'boolean', 'datetime', 'date-only', 'object', 'array']]);
+  } else if (C?.kind === 'isValue') {
+    const cur = (C.L[C.line].match(/\[(.*)\]/) || ['', ''])[1].split(',').map(s => s.trim());
+    cols = [['Traits', MODEL.traits.map(t => t.name).filter(n => !cur.includes(n))]];
+  } else if (C?.kind) {
+    cols = SHELF[C.kind].map(([h, items]) => [h, items.filter(i => !C.have.has(i))]).filter(([, items]) => items.length);
+  }
+  const head = `<div class="shelf-head"><span>Shelf</span>${C ? `<span class="ctx">${esc(C.kind === 'typeValue' ? 'type' : C.kind === 'isValue' ? 'is' : C.label || '')}</span>` : ''}<span style="flex:1"></span><button class="mini-btn" id="shelfTgl" title="Hide the shelf">${ic('chevDown', 13, 2)}</button></div>`;
+  const body = !C ? `<div class="shelf-empty">${lang(S.active) === 'json' ? 'No suggestions for example files.' : 'Suggestions show for the root file.'}</div>`
+    : !cols.length ? `<div class="shelf-empty">Nothing to add here. Move the cursor to a resource, method, responses or body.</div>`
+    : `<div class="shelf-cols">${cols.map(([h, items]) => `<div class="shelf-col" style="--bar:${BAR[h] || 'var(--syn-number)'}"><h6>${esc(h)}</h6>${items.map(i => `<button class="shelf-item" data-shelf="${esc(i)}">${esc(i)}</button>`).join('')}</div>`).join('')}</div>`;
+  el.innerHTML = head + body;
+}
+function shelfInsert(item) {
+  const C = shelfContext(); if (!C) return;
+  const L = C.L; let line, col;
+  if (C.kind === 'typeValue') { L[C.line] = L[C.line].replace(/:\s*\S*\s*$/, ': ' + item); line = C.line; col = L[line].length; }
+  else if (C.kind === 'isValue') {
+    L[C.line] = /\[\s*\]/.test(L[C.line]) || !/\[/.test(L[C.line]) ? L[C.line].replace(/:\s*.*$/, `: [ ${item} ]`) : L[C.line].replace(/\s*\]\s*$/, `, ${item} ]`);
+    line = C.line; col = L[line].length;
+  } else {
+    const E = C.E;
+    const childInd = C.ck < 0 ? 0 : (kids(E, C.ck)[0] != null ? E[kids(E, C.ck)[0]].ind : E[C.ck].ind + 2);
+    const text = ' '.repeat(childInd) + item + ':' + (SCALAR_KEYS.includes(item) ? ' ' : '');
+    if (!L[S.cursor.line].trim()) { L[S.cursor.line] = text; line = S.cursor.line; }
+    else {
+      let at;
+      if (C.ck >= 0 && E[C.ck].i === S.cursor.line) at = blockEnd(L, E, C.ck);
+      else { const kp = keyPath(MAIN, S.cursor.line); const mine = kp.find(e => e.ind === childInd); const k = mine ? E.findIndex(e => e.i === mine.i) : -1;
+        at = k >= 0 ? blockEnd(L, E, k) : (C.ck >= 0 ? blockEnd(L, E, C.ck) : L.length); }
+      L.splice(at, 0, text); line = at;
+    }
+    col = text.length;
+  }
+  FILES[MAIN] = L.join('\n'); S.dirty.add(MAIN);
+  S.cursor = { line, col }; S.popup = null;
+  buildModel(); syncSelFromCursor(); reparse(); scrollToLine(line, true);
+}
+
+// ---------- Project errors ----------
+function renderProblems() {
+  const all = liveProblems(); const nE = all.filter(p => p.sev === 'error').length, nW = all.length - nE;
+  const engine = S.engine === 'parsing' ? '<span class="spin"></span>Reading' : S.engine === 'checking' ? '<span class="spin"></span>Checking' : `Checked in ${(S.checkMs / 1000).toFixed(1)} s`;
+  const counts = `<span style="color:var(--err);display:inline-flex">${ic('errorDot', 12, 2)}</span>${nE}<span style="color:var(--warn);display:inline-flex;margin-left:4px">${ic('warnTri', 12, 2)}</span>${nW}`;
+  $('pBar').innerHTML = S.problems
+    ? `<button class="p-tab${S.ptab === 'problems' ? ' on' : ''}" data-ptab="problems">Problems (${all.length})</button><button class="p-tab${S.ptab === 'gov' ? ' on' : ''}" data-ptab="gov">Governance (0)</button>
+       <span style="flex:1"></span><span class="p-meta" style="margin:0 8px 0 0">${engine}</span><button class="mini-btn" id="pTgl" title="Hide project errors (Ctrl J)">${ic('chevDown', 13, 2)}</button>`
+    : `<span style="flex:1"></span><button class="p-tab" id="pOpen" style="gap:8px">Project errors ${counts}</button><button class="mini-btn" id="pTgl" title="Show project errors (Ctrl J)">${ic('chevUp', 13, 2)}</button>`;
+  if (!S.problems) return;
+  $('pSev').innerHTML = [['error', 'errorDot', 'err'], ['warning', 'warnTri', 'warn'], ['info', 'info', 'cyan']].map(([k, icn, c]) => `<button data-sevtog="${k}" class="${S.sevOn[k] ? 'on' : ''}" title="${k === 'error' ? 'Errors' : k === 'warning' ? 'Warnings' : 'Info'}" style="color:var(--${c})">${ic(icn, 14, 2)}</button>`).join('');
+  if (S.ptab === 'gov') { $('pList').innerHTML = `<div class="p-empty">${ic('check', 15, 2)}No rulesets yet. Add one under Dependencies to check this API against your organization's rules.</div>`; return; }
+  const shown = all.filter(p => S.sevOn[p.sev]);
+  if (!shown.length) { $('pList').innerHTML = `<div class="p-empty"><span style="color:var(--ok);display:inline-flex">${ic('check', 15, 2)}</span>${all.length ? 'Nothing here with this filter.' : 'No errors to show.'}</div>`; return; }
+  const files = [...new Set(shown.map(p => p.file))];
+  $('pList').innerHTML = files.map(f => { const l = lang(f);
+    return `<div class="p-file"><span class="ficon f-${l}">${l === 'raml' ? 'R' : '{}'}</span>${base(f)} <span class="path">${f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : ''}</span></div>` +
+    shown.filter(p => p.file === f).map(p => `<div class="p-row" data-prob="${p.id}"><span style="color:var(--${p.sev === 'error' ? 'err' : 'warn'});display:inline-flex">${ic(p.sev === 'error' ? 'errorDot' : 'warnTri', 14, 1.8)}</span><span class="msg">${esc(p.msg)}</span>${p.hint ? `<span class="hint">${esc(p.hint)}</span>` : ''}${p.fix ? `<button class="fix-btn" data-fix="${p.id}">${esc(p.fix.label)}</button>` : ''}<span class="loc">${p.line + 1}:${p.col + 1}</span><button class="mini-btn" data-copyprob="${p.id}" title="Copy the message">${ic('copy', 12)}</button></div>`).join(''); }).join('');
+}
+
+// ---------- Status bar, shaped like Design Center's ----------
+function renderStatus() {
+  const eng = S.engine === 'ready' ? `<span style="color:var(--accent);display:inline-flex;align-items:center;gap:5px"><span class="dot" style="background:var(--accent)"></span>Ready</span>` : `<span style="color:var(--warn);display:inline-flex;align-items:center;gap:6px"><span class="spin"></span>${S.engine === 'parsing' ? 'Reading' : 'Checking'}</span>`;
+  $('status').innerHTML = `<span style="color:var(--content-secondary)">${esc(base(S.active))}</span><span>${S.cursor.line + 1}:${S.cursor.col + 1}</span>${S.active === S.root ? '<span>Root file</span>' : ''}<span style="flex:1"></span>${eng}<span>RAML</span><span>API specification</span>`;
+}
+
+// ---------- Dependencies and Exchange panels ----------
+const DEPS = { fragments: [{ name: 'common-fragments', group: 'acme-group', version: '1.0.4', latest: '1.0.6', kind: 'RAML Library' }], rulesets: [] };
+const CATALOG = {
+  fragments: [['Common Fragments', 'RAML', '1.0.6', 'Stable', 'Sep 30, 2026', 'PT', 'Platform team'], ['Error Responses', 'RAML', '2.1.0', 'Stable', 'Aug 12, 2026', 'PT', 'Platform team'],
+    ['Address Schema', 'OAS', '1.2.0', 'Stable', 'Jul 3, 2026', 'DT', 'Data team'], ['Customer Model', 'RAML', '0.9.0', 'Development', 'Oct 1, 2026', 'DT', 'Data team'], ['Legacy Paging Trait', 'RAML', '0.1.0', 'Deprecated', 'Oct 10, 2022', 'MO', 'MuleSoft']],
+  rulesets: [['Anypoint Best Practices', 'Ruleset', '1.6.5', 'Stable', 'Jun 12, 2026', 'MO', 'MuleSoft'], ['API Documentation Best Practices', 'Ruleset', '1.0.1', 'Stable', 'Apr 16, 2026', 'MO', 'MuleSoft'],
+    ['Our Naming Rules', 'Ruleset', '2.0.0', 'Stable', 'Sep 2, 2026', 'PT', 'Platform team']],
+};
+function renderDeps() {
+  const g = (key, label) => {
+    const open = !S.collapsed.has('dg:' + key), list = DEPS[key];
+    return `<div class="grp" data-dgrp="${key}">${ic(open ? 'chevDown' : 'chevRight', 11, 2)}<span style="flex:1">${label} <span class="cnt">(${list.length})</span></span><button class="mini-btn" data-adddep="${key}" title="Add ${label.toLowerCase()}">${ic('plus', 14)}</button></div>`
+      + (!open ? '' : list.length ? list.map((d, i) => `<div class="dep"><span style="flex:1;min-width:0"><div class="nm">${esc(d.name)} <span class="mono" style="font-size:11px;color:var(--content-muted)">${d.version}</span></div><div class="sub">${esc(d.group)} · ${esc(d.kind)}</div>
+          ${d.latest !== d.version ? `<div style="margin-top:6px"><button class="btn" style="height:22px;font-size:11px" data-depupd="${i}">Update to ${d.latest}</button></div>` : ''}</span>
+          <button class="mini-btn" data-depmenu="${key}:${i}" title="More actions">${ic('more', 13)}</button></div>`).join('')
+        : `<div class="dep" style="color:var(--content-faint);font-size:12px">${key === 'rulesets' ? "Add a ruleset to check this API against your organization's rules." : 'None yet.'}</div>`);
+  };
+  return g('fragments', 'Fragments') + g('rulesets', 'Rulesets');
+}
+function renderExchange() {
+  return `<div class="panel-pad">
+    <div>Last published <b style="color:var(--content)">${S.published}</b> 6 days ago by you.</div><div style="margin-top:4px"><span class="lnk" data-openex>Open in Exchange</span></div>
+    <h5>Changed since ${S.published}</h5>
+    <div class="chg"><span class="k" style="color:var(--ok)">+</span><span class="m m-get">GET</span><span class="mono" style="font-size:11.5px">/customers/{customerId}/orders</span></div>
+    <div class="chg"><span class="k" style="color:var(--warn)">~</span><span class="m m-put">PUT</span><span class="mono" style="font-size:11.5px">/orders/{orderId}</span><span style="color:var(--content-faint)">request type</span></div>
+    <div class="note" style="margin-top:8px">Nothing removed, one endpoint added. Suggested next version: <b style="color:var(--content)">1.1.0</b></div>
+    <h5>Versions</h5>
+    ${[[S.published, 'stable', '6 days ago'], ['1.0.11', 'stable', '3 weeks ago'], ['1.0.10', 'dev', '1 month ago'], ['1.0.9', 'stable', '2 months ago']].map(([v, st, w]) => `<div class="ver"><span class="mono" style="color:var(--content)">${v}</span><span class="badge-st ${st}">${st === 'stable' ? 'Stable' : 'Development'}</span><span style="margin-left:auto;color:var(--content-faint)">${w}</span></div>`).join('')}
+  </div>`;
+}
+function openAddDependency(key) {
+  const title = key === 'rulesets' ? 'Rulesets' : 'API Specification Fragments';
+  const sel = new Set(); let q = '', dev = false, only = false;
+  $('layer').innerHTML = `<div class="modal-scrim" id="adScrim"><div class="modal" style="width:min(900px, 100%);height:min(560px, 100%)" role="dialog" aria-label="${title}">
+    <div class="modal-head"><div style="flex:1"><h3>${title}</h3></div><button class="mini-btn" data-close>${ic('x', 14)}</button></div>
+    <div style="display:flex;gap:10px;align-items:center;padding:12px 16px">
+      <select class="sel"><option>Any organization</option><option>Platform team</option><option>Data team</option><option>MuleSoft</option></select>
+      <input class="inp" id="adQ" placeholder="Type to search" spellcheck="false" style="flex:1">
+      <label class="check"><input type="checkbox" id="adDev">Include versions in Development</label></div>
+    <div style="flex:1;overflow:auto;padding:0 16px" id="adList"></div>
+    <div class="modal-foot"><label class="check" style="flex:1"><input type="checkbox" id="adOnly">Show selected only</label><button class="btn" data-close>Cancel</button><button class="btn primary" id="adGo" disabled>Add dependency</button></div></div></div>`;
+  const draw = () => {
+    const rows = CATALOG[key].filter(r => (dev || r[3] !== 'Development') && (!q || r[0].toLowerCase().includes(q)) && (!only || sel.has(r[0])));
+    $('adList').innerHTML = `<table class="tbl"><tr><th style="width:28px"></th><th>Name</th><th>Version</th><th>Date modified</th><th>Created by</th></tr>${rows.map(r => `<tr class="${r[3] === 'Deprecated' ? 'depr' : ''}">
+      <td><input type="checkbox" data-pick="${esc(r[0])}" ${sel.has(r[0]) ? 'checked' : ''} style="accent-color:var(--accent)"></td>
+      <td><span class="n">${esc(r[0])}</span> <span class="ghost-tag">${r[1]}</span></td>
+      <td><span class="mono">${r[2]}</span> <span class="badge-st ${r[3] === 'Stable' ? 'stable' : r[3] === 'Deprecated' ? 'dep' : 'dev'}">${r[3]}</span></td>
+      <td style="color:var(--content-faint)">${r[4]}</td><td><span style="display:inline-flex;align-items:center;gap:6px"><span class="avatar">${r[5]}</span>${esc(r[6])}</span></td></tr>`).join('')}</table>
+      ${rows.length ? '' : '<div class="p-empty">Nothing matches.</div>'}`;
+    $('adGo').disabled = !sel.size; $('adGo').textContent = sel.size > 1 ? `Add ${sel.size} dependencies` : 'Add dependency';
+  };
+  const sc = $('adScrim');
+  sc.onclick = e => { if (e.target.id === 'adScrim' || e.target.closest('[data-close]')) closeLayer(); };
+  sc.onchange = e => { const pk = e.target.dataset.pick; if (pk) { e.target.checked ? sel.add(pk) : sel.delete(pk); draw(); }
+    if (e.target.id === 'adDev') { dev = e.target.checked; draw(); } if (e.target.id === 'adOnly') { only = e.target.checked; draw(); } };
+  $('adQ').oninput = e => { q = e.target.value.toLowerCase(); draw(); };
+  $('adGo').onclick = () => { CATALOG[key].filter(r => sel.has(r[0])).forEach(r => DEPS[key].push({ name: r[0].toLowerCase().replace(/ /g, '-'), group: r[6].toLowerCase().replace(/ /g, '-'), version: r[2], latest: r[2], kind: key === 'rulesets' ? 'Ruleset' : r[1] + ' fragment' }));
+    closeLayer(); renderTree(); toast(`Added ${sel.size} ${sel.size === 1 ? 'dependency' : 'dependencies'}. ${key === 'rulesets' ? 'Governance checks run in the background.' : 'Downloaded into exchange_modules for offline use.'}`); };
+  draw(); $('adQ').focus();
+}
+
+// ---------- Documentation view (the API Console's place) ----------
+function renderDocs() {
+  const L = lines(MAIN), top = k => (L.find(l => l.startsWith(k + ':')) || '').slice(k.length + 1).trim();
+  const E = entries(MAIN);
+  if (!S.docPage) {
+    const ress = MODEL.all.filter(n => n.kind === 'res' && n.methods.length);
+    return `<div class="doc"><h2>${esc(top('title'))}</h2><div class="meta">${esc(top('version'))} · <span class="mono">${esc(top('baseUri'))}</span></div>
+      <h5 style="margin:18px 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--content-faint)">API endpoints</h5>
+      ${ress.map(r => `<div class="ep" data-docpage="${r.id}">${esc(r.path)}<span style="margin-left:auto;display:flex;gap:3px">${r.methods.map(m => `<span class="m m-${m.m}" style="width:auto;padding:0 4px">${m.m.toUpperCase()}</span>`).join('')}</span></div>`).join('')}</div>`;
+  }
+  const r = byId(S.docPage); if (!r) { S.docPage = null; return renderDocs(); }
+  const rk = E.findIndex(e => e.i === r.line); const d = kid(E, rk, 'description');
+  return `<div class="doc"><span class="lnk" data-docpage="">${ic('chevLeft', 11, 2)} All endpoints</span><h2 style="margin-top:10px" class="mono">${esc(r.path)}</h2>${d != null ? `<div class="meta">${esc(E[d].val)}</div>` : ''}
+    ${r.methods.map(m => { const rs = kid(E, m.k, 'responses'); const codes = rs != null ? kids(E, rs).map(j => E[j].key) : [];
+      return `<div class="mth"><div class="mth-top"><span class="m m-${m.m}">${m.m.toUpperCase()}</span><b style="font-size:12.5px">${esc(m.name)}</b><button class="btn" style="margin-left:auto;height:24px;font-size:11.5px" data-tryit>${ic('play', 11)}Try it</button></div>
+        <div class="row2" style="margin-top:6px"><span class="k">Responses</span><span>${codes.map(c => `<span class="code-badge c${c[0]}" style="margin-right:4px">${c}</span>`).join('') || 'none'}</span></div></div>`; }).join('')}</div>`;
+}
+function renderRightPanel() {
+  $('inspHead').innerHTML = `<span class="title">${S.rpanel === 'docs' ? 'Documentation' : 'Inspector'}</span>`;
+  if (S.rpanel === 'docs') $('inspBody').innerHTML = renderDocs(); else renderInspector();
+}
+
+// ---------- Header menus: branch, project settings, publish, share ----------
+function openBranches() {
+  const p = popAt($('branchBtn'), `<div class="mlabel">Branches</div>${S.branches.map(b => `<button class="mi" data-br="${esc(b)}"><span class="ico">${b === S.branch ? ic('check', 14, 2) : ''}</span>${esc(b)}${b === 'master' ? '<span class="sc"><span class="ghost-tag">Default</span></span>' : ''}</button>`).join('')}
+    <div class="msep"></div><div class="mlabel">Create branch</div><div style="display:flex;gap:6px;padding:4px 6px 6px"><input class="inp mono" id="newBr" placeholder="Branch name" spellcheck="false" style="height:26px"><button class="btn" id="newBrGo" style="height:26px">${ic('plus', 13)}</button></div>`);
+  p.style.width = '260px';
+  const r = $('branchBtn').getBoundingClientRect(); p.style.left = Math.round(r.left + r.width / 2 - 130) + 'px';
+  const create = () => { const v = $('newBr').value.trim(); if (!v) return; S.branches.push(v); S.branch = v; closeLayer(); renderHeader(); toast(`Created ${v} from master and switched to it`, 'branch'); };
+  p.onclick = e => { const b = e.target.closest('[data-br]'); if (b) { S.branch = b.dataset.br; closeLayer(); renderHeader(); toast(`Switched to ${S.branch}`, 'branch'); } if (e.target.closest('#newBrGo')) create(); };
+  $('newBr').onkeydown = e => { if (e.key === 'Enter') create(); };
+}
+function openProjectSettings() {
+  const items = [['import', 'Import'], ['importex', 'Import from Exchange'], ['export', 'Export as zip'], ['branchset', 'Branch settings'], null, ['rename', 'Rename'], ['duplicate', 'Duplicate…'], ['delete', 'Delete…']];
+  popAt($('projSettingsBtn'), `<div class="mlabel">Project settings</div>${items.map(i => i ? `<button class="mi" data-ps="${i[0]}">${i[1]}</button>` : '<div class="msep"></div>').join('')}`).onclick = e => {
+    const b = e.target.closest('[data-ps]'); if (!b) return; closeLayer();
+    toast({ import: 'Adds files or a zip to this project', importex: 'Picks a spec or fragment from Exchange and adds it with its dependencies', export: 'Saves the project as a zip, dependencies included',
+      branchset: 'Rename or delete branches', rename: 'Renames the project in Design Center and here', duplicate: 'Makes a copy of the whole project in Design Center', delete: 'Asks first. Deletes it in Design Center; the local folder stays' }[b.dataset.ps], 'settings');
+  };
+}
+function openPublish() {
+  const all = liveProblems(); const nE = all.filter(p => p.sev === 'error').length;
+  const next = S.published.replace(/(\d+)$/, n => +n + 1);
+  $('layer').innerHTML = `<div class="modal-scrim" id="pubScrim"><div class="modal" style="width:min(520px, 100%)" role="dialog" aria-label="Publish to Exchange">
+    <div class="modal-head"><div style="flex:1"><h3>Publish to Exchange</h3><div class="sub">customer-orders-sapi, branch ${esc(S.branch)}</div></div><button class="mini-btn" data-close>${ic('x', 14)}</button></div>
+    <div style="padding:16px">
+      ${nE ? `<div class="p-row" style="padding:10px 12px;border-radius:8px;border:1px solid color-mix(in oklch, var(--err) 30%, transparent);background:color-mix(in oklch, var(--err) 8%, transparent);margin-bottom:14px;cursor:default">${ic('errorDot', 15, 2)}<span class="msg">${nE} ${nE === 1 ? 'error' : 'errors'} to fix first. Exchange won't accept a spec with errors.</span><button class="fix-btn" data-showerr>Show</button></div>` : ''}
+      <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Asset version</label><input class="inp mono" id="pubVer" value="${next}"><div class="hint">Last published ${S.published}. The changes suggest 1.1.0.</div></div>
+        <div class="field" style="width:120px"><label>API version</label><input class="inp mono" value="v1" disabled title="Set by version: in the spec"></div></div>
+      <div class="field"><span class="lab">Lifecycle state</span><div class="seg" id="pubLife"><button class="on" data-life="Stable">Stable</button><button data-life="Development">Development</button></div></div>
+      <details><summary style="cursor:pointer;font-size:12px;color:var(--content-muted)">Advanced</summary>
+        <div style="margin-top:10px"><div class="field"><label>Business group</label><select class="sel" style="width:100%"><option>Your org</option></select></div>
+        <div style="display:flex;gap:10px"><div class="field" style="flex:1"><label>Asset name</label><input class="inp" value="Customer Orders SAPI"></div><div class="field" style="flex:1"><label>Asset ID</label><input class="inp mono" value="customer-orders-sapi"></div></div></div></details>
+    </div>
+    <div class="modal-foot"><span class="note" style="margin:0;flex:1">Files the root file doesn't use are left out, as in Design Center.</span><button class="btn" data-close>Cancel</button><button class="btn primary" id="pubGo" ${nE ? 'disabled' : ''}>Publish to Exchange</button></div></div></div>`;
+  const sc = $('pubScrim');
+  sc.onclick = e => {
+    if (e.target.id === 'pubScrim' || e.target.closest('[data-close]')) return closeLayer();
+    if (e.target.closest('[data-showerr]')) { closeLayer(); S.problems = true; renderLayout(); renderProblems(); return; }
+    const l = e.target.closest('[data-life]'); if (l) sc.querySelectorAll('[data-life]').forEach(b => b.classList.toggle('on', b === l));
+  };
+  $('pubGo').onclick = () => { const v = $('pubVer').value.trim(); closeLayer(); S.published = v; S.toPush = 0; renderHeader(); renderTree(); toast(`Published ${v} to Exchange. Your changes were pushed first.`, 'exchange', { label: 'Open in Exchange', run: () => toast('Opens the asset in your browser', 'link') }); };
+}
 
 // ---------- Menus, palette, toasts ----------
 function toast(msg, icon = 'check', action) {
@@ -1284,7 +1606,7 @@ function doAct(act, id) {
 function select(n, toCode) {
   S.sel = n.id;
   if (toCode) openAt(n.file, n.line, undefined, { keepSel: true });
-  else { renderTree(); renderInspector(); }
+  else { renderTree(); renderRightPanel(); }
 }
 
 function openPalette() {
@@ -1350,7 +1672,7 @@ const settingsHtml = () => `<h5>Theme</h5><div class="seg wide">${[['dark', 'Dus
     <div class="msep" style="margin:14px 0 8px"></div><button class="mi" data-act-settings="all">All settings…<span class="sc">Ctrl ,</span></button>`;
 function refreshSettings() { const p = $('pop'); if (p?.classList.contains('settings')) p.innerHTML = settingsHtml(); }
 function openSettings() {
-  const p = popAt($('settingsBtn'), settingsHtml(), 'settings');
+  const p = popAt($('appSettingsBtn'), settingsHtml(), 'settings');
   p.onclick = e => {
     const t = e.target.closest('[data-theme]'), a = e.target.closest('[data-accent]');
     if (t) setTheme(t.dataset.theme);
@@ -1358,7 +1680,7 @@ function openSettings() {
     if (e.target.closest('[data-act-settings]')) openSettingsScreen();
   };
 }
-function saveAll() { const n = S.dirty.size; S.dirty.clear(); renderAll(); toast(n ? `Saved ${n} ${n === 1 ? 'file' : 'files'}. Line endings kept.` : 'Nothing to save'); }
+function saveAll() { const n = S.dirty.size; S.toPush += n; S.dirty.clear(); renderAll(); toast(n ? `Saved ${n} ${n === 1 ? 'file' : 'files'}. Line endings kept.` : 'Nothing to save'); }
 
 // ---------- Files menu and Duplicate (Design Center's "Duplicate As": copy a file, or convert a spec between RAML and OAS) ----------
 const isSpec = p => p === MAIN || /\.(ya?ml)$/.test(p) || (p.endsWith('.json') && /"(openapi|swagger)"/.test(FILES[p] || ''));
@@ -1541,13 +1863,11 @@ $('tree').addEventListener('click', e => {
 });
 $('tree').addEventListener('contextmenu', e => {
   const fr = e.target.closest('[data-file]'); if (fr) { e.preventDefault(); popAtPoint(e.clientX, e.clientY, fileMenu(fr.dataset.file)).onclick = ev => { const b = ev.target.closest('[data-fact]'); if (b && !b.disabled) doFileAct(b.dataset.fact, b.dataset.path); }; return; }
-  const r = e.target.closest('[data-id]'); if (!r) return; e.preventDefault(); S.sel = r.dataset.id; renderTree(); renderInspector();
+  const r = e.target.closest('[data-id]'); if (!r) return; e.preventDefault(); S.sel = r.dataset.id; renderTree(); renderRightPanel();
   popAtPoint(e.clientX, e.clientY, nodeMenu(r.dataset.id)).onclick = ev => { const b = ev.target.closest('[data-act]'); if (b && !b.disabled) doAct(b.dataset.act, b.dataset.id); };
   paintIcons($('pop'));
 });
 $('tabs').addEventListener('click', e => {
-  if (e.target.id === 'tglProblems' || e.target.closest('#tglProblems')) { S.problems = !S.problems; renderLayout(); return; }
-  if (e.target.closest('#tglInsp')) { S.insp = !S.insp; renderLayout(); return; }
   const c = e.target.closest('[data-close]'); if (c) { e.stopPropagation(); const p = c.dataset.close; const i = S.tabs.indexOf(p); S.tabs.splice(i, 1);
     if (!S.tabs.length) S.tabs.push(MAIN); if (S.active === p) openAt(S.tabs[Math.max(0, i - 1)]); else renderTabs(); return; }
   const t = e.target.closest('[data-tab]'); if (t && t.dataset.tab !== S.active) openAt(t.dataset.tab);
@@ -1564,14 +1884,11 @@ $('code').addEventListener('mousedown', e => {
   if ((e.ctrlKey || e.metaKey) && e.target.classList.contains('t-type')) { e.preventDefault(); const v = (e.target.previousSibling?.textContent || '') + e.target.textContent; const t = MODEL.types.find(t => t.q === v.replace('[]', '') || (t.name === v.replace('[]', '') && t.file === S.active)); if (t) select(t, true); return; }
   const col = Math.max(0, Math.min(L.length, Math.round((e.clientX - txt.getBoundingClientRect().left - 4) / chW)));
   S.cursor = { line, col }; S.popup = null; syncSelFromCursor();
-  renderEditor(); renderCrumbs(); renderTree(); renderInspector(); renderStatus();
+  renderEditor(); renderCrumbs(); renderTree(); renderShelf(); renderRightPanel(); renderStatus();
 });
 $('pList').addEventListener('click', e => {
   const f = e.target.closest('[data-fix]'); if (f) { e.stopPropagation(); const p = PROBLEMS.find(x => x.id === f.dataset.fix); p.fix.run(); S.fixed.add(p.id); reparse(); return; }
   const r = e.target.closest('[data-prob]'); if (r) { const p = liveProblems().find(x => x.id === r.dataset.prob); openAt(p.file, p.line, p.col); }
-});
-$('problems').addEventListener('click', e => {
-  const s = e.target.closest('[data-sev]'); if (s) { S.sev = s.dataset.sev; renderProblems(); }
 });
 $('inspBody').addEventListener('click', e => {
   const a = e.target.closest('[data-act]'); if (a) { doAct(a.dataset.act, a.dataset.id); return; }
@@ -1580,34 +1897,56 @@ $('inspBody').addEventListener('click', e => {
   const o = e.target.closest('[data-open]'); if (o) { allPaths().includes(o.dataset.open) ? openAt(o.dataset.open, 0, 0) : toast('That file doesn\'t exist yet. The problem list offers to create it.', 'alert'); return; }
   const ol = e.target.closest('[data-openline]'); if (ol) { const [f, l] = ol.dataset.openline.split('|'); openAt(f, +l, lines(f)[+l].search(/\S/), { keepSel: true }); }
 });
-$('status').addEventListener('click', e => { if (e.target.closest('#stProblems')) { S.problems = !S.problems; renderLayout(); } });
 document.querySelectorAll('.rail-btn[data-rail]').forEach(b => b.onclick = () => {
   const r = b.dataset.rail;
   if (S.rail === r && S.side) S.side = false; else { S.rail = r; S.side = true; }
   renderLayout(); renderTree();
 });
-$('hideInsp').onclick = () => { S.insp = false; renderLayout(); };
-$('hideProblems').onclick = () => { S.problems = false; renderLayout(); };
 $('collapseAll').onclick = () => { MODEL.all.filter(n => n.kind === 'res').forEach(n => S.collapsed.add(n.id)); renderTree(); };
 $('filter').oninput = e => { S.filter = e.target.value; renderTree(); };
 $('filter').onfocus = () => $('filterKbd').classList.add('hidden'); $('filter').onblur = () => $('filterKbd').classList.toggle('hidden', !!S.filter);
 $('palBtn').onclick = openPalette;
-$('settingsBtn').onclick = () => openSettings();
-$('connectBtn').onclick = () => toast('Sign in with Anypoint, or your own Connected App. Opens the connect screen (a later mockup).', 'cloud');
-$('projBtn').onclick = () => {
-  popAt($('projBtn'), `<div class="mlabel">Project</div>
-    <button class="mi" data-p="folder"><span class="ico">${ic('folder', 14)}</span>Open folder…<span class="sc">Ctrl O</span></button>
-    <button class="mi" data-p="zip"><span class="ico">${ic('zip', 14)}</span>Open Design Center zip…</button>
-    <button class="mi" data-p="save"><span class="ico">${ic('check', 14)}</span>Save all<span class="sc">Ctrl Shift S</span></button>
-    <div class="msep"></div><div class="mlabel">Recent</div>
-    <button class="mi" data-p="r"><span class="ico">${ic('folder', 14)}</span>customer-orders-sapi<span class="sc">now</span></button>
-    <button class="mi" data-p="r"><span class="ico">${ic('folder', 14)}</span>payments-papi<span class="sc">2 d</span></button>
-    <button class="mi" data-p="r"><span class="ico">${ic('zip', 14)}</span>store-experience-eapi<span class="sc">1 w</span></button>
-    <div class="msep"></div><button class="mi" data-p="close">Close project</button>`).onclick = e => {
-    const b = e.target.closest('[data-p]'); if (!b) return; closeLayer();
-    if (b.dataset.p === 'save') saveAll(); else if (b.dataset.p === 'close') location.href = 'start-screen.html'; else toast('Opens the system picker, then the project, like the start screen does.', 'folder');
-  };
-};
+$('homeBtn').onclick = () => { location.href = 'start-screen.html'; };
+$('saveState').onclick = e => { if (e.target.closest('#pushBtn')) { const n = S.toPush; S.toPush = 0; renderHeader(); toast(`Pushed ${n} ${n === 1 ? 'change' : 'changes'} to Design Center. The lock was taken and released.`, 'cloud'); } };
+$('branchBtn').onclick = openBranches;
+$('shareBtn').onclick = () => toast('Opens Share project for this project in Design Center, in your browser', 'share');
+$('publishBtn').onclick = openPublish;
+$('projSettingsBtn').onclick = openProjectSettings;
+$('appSettingsBtn').onclick = () => openSettings();
+$('newFileBtn').onclick = () => toast('New file: pick the format (RAML 1.0, OAS 3.0, JSON Schema and more) and the fragment type', 'plus');
+document.querySelectorAll('.rail-btn[data-rrail]').forEach(b => b.onclick = () => {
+  const r = b.dataset.rrail; if (S.insp && S.rpanel === r) S.insp = false; else { S.rpanel = r; S.insp = true; }
+  renderLayout(); renderRightPanel();
+});
+$('shelf').addEventListener('mousedown', e => {
+  if (e.target.closest('#shelfTgl')) { S.shelf = !S.shelf; renderLayout(); return; }
+  const it = e.target.closest('[data-shelf]'); if (it) { e.preventDefault(); shelfInsert(it.dataset.shelf); }
+});
+$('problems').addEventListener('click', e => {
+  if (e.target.closest('#pTgl') || e.target.closest('#pOpen')) { S.problems = !S.problems; renderLayout(); return; }
+  const t = e.target.closest('[data-ptab]'); if (t) { S.ptab = t.dataset.ptab; renderProblems(); return; }
+  const sv = e.target.closest('[data-sevtog]'); if (sv) { S.sevOn[sv.dataset.sevtog] = !S.sevOn[sv.dataset.sevtog]; renderProblems(); }
+});
+$('pList').addEventListener('click', e => {
+  const c = e.target.closest('[data-copyprob]'); if (!c) return; e.stopImmediatePropagation();
+  const p = liveProblems().find(x => x.id === c.dataset.copyprob); try { navigator.clipboard.writeText(`${p.file}:${p.line + 1}:${p.col + 1} ${p.msg}`); } catch {} toast('Copied the message', 'copy');
+}, true);
+$('tree').addEventListener('click', e => {
+  const ad = e.target.closest('[data-adddep]'); if (ad) { e.stopPropagation(); openAddDependency(ad.dataset.adddep); return; }
+  const g = e.target.closest('[data-dgrp]'); if (g) { const id = 'dg:' + g.dataset.dgrp; S.collapsed.has(id) ? S.collapsed.delete(id) : S.collapsed.add(id); renderTree(); return; }
+  const up = e.target.closest('[data-depupd]'); if (up) { const d = DEPS.fragments[+up.dataset.depupd]; const old = d.version; d.version = d.latest; renderTree(); reparse(); toast(`${d.name} updated from ${old} to ${d.version}. The spec is checked against it now.`); return; }
+  const dm = e.target.closest('[data-depmenu]'); if (dm) { const [k, i] = dm.dataset.depmenu.split(':'); const d = DEPS[k][+i];
+    popAt(dm, `<button class="mi" data-dm="files"><span class="ico">${ic('files', 14)}</span>Show in Files</button><button class="mi" data-dm="ex"><span class="ico">${ic('link', 14)}</span>Open in Exchange</button><button class="mi" data-dm="ver"><span class="ico"></span>Change version…</button><div class="msep"></div><button class="mi" data-dm="rm"><span class="ico"></span>Remove</button>`).onclick = ev => {
+      const b = ev.target.closest('[data-dm]'); if (!b) return; closeLayer();
+      if (b.dataset.dm === 'files') { S.rail = 'files'; S.openDirs.add('exchange_modules'); renderLayout(); renderTree(); }
+      else if (b.dataset.dm === 'rm') { DEPS[k].splice(+i, 1); renderTree(); toast(`Removed ${d.name}. Its files leave exchange_modules.`, 'x'); }
+      else toast(b.dataset.dm === 'ex' ? 'Opens the asset in Exchange, in your browser' : 'Lists the published versions to pick from', 'link'); }; return; }
+  if (e.target.closest('[data-openex]')) toast('Opens the asset in Exchange, in your browser', 'link');
+});
+$('inspBody').addEventListener('click', e => {
+  const d = e.target.closest('[data-docpage]'); if (d) { S.docPage = d.dataset.docpage || null; renderRightPanel(); return; }
+  if (e.target.closest('[data-tryit]')) toast('Try it calls the local mock. It arrives with the docs preview (M5).', 'play');
+});
 document.addEventListener('mousedown', e => { if ($('pop') && !e.target.closest('#pop') && !e.target.closest('[data-menu]')) closeLayer(); });
 document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
@@ -1622,7 +1961,7 @@ document.addEventListener('keydown', e => {
   if (mod && k === 'k') { e.preventDefault(); openPalette(); }
   else if (mod && k === ' ') { e.preventDefault(); S.popup = completionsAt(S.active, S.cursor.line); if (!S.popup) toast('Suggestions show after type:, is: [ and !include. Try a type: line.', 'search'); renderEditor(); }
   else if (mod && k === 's') { e.preventDefault(); saveAll(); }
-  else if (mod && e.altKey && k === 'b') { e.preventDefault(); S.insp = !S.insp; renderLayout(); }
+  else if (mod && e.altKey && k === 'b') { e.preventDefault(); S.insp = !S.insp; renderLayout(); renderRightPanel(); }
   else if (mod && k === 'b') { e.preventDefault(); S.side = !S.side; renderLayout(); }
   else if (mod && k === 'j') { e.preventDefault(); S.problems = !S.problems; renderLayout(); }
   else if (mod && k === ',') { e.preventDefault(); openSettingsScreen(); }
