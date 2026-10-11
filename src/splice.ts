@@ -291,7 +291,7 @@ export function extractResourceType(text: string, resPath: Path, name: string): 
 // Delete with cascade: take every use of a declaration out of a file. `ref` matches the name as this file
 // writes it (Name in its own file, alias.Name elsewhere). Traits leave is: lists, resource types leave
 // resources; a type leaves type:, items: and unions, and a "name: Type" shorthand becomes "name: any".
-export function dropRefs(text: string, ref: string, kind: 'type' | 'trait' | 'rt'): string {
+export function dropRefs(text: string, ref: string, kind: 'type' | 'trait' | 'rt'): { text: string; uses: number } {
   const esc = ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const whole = new RegExp(`^${esc}(\\[\\])?$`);
   const pathOf = (t: string, line: number) => {
@@ -300,6 +300,7 @@ export function dropRefs(text: string, ref: string, kind: 'type' | 'trait' | 'rt
     for (let i = at; i >= 0; i--) if (i === at || E[i].ind < cur) { out.unshift(E[i].key); cur = E[i].ind; if (cur === 0) break; }
     return out;
   };
+  let uses = 0;
   for (let guard = 0; guard < 500; guard++) {
     const E = entries(text);
     let changed = false;
@@ -328,8 +329,9 @@ export function dropRefs(text: string, ref: string, kind: 'type' | 'trait' | 'rt
       }
     }
     if (!changed) break;
+    uses++;
   }
-  return text;
+  return { text, uses };
 }
 
 // A declaration's own lines (its key and everything under it), with its indent removed.

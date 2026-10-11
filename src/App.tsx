@@ -526,15 +526,14 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       // The name as this file writes it: bare in its own file, alias.Name through this file's uses:.
       const refs = [...(f === d.file ? [d.name] : []), ...libraryPaths(f, before).filter((l) => l.path === d.file).map((l) => `${l.alias}.${d.name}`)];
       let after = f === d.file ? removeNode(before, [sect, d.name]) : before;
-      const declGone = before.split('\n').length - after.split('\n').length;
-      for (const r of refs) after = dropRefs(after, r, kind);
-      const A = before.split('\n'), B = new Set(after.split('\n'));
-      if (after !== before) plan.push({ f, after, uses: Math.max(0, A.filter((l) => !B.has(l)).length - declGone) });
+      let uses = 0;
+      for (const r of refs) { const res = dropRefs(after, r, kind); after = res.text; uses += res.uses; }
+      if (after !== before) plan.push({ f, after, uses });
     }
     const uses = plan.reduce((a, p) => a + p.uses, 0);
     const what = { type: 'type', trait: 'trait', rt: 'resource type' }[kind];
     setDialog(<ConfirmDialog title={`Delete ${d.alias ? d.alias + '.' : ''}${d.name}?`} danger okLabel="Delete"
-      body={<>Deletes the {what} {uses ? <>and removes it from the {uses} {uses === 1 ? 'place' : 'places'} that use it, in {plan.map((p) => base(p.f)).join(', ')}.</> : 'Nothing uses it.'}
+      body={<>Deletes the {what} {uses ? <>and removes it from the {uses === 1 ? 'one place that uses' : `${uses} places that use`} it, in {plan.map((p) => base(p.f)).join(', ')}.</> : 'Nothing uses it.'}
         {kind === 'type' && uses ? <> Where a property was only that type, it becomes <span className="font-mono">any</span>.</> : null} Ctrl Z undoes it in each open file.</>}
       onCancel={() => setDialog(null)}
       onOk={async () => {
