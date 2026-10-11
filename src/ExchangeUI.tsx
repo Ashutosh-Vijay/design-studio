@@ -265,7 +265,9 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
   );
 }
 
-function AddDependency({ onClose, onAdd }: { onClose: () => void; onAdd: (d: { groupId: string; assetId: string; version: string }) => void }) {
+// Add dependency (fragments, into exchange_modules) and Import from Exchange (fragments and API specs, their
+// files into a folder of the project): the same search and version picker.
+export function AddDependency({ onClose, onAdd, importing }: { onClose: () => void; onAdd: (d: { groupId: string; assetId: string; version: string }) => void; importing?: boolean }) {
   const [q, setQ] = useState('');
   const [dev, setDev] = useState(false);
   const [list, setList] = useState<Awaited<ReturnType<typeof S.searchAssets>> | null>(null);
@@ -275,7 +277,7 @@ function AddDependency({ onClose, onAdd }: { onClose: () => void; onAdd: (d: { g
   const [me, setMe] = useState<Me | null>(null);
   useEffect(() => { status().then(setMe); }, []);
   useEffect(() => {
-    const t = setTimeout(() => { setErr(null); S.searchAssets(q.trim(), ['raml-fragment']).then(setList, (e) => setErr(String(e))); }, 250);
+    const t = setTimeout(() => { setErr(null); S.searchAssets(q.trim(), importing ? ['raml-fragment', 'rest-api'] : ['raml-fragment']).then(setList, (e) => setErr(String(e))); }, 250);
     return () => clearTimeout(t);
   }, [q]);
   useEffect(() => {
@@ -286,19 +288,19 @@ function AddDependency({ onClose, onAdd }: { onClose: () => void; onAdd: (d: { g
   const shown = versions.filter((v) => dev || v.status === 'published');
   useEffect(() => { if (shown[0] && !shown.some((v) => v.version === version)) setVersion(shown[0].version); }, [versions, dev]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Modal title="Add dependency" sub="Fragments from Exchange" onCancel={onClose} width={560}
+    <Modal title={importing ? 'Import from Exchange' : 'Add dependency'} sub={importing ? 'Its files go into a folder of this project' : 'Fragments from Exchange'} onCancel={onClose} width={560}
       footer={<><label className="flex-1 flex items-center gap-2 text-[12px] text-content-secondary cursor-pointer"><input type="checkbox" checked={dev} onChange={(e) => setDev(e.target.checked)} className="accent-[var(--accent)]" />Include versions in Development</label>
         <button className={btn} onClick={onClose}>Cancel</button>
-        <button className={btnPrimary} disabled={!pick || !version} onClick={() => pick && onAdd({ groupId: pick.groupId, assetId: pick.assetId, version })}>Add dependency</button></>}>
+        <button className={btnPrimary} disabled={!pick || !version} onClick={() => pick && onAdd({ groupId: pick.groupId, assetId: pick.assetId, version })}>{importing ? 'Import' : 'Add dependency'}</button></>}>
       <div className="flex flex-col gap-3 text-[12.5px]">
         <label className="flex items-center gap-1.5 h-[28px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
           <Icons.Search size={12} /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Exchange by name" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12.5px] text-content" /></label>
         <div className="h-[240px] overflow-auto rounded-md border border-line">
           {list == null && !err && <div className="p-4 text-content-faint">Searching…</div>}
-          {list?.length === 0 && <div className="p-4 text-content-faint">No fragments match.</div>}
+          {list?.length === 0 && <div className="p-4 text-content-faint">{importing ? 'Nothing matches.' : 'No fragments match.'}</div>}
           {list?.filter((a) => dev || a.status !== 'development').map((a) => (
             <div key={a.groupId + a.assetId} onClick={() => setPick(a)} className={`flex items-center gap-2 px-3 py-2 border-b border-line-secondary last:border-b-0 cursor-pointer ${pick?.assetId === a.assetId && pick.groupId === a.groupId ? 'bg-accent-dim' : 'hover:bg-[var(--hover-overlay)]'}`}>
-              <span className="text-[9.5px] font-semibold px-1.5 rounded border border-line text-content-faint">RAML</span>
+              <span className="text-[9.5px] font-semibold px-1.5 rounded border border-line text-content-faint">{a.type === 'rest-api' ? 'API' : 'RAML'}</span>
               <span className="min-w-0 flex-1"><span className="block font-semibold truncate">{a.name}</span><span className="block text-[11px] text-content-faint truncate">{a.org || (a.groupId === me?.org_id ? me.org_name : a.groupId)}</span></span>
               <span className="font-mono text-[11px] text-content-muted">{a.version}</span>{a.status !== 'published' && life(a.status)}
             </div>

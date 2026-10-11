@@ -7,6 +7,7 @@ import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { Modal, TextDialog, btn, btnPrimary } from './App';
 import * as S from './sync';
+import { AddDependency } from './ExchangeUI';
 
 export type Me = { username: string; user_id: string; org_id: string; org_name: string; host: string; mode: string; read_only: boolean };
 const REGIONS: [string, string][] = [['US', 'https://anypoint.mulesoft.com'], ['EU', 'https://eu1.anypoint.mulesoft.com']];
@@ -467,8 +468,8 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
 }
 
 // ---------- The project menu (Design Center's gear menu), in the title bar ----------
-export function ProjectMenu({ root, name, onNotice, onOpen, onGone }: {
-  root: string; name: string; onNotice: (text: string, err: boolean) => void; onOpen: (root: string) => void; onGone: () => void;
+export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }: {
+  root: string; name: string; onNotice: (text: string, err: boolean) => void; onOpen: (root: string) => void; onGone: () => void; onChanged: () => void;
 }) {
   const [at, setAt] = useState<DOMRect | null>(null);
   const [st, setSt] = useState<{ link: S.Link | null; me: Me | null; perms: S.Perms } | null>(null);
@@ -482,7 +483,28 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone }: {
   const l = st?.link, me = st?.me, p = st?.perms ?? {};
   const why = (can?: boolean) => (!l ? 'This folder isn\'t linked to a Design Center project.' : !me ? 'Sign in to Anypoint first.' : me.read_only ? 'The connection is read only. Turn it off in settings.' : can === false ? 'Your Design Center permissions don\'t allow it on this project.' : null);
   const urls = l && me ? S.projectUrls(me.host, me.org_id, l.projectId) : null;
+  // Import, as Design Center's gear menu: files or a zip, one file from a URL, or an asset from Exchange.
+  const importFiles = () => run(async () => {
+    const picked = await openDialog({ multiple: true, title: 'Import files or a zip into this project' });
+    const paths = Array.isArray(picked) ? picked : typeof picked === 'string' ? [picked] : [];
+    if (!paths.length) return;
+    let r = await invoke<{ written: string[]; existing: string[] }>('import_into', { root, folder: '', sources: paths, overwrite: false });
+    if (r.existing.length) {
+      if (!window.confirm(`${r.existing.length === 1 ? r.existing[0] + ' is' : r.existing.length + ' files are'} already in the project${r.existing.length > 1 ? ` (${r.existing.slice(0, 5).join(', ')}${r.existing.length > 5 ? '…' : ''})` : ''}. Replace?`)) return;
+      r = await invoke('import_into', { root, folder: '', sources: paths, overwrite: true });
+    }
+    onChanged();
+    return `Imported ${r.written.length} ${r.written.length === 1 ? 'file' : 'files'}.`;
+  });
   const items: [string, string | null, () => void][] = !st ? [] : [
+    ['Import file or zip…', null, importFiles],
+    ['Import from URL…', null, () => setDlg(<UrlImport root={root} onClose={() => setDlg(null)} onDone={(t) => { setDlg(null); onChanged(); onNotice(t, false); }} />)],
+    ['Import from Exchange…', me ? null : 'Sign in to Anypoint first.', () => setDlg(<AddDependency importing onClose={() => setDlg(null)} onAdd={(d) => { setDlg(null); run(async () => {
+      onNotice(`Importing ${d.assetId} ${d.version}…`, false);
+      const n = await invoke<number>('anypoint_fetch_dependency', { root, group: d.groupId, asset: d.assetId, version: d.version, published: null, into: d.assetId });
+      onChanged();
+      return `Imported ${d.assetId} ${d.version}: ${n} ${n === 1 ? 'file' : 'files'} in ${d.assetId}/.`;
+    }); }} />)],
     ['Rename project…', why(p.canRename), () => setDlg(<TextDialog title="Rename project" label="Name in Design Center" value={l!.projectName} okLabel="Rename" hint="Only the name in Design Center changes. The folder on this computer stays where it is."
       onCancel={() => setDlg(null)} onOk={(v) => { setDlg(null); run(async () => {
         await S.renameProject(l!.projectId, v);
@@ -519,7 +541,7 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone }: {
             {!st && <div className="px-2 py-1.5 text-[12px] text-content-faint">Loading…</div>}
             {items.map(([label, off, fn], i) => (
               <div key={label}>
-                {(i === 3 || i === 7) && <div className="my-1 border-t border-line-subtle" />}
+                {(i === 3 || i === 6 || i === 10) && <div className="my-1 border-t border-line-subtle" />}
                 <button disabled={!!off} title={off ?? undefined} onClick={() => { setAt(null); fn(); }}
                   className={`w-full h-7 px-2 rounded text-left text-[12.5px] hover:bg-surface-3 disabled:text-content-ghost disabled:hover:bg-transparent ${label.startsWith('Delete') ? 'text-err' : 'text-content-secondary hover:text-content'}`}>{label}</button>
               </div>
@@ -532,6 +554,36 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone }: {
   );
 }
 const TRASH = /Windows/.test(navigator.userAgent) ? 'Recycle Bin' : 'Trash';
+
+// Import from URL: one file, named after the address unless renamed.
+function UrlImport({ root, onClose, onDone }: { root: string; onClose: () => void; onDone: (text: string) => void }) {
+  const [url, setUrl] = useState(''); const [file, setFile] = useState(''); const [named, setNamed] = useState(false);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  const guess = (u: string) => decodeURIComponent(u.split(/[?#]/)[0].split('/').filter(Boolean).pop() ?? '').replace(/[<>:"\\|?*]/g, '-');
+  const go = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const text = await invoke<string>('fetch_url', { url: url.trim() });
+      const exists = await invoke<string>('read_text_file', { root, path: file.trim() }).then(() => true, () => false);
+      if (exists && !window.confirm(`${file.trim()} is already in the project. Replace it?`)) { setBusy(false); return; }
+      await invoke('write_file_exact', { root, path: file.trim(), text });
+      onDone(`Imported ${file.trim()}. Files it includes aren't fetched: import them too, or fix the paths.`);
+    } catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(false); }
+  };
+  const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input font-mono text-[12px] outline-none focus:border-accent';
+  return (
+    <Modal title="Import from URL" sub="One file, as in Design Center" onCancel={onClose} width={520}
+      footer={<><span className="flex-1" /><button className={btn} onClick={onClose}>Cancel</button><button className={btnPrimary} disabled={!url.trim() || !file.trim() || busy} onClick={go}>{busy ? 'Fetching…' : 'Import'}</button></>}>
+      <div className="flex flex-col gap-3 text-[12.5px]">
+        <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Address</span>
+          <input autoFocus value={url} onChange={(e) => { setUrl(e.target.value); if (!named) setFile(guess(e.target.value)); }} placeholder="https://…/api.raml" spellCheck={false} className={field} /></label>
+        <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Save as</span>
+          <input value={file} onChange={(e) => { setFile(e.target.value); setNamed(true); }} spellCheck={false} className={field} /></label>
+        {err && <div className="text-[12px] text-err select-text">{err}</div>}
+      </div>
+    </Modal>
+  );
+}
 
 function DeleteProject({ name, onCancel, onOk }: { name: string; onCancel: () => void; onOk: (alsoHere: boolean) => void }) {
   const [also, setAlso] = useState(false);

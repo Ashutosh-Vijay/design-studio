@@ -223,6 +223,53 @@ fn import_zip(zip_path: String, dest: String) -> Result<ZipImport, String> {
   Ok(ZipImport { root: dest, files: count, duplicates })
 }
 
+// Import (the project menu): files and zips from this computer into a folder of the open project. Without
+// overwrite, nothing is written when something would be replaced; the names come back to ask about.
+#[derive(Serialize)]
+struct Imported { written: Vec<String>, existing: Vec<String> }
+#[tauri::command]
+fn import_into(root: String, folder: String, sources: Vec<String>, overwrite: bool) -> Result<Imported, String> {
+  let root_path = PathBuf::from(&root).canonicalize().map_err(|e| e.to_string())?;
+  let dest = root_path.join(&folder);
+  if !dest.starts_with(&root_path) || folder.contains("..") { return Err(format!("{} is outside the project.", folder)); }
+  let rel = |p: &Path| p.strip_prefix(&root_path).unwrap_or(p).to_string_lossy().replace('\\', "/");
+  // Where each source lands: a file by its name, a zip by its entries.
+  let mut targets: Vec<PathBuf> = Vec::new();
+  for s in &sources {
+    if s.to_lowercase().ends_with(".zip") {
+      let mut z = zip::ZipArchive::new(fs::File::open(s).map_err(|e| format!("Couldn't open {}: {}", s, e))?).map_err(|e| format!("{} isn't a readable zip: {}", s, e))?;
+      for i in 0..z.len() {
+        let e = z.by_index(i).map_err(|e| e.to_string())?;
+        if let Some(n) = e.enclosed_name() { if !e.is_dir() { targets.push(dest.join(n)); } }
+      }
+    } else {
+      targets.push(dest.join(Path::new(s).file_name().ok_or("Bad file name")?));
+    }
+  }
+  let existing: Vec<String> = targets.iter().filter(|t| t.exists()).map(|t| rel(t)).collect();
+  if !overwrite && !existing.is_empty() { return Ok(Imported { written: vec![], existing }); }
+  fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+  for s in &sources {
+    if s.to_lowercase().ends_with(".zip") { unzip_into(fs::File::open(s).map_err(|e| e.to_string())?, &dest)?; }
+    else { fs::copy(s, dest.join(Path::new(s).file_name().unwrap())).map_err(|e| format!("Couldn't copy {}: {}", s, e))?; }
+  }
+  Ok(Imported { written: targets.iter().map(|t| rel(t)).collect(), existing })
+}
+
+// Import from URL: one file's text (Design Center's "a URL, a single file"). http and https only, up to 10 MB.
+#[tauri::command]
+async fn fetch_url(url: String) -> Result<String, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    if !(url.starts_with("https://") || url.starts_with("http://")) { return Err("Use an http or https address.".into()); }
+    let r = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(30)).build().map_err(|e| e.to_string())?
+      .get(&url).send().map_err(|e| format!("Couldn't fetch it: {e}"))?;
+    if !r.status().is_success() { return Err(format!("The server answered {}.", r.status())); }
+    let b = r.bytes().map_err(|e| e.to_string())?;
+    if b.len() > 10 * 1024 * 1024 { return Err("That file is over 10 MB.".into()); }
+    Ok(String::from_utf8_lossy(&b).to_string())
+  }).await.map_err(|e| e.to_string())?
+}
+
 // Writes text exactly as given (no line-ending changes): files pulled from Design Center, and the
 // sync metadata in .apidesigner/. Parent folders are made; never outside the project.
 #[tauri::command]
@@ -251,7 +298,7 @@ pub fn run() {
       amf::start_in_background(app.handle());
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, create_dir, export_zip, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
+    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, create_dir, export_zip, import_zip, import_into, fetch_url, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
       anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only, anypoint::anypoint_set_org,
       anypoint::anypoint_dev_session])
     .build(tauri::generate_context!())

@@ -381,7 +381,7 @@ pub async fn anypoint_api(app: AppHandle, method: String, path: String, body: Op
 // With published: a version of this project as Exchange has it, with its dependencies (the "fat" zip),
 // into .apidesigner/published/{version}/, for the Exchange panel's "what changed".
 #[tauri::command]
-pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: String, asset: String, version: String, published: Option<bool>) -> Result<usize, String> {
+pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: String, asset: String, version: String, published: Option<bool>, into: Option<String>) -> Result<usize, String> {
   let published = published.unwrap_or(false);
   tauri::async_runtime::spawn_blocking(move || {
     // These become folder names: nothing that could climb out of exchange_modules.
@@ -402,7 +402,10 @@ pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: Stri
       .ok_or(format!("{asset} {version} has no files to download in Exchange."))?;
     let link = zip["externalLink"].as_str().ok_or("Exchange gave no download link.")?;
     let bytes = client().get(link).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes()).map_err(|e| format!("Couldn't download {asset} {version}: {e}"))?;
-    let dest = if published { std::path::PathBuf::from(&root).join(".apidesigner").join("published").join(&version) }
+    // into: Import from Exchange, the asset's files into a folder of the project (checked like any path).
+    let into = into.filter(|x| !x.is_empty());
+    if let Some(x) = &into { if x.contains("..") || x.starts_with('/') || x.contains(':') { return Err(format!("{x} isn't a folder name this app can use.")); } }
+    let dest = if let Some(x) = &into { std::path::PathBuf::from(&root).join(x) } else if published { std::path::PathBuf::from(&root).join(".apidesigner").join("published").join(&version) }
       else { std::path::PathBuf::from(&root).join("exchange_modules").join(&group).join(&asset).join(&version) };
     if dest.exists() { std::fs::remove_dir_all(&dest).map_err(|e| e.to_string())?; }
     std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;

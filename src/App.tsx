@@ -153,7 +153,7 @@ export default function App() {
         </button>
         <span data-tauri-drag-region className="text-[13px] font-semibold">{project ? project.name : APP_NAME}</span>
         {project && isTauri && <ProjectMenu key={project.root} root={project.root} name={project.name} onNotice={(t, err) => syncRef.current?.notice(t, err)}
-          onOpen={(root) => openFolder(root)} onGone={() => { const l = recent.filter((r) => r.root !== project.root); writeRecent(l); setRecent(l); setProject(null); setDirtyCount(0); }} />}
+          onChanged={() => { syncRef.current?.reload(); }} onOpen={(root) => openFolder(root)} onGone={() => { const l = recent.filter((r) => r.root !== project.root); writeRecent(l); setRecent(l); setProject(null); setDirtyCount(0); }} />}
         {project && <span data-tauri-drag-region className="text-[12px] text-content-faint">{dirtyCount ? `${dirtyCount} unsaved` : 'All changes saved'}</span>}
         <div data-tauri-drag-region className="flex-1 h-full" />
         {project && isTauri && (
