@@ -956,7 +956,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           <aside className="w-[330px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
             {doc && active === doc.path && /\.raml$/i.test(doc.path) ? (
-              <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} rootFile={project.main ?? ''} outline={outline} textOf={textOf}
+              <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={isReadOnly(doc.path)} rootFile={project.main ?? ''} outline={outline} textOf={textOf}
                 onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)}
                 onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }} />
             ) : (

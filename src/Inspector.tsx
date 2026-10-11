@@ -37,9 +37,12 @@ const Badge = ({ m }: { m: string }) => <span className={`font-mono text-[9.5px]
 const codeColor = (c: string) => (c[0] === '2' ? 'var(--ok)' : c[0] === '4' ? 'var(--warn)' : c[0] === '5' ? 'var(--err)' : 'var(--content-muted)');
 
 // A text box that writes on Enter or when you leave it; Escape puts the old value back.
-function Field({ value, onCommit, placeholder, mono, multiline, list, className = '' }: {
-  value: string; onCommit: (v: string) => void; placeholder?: string; mono?: boolean; multiline?: boolean; list?: string; className?: string;
+function Field({ value, onCommit, placeholder, mono, multiline, list, className = '', focus, onFocused }: {
+  value: string; onCommit: (v: string) => void; placeholder?: string; mono?: boolean; multiline?: boolean; list?: string; className?: string; focus?: boolean; onFocused?: () => void;
 }) {
+  // A row just added through "Add" takes the focus with its name selected, ready to type over.
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (focus && ref.current) { ref.current.focus(); ref.current.select(); onFocused?.(); } }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
   const [v, setV] = useState(value);
   const skip = useRef(false);
   useEffect(() => setV(value), [value]);
@@ -50,7 +53,7 @@ function Field({ value, onCommit, placeholder, mono, multiline, list, className 
   return multiline
     ? <textarea value={v} placeholder={placeholder} spellCheck={false} rows={Math.min(8, Math.max(2, v.split('\n').length))} onChange={(e) => setV(e.target.value)} onBlur={onBlur}
         onKeyDown={(e) => { esc(e); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.blur(); }} className={cls + ' py-1 resize-y leading-snug'} />
-    : <input value={v} placeholder={placeholder} spellCheck={false} list={list} onChange={(e) => setV(e.target.value)} onBlur={onBlur}
+    : <input ref={ref} value={v} placeholder={placeholder} spellCheck={false} list={list} onChange={(e) => setV(e.target.value)} onBlur={onBlur}
         onKeyDown={(e) => { esc(e); if (e.key === 'Enter') e.currentTarget.blur(); }} className={cls + ' h-[26px]'} />;
 }
 
@@ -84,8 +87,8 @@ function AddSelect({ label, options, onPick }: { label: string; options: string[
   );
 }
 
-export function Inspector({ file, text, line, isMain, rootFile, outline, textOf, onEdit, onGoLine, onOpen, onRename }: {
-  file: string; text: string; line: number; isMain: boolean; rootFile: string; outline: Outline | null; textOf: (path: string) => string | undefined;
+export function Inspector({ file, text, line, isMain, readOnly, rootFile, outline, textOf, onEdit, onGoLine, onOpen, onRename }: {
+  file: string; text: string; line: number; isMain: boolean; readOnly: boolean; rootFile: string; outline: Outline | null; textOf: (path: string) => string | undefined;
   onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void; onOpen: (file: string, from: number) => void;
   onRename: (from: number) => void;
 }) {
@@ -120,6 +123,7 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
   const span = (k: number) => [E[k].line, S.blockEnd(E, L, k)];
   const here = (k: number) => { const [a, b] = span(k); return line >= a && line < b; };
   const rowCls = (k: number) => `group/r rounded-md px-1.5 -mx-1.5 ${here(k) ? 'bg-accent-dim' : 'hover:bg-[var(--hover-overlay)]'}`;
+  const [justAdded, setJustAdded] = useState<string | null>(null);
   const unique = (base: string, have: string[]) => { let n = base, i = 2; while (have.includes(n) || have.includes(n + '?')) n = base + i++; return n; };
 
   const typeCell = (path: string[]) => {
@@ -140,7 +144,11 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
     const names = rows.map((j) => E[j].key);
     return (
       <Sec title={title} count={rows.length || undefined}
-        add={<button onClick={() => onEdit((x) => S.addChild(x, [...parent, key], [`${unique(key === 'properties' ? 'property' : key === 'headers' ? 'X-Header' : 'param', names)}: string`]))}
+        add={<button onClick={() => {
+          const n = unique(key === 'properties' ? 'property' : key === 'headers' ? 'X-Header' : 'param', names);
+          setJustAdded([...parent, key, n].join('\0'));
+          onEdit((x) => S.addChild(x, [...parent, key], [`${n}: string`]));
+        }}
           className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />{addLabel}</button>}>
         {rows.length === 0 && <div className="text-[11.5px] text-content-faint">{hint ?? 'None.'}</div>}
         {rows.map((j) => {
@@ -150,7 +158,7 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
           const name = E[j].key.replace(/\?$/, '');
           return (
             <div key={E[j].key} className={rowCls(j) + ' flex items-center gap-1 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
-              <span className="w-[38%] shrink-0"><Field value={name} mono onCommit={(v) => v && onEdit((x) => S.renameKey(x, p, E[j].key.endsWith('?') ? v + '?' : v))} /></span>
+              <span className="w-[38%] shrink-0"><Field value={name} mono focus={justAdded === p.join('\0')} onFocused={() => setJustAdded(null)} onCommit={(v) => v && onEdit((x) => S.renameKey(x, p, E[j].key.endsWith('?') ? v + '?' : v))} /></span>
               {typeCell(p)}
               <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
                 <input type="checkbox" checked={!optional} onChange={(e) => onEdit((x) => S.setOptional(x, p, !e.target.checked))} className="accent-[var(--accent)]" />req
@@ -377,7 +385,9 @@ export function Inspector({ file, text, line, isMain, rootFile, outline, textOf,
 
   return (
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
-      {h}
+      {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />Read-only: managed by Exchange</div>}
+      {/* A disabled fieldset turns every box, button and picker inside it off at once. */}
+      <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
       {lists}
     </div>
   );
