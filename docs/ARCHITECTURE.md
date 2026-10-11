@@ -46,7 +46,7 @@ api-designer-studio/
     project/              project store (open files, outline, problems, generations)
     tree/                 API tree
     problems/             problems panel
-    forms/                (M2) visual forms
+    forms/                (M2) visual forms. Built as src/Inspector.tsx (forms) and src/splice.ts (text splices by key path)
     graph/                (M5) API map
     shared/               theme, icons, window controls, settings, palette (from DataWeave Studio)
   src-tauri/              Rust core
