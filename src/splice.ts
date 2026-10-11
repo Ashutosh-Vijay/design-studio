@@ -302,7 +302,7 @@ const nest = (E: Entry[], lines: string[]) => lines.map((l) => (l ? ' '.repeat(s
 // An empty "example:" says nothing, and AMF ignores it in a resource but validates it as null inside a
 // trait or resource type (found on a real spec). Templates leave those lines out, so the API means the same.
 const dropEmptyExamples = (lines: string[]) => lines.filter((l, i) => {
-  if (!/^\s*(- )?examples?:\s*(#.*)?$/.test(l)) return true;
+  if (!/^\s*(- )?examples?\s*:\s*(#.*)?$/.test(l)) return true; // also "example : " (a corpus quirk)
   const next = lines.slice(i + 1).find((x) => x.trim());
   return !!next && next.search(/\S/) > l.search(/\S/);
 });

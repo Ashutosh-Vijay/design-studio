@@ -528,6 +528,9 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           if (f === d.file) {
             // Bare uses inside the declaring file, in value positions only (type: X, X[], X | Y, [X, Y]).
             text = text.split('\n').map((line) => {
+              // A "- Name" item of a block list (is:, a union written as a list) is a use too.
+              const item = line.match(/^(\s*-\s+)([^\s#:]+)(\s*(#.*)?)$/);
+              if (item) return item[2].replace(/\[\]$/, '') === d.name ? (uses++, item[1] + item[2].replace(d.name, nu) + item[3]) : line;
               const m = line.match(/^(\s*(?:- )?[^:#]+?\s*:\s*)(.+)$/);
               if (!m || /^\s*(description|displayName|usage|title|example)\s*:/.test(line)) return line;
               const v = m[2].replace(new RegExp(`(^|[\\s|(\\[,])${esc(d.name)}(?=(\\[\\])?($|[\\s|),\\]]))`, 'g'), (_x, pre) => { uses++; return pre + nu; });
