@@ -776,6 +776,29 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       const to = Math.max(from, Math.min(el.from + p.endCol, el.to));
       return { from, to: to > from ? to : Math.min(from + 1, doc.length), severity: p.severity, message: p.message };
     });
+    // AMF reports a bad example (or any included file) at its own location, where the fix goes. The
+    // !include line that pulls it in gets marked too, so the problem shows where you wrote it.
+    const dir = active.includes('/') ? active.slice(0, active.lastIndexOf('/') + 1) : '';
+    for (let n = 1; n <= doc.lines; n++) {
+      const l = doc.line(n), m = l.text.match(/!include\s+(\S+)/); if (!m) continue;
+      const target = m[1].startsWith('/') ? m[1].slice(1) : normalizePath(dir + m[1]);
+      const here = problems.filter((p) => p.file === target && p.file !== active);
+      if (!here.length) continue;
+      const from = l.from + l.text.indexOf(m[1]);
+      const worst = here.some((p) => p.severity === 'error') ? 'error' : here.some((p) => p.severity === 'warning') ? 'warning' : 'info';
+      // For an example, name the type it has to match: the type: next to it, at the same indent.
+      let type = '';
+      if (/^\s*(- )?examples?\s*:/.test(l.text)) {
+        const ind = l.text.match(/^\s*/)![0].length;
+        for (const dn of [-1, 1]) for (let k = n + dn; k >= 1 && k <= doc.lines && !type; k += dn) {
+          const t = doc.line(k).text, ki = t.match(/^\s*/)![0].length;
+          if (t.trim() && ki < ind) break;
+          const tm = ki === ind && t.match(/^\s*type\s*:\s*(\S+)/); if (tm) type = tm[1];
+        }
+      }
+      const head = type ? `This example doesn't match ${type}.` : `Problems in ${base(target)}.`;
+      diags.push({ from, to: from + m[1].length, severity: worst, message: head + '\n' + here.map((p) => `${base(target)}, line ${p.line}: ${p.message}`).join('\n') });
+    }
     v.dispatch(setDiagnostics(v.state, diags));
   }, [problems, active]);
 
