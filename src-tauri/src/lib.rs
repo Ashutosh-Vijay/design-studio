@@ -1,4 +1,5 @@
 mod amf;
+mod anypoint;
 mod watch;
 
 use serde::Serialize;
@@ -193,16 +194,20 @@ pub fn run() {
     .plugin(tauri_plugin_opener::init())
     .manage(std::sync::Arc::new(amf::Amf::default()))
     .manage(watch::WatchState::default())
+    .manage(std::sync::Arc::new(anypoint::Anypoint::default()))
     .setup(|app| {
       amf::start_in_background(app.handle());
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, rename_file, delete_file, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery])
+    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, rename_file, delete_file, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
+      anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock,
+      anypoint::anypoint_dev_session])
     .build(tauri::generate_context!())
     .expect("error while building API Designer Studio")
     .run(|app, event| {
       if let tauri::RunEvent::Exit = event {
         amf::stop(app);
+        anypoint::release_on_exit(app);
       }
     });
 }
