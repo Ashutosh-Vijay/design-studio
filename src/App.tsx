@@ -13,7 +13,7 @@ import { Icons } from './components/Icons';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector } from './Inspector';
-import { diff } from './splice';
+import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
 // What the Rust side returns for an opened folder (src-tauri/src/lib.rs, open_project).
@@ -515,6 +515,67 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       }} />);
   }
 
+  // Delete (Cascade), from ALS's list: the declaration and every use of it, in every file that can see it.
+  async function deleteDecl(d: Decl) {
+    const kind = d.kind === 'type' ? 'type' : d.kind === 'trait' ? 'trait' : 'rt';
+    const sect = { type: 'types', trait: 'traits', rt: 'resourceTypes' }[kind];
+    const files = [...new Set([project.main!, ...(outlineRef.current?.libraries ?? []).map((l) => l.path), d.file])].filter((f) => !isReadOnly(f));
+    const plan: { f: string; after: string; uses: number }[] = [];
+    for (const f of files) {
+      let before: string; try { before = await readAny(f); } catch { continue; }
+      // The name as this file writes it: bare in its own file, alias.Name through this file's uses:.
+      const refs = [...(f === d.file ? [d.name] : []), ...libraryPaths(f, before).filter((l) => l.path === d.file).map((l) => `${l.alias}.${d.name}`)];
+      let after = f === d.file ? removeNode(before, [sect, d.name]) : before;
+      const declGone = before.split('\n').length - after.split('\n').length;
+      for (const r of refs) after = dropRefs(after, r, kind);
+      const A = before.split('\n'), B = new Set(after.split('\n'));
+      if (after !== before) plan.push({ f, after, uses: Math.max(0, A.filter((l) => !B.has(l)).length - declGone) });
+    }
+    const uses = plan.reduce((a, p) => a + p.uses, 0);
+    const what = { type: 'type', trait: 'trait', rt: 'resource type' }[kind];
+    setDialog(<ConfirmDialog title={`Delete ${d.alias ? d.alias + '.' : ''}${d.name}?`} danger okLabel="Delete"
+      body={<>Deletes the {what} {uses ? <>and removes it from the {uses} {uses === 1 ? 'place' : 'places'} that use it, in {plan.map((p) => base(p.f)).join(', ')}.</> : 'Nothing uses it.'}
+        {kind === 'type' && uses ? <> Where a property was only that type, it becomes <span className="font-mono">any</span>.</> : null} Ctrl Z undoes it in each open file.</>}
+      onCancel={() => setDialog(null)}
+      onOk={async () => {
+        setDialog(null);
+        for (const p of plan) await writeAny(p.f, p.after);
+        setNotice({ text: `Deleted ${d.name}${uses ? ` and ${uses} ${uses === 1 ? 'use' : 'uses'}` : ''}.`, err: false });
+        rebuildOutline(); runCheck('validate');
+      }} />);
+  }
+
+  // Move a type from the root file into a library (an existing one, or a new file), as alias.Name from then on.
+  async function moveToLibrary(d: Decl, lib: { path: string; alias: string; isNew: boolean }) {
+    const root = project.main!;
+    let rt = await readAny(root);
+    const lines = declLines(rt, ['types', d.name]);
+    // A library can't see the root file's types, so the type can't take along a use of one.
+    const local = (outlineRef.current?.types ?? []).filter((t) => t.file === root && t.name !== d.name).map((t) => t.name);
+    const stuck = local.filter((n) => usesName(lines.slice(1), n));
+    if (stuck.length) { fail(`${d.name} uses ${stuck.join(', ')}, which ${stuck.length === 1 ? 'is' : 'are'} declared in ${base(root)}. Move ${stuck.length === 1 ? 'that' : 'those'} first.`); return; }
+    let lt = lib.isNew ? '#%RAML 1.0 Library\n' : await readAny(lib.path);
+    if (find(entries(lt), ['types', d.name]) >= 0) { fail(`${base(lib.path)} already has a type called ${d.name}.`); return; }
+    lt = addChild(lt, ['types'], lines);
+    // Library types it uses come along as uses: in the target library, with paths from there.
+    const have = libraryPaths(lib.path, lt).map((l) => l.alias);
+    for (const l of libraryPaths(root, rt)) {
+      if (l.path !== lib.path && !have.includes(l.alias) && lines.some((x) => x.includes(l.alias + '.'))) lt = addChild(lt, ['uses'], [`${l.alias}: ${relInclude(lib.path, l.path)}`]);
+    }
+    rt = qualify(removeNode(rt, ['types', d.name]), d.name, `${lib.alias}.${d.name}`);
+    if (!libraryPaths(root, rt).some((l) => l.alias === lib.alias)) rt = addChild(rt, ['uses'], [`${lib.alias}: ${relInclude(root, lib.path)}`]);
+    if (lib.isNew) await invoke('save_text_file', { root: project.root, path: lib.path, text: lt }); else await writeAny(lib.path, lt);
+    await writeAny(root, rt);
+    if (lib.isNew) await onRefresh();
+    setNotice({ text: `Moved ${d.name} to ${lib.path}. Uses in ${base(root)} now say ${lib.alias}.${d.name}.`, err: false });
+    rebuildOutline(); runCheck('validate');
+  }
+  function openMove(d: Decl) {
+    const libs = (outlineRef.current?.libraries ?? []).filter((l) => !isReadOnly(l.path));
+    setDialog(<MoveDialog name={d.name} libs={libs} exists={(p) => project.files.some((f) => f.path === p)} onCancel={() => setDialog(null)}
+      onOk={async (lib) => { setDialog(null); try { await moveToLibrary(d, lib); } catch (e) { fail(e); } }} />);
+  }
+
   const assist = (path: string): Extension[] => [
     autocompletion({ override: [completions(path)], icons: false }),
     hover(path),
@@ -542,7 +603,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const f = files.current.get(path);
     if (f) {
       const state = path === activeRef.current ? view.current!.state : f.state;
-      const tr = state.update({ changes: { from: 0, to: state.doc.length, insert: text } });
+      const tr = state.update({ changes: diff(state.doc.toString(), text) });
       const hadEdits = state.doc.toString() !== f.disk;
       if (path === activeRef.current) view.current!.dispatch(tr); else { f.state = tr.state; setDirty((d) => new Set(d).add(path)); }
       if (!hadEdits) await save(path); // a file operation saves what it changes, unless you had unsaved work there
@@ -981,7 +1042,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             {doc && active === doc.path && /\.raml$/i.test(doc.path) ? (
               <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={isReadOnly(doc.path)} rootFile={project.main ?? ''} outline={outline} textOf={textOf}
                 onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)}
-                onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }} />
+                onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }}
+                onMove={openMove} onDelete={deleteDecl} />
             ) : (
               <div className="p-4 text-[12.5px] text-content-faint">{active ? 'Forms are for RAML files. OAS forms come later.' : 'Open a file to see it here.'}</div>
             )}
@@ -1245,6 +1307,37 @@ function ConfirmDialog({ title, body, okLabel, danger, onOk, onCancel }: { title
 }
 
 // Design Center's "Duplicate As": a copy, or the root spec converted between RAML and OAS.
+// Move to library: pick one of the project's libraries, or name a new file and its alias.
+function MoveDialog({ name, libs, exists, onOk, onCancel }: { name: string; libs: { alias: string; path: string }[]; exists: (p: string) => boolean; onOk: (lib: { path: string; alias: string; isNew: boolean }) => void; onCancel: () => void }) {
+  const [pick, setPick] = useState(libs[0]?.alias ?? '');
+  const stem = name.replace(/[^\w]+/g, '-').toLowerCase();
+  const [path, setPath] = useState(`data-types/${stem}-lib.raml`);
+  const [alias, setAlias] = useState(`${name.charAt(0).toLowerCase()}${name.slice(1)}Lib`.replace(/[^\w]/g, ''));
+  const isNew = pick === '';
+  const bad = isNew && (!/\.raml$/i.test(path) || exists(path) || !/^[A-Za-z_]\w*$/.test(alias) || libs.some((l) => l.alias === alias));
+  const input = 'w-full h-[28px] px-2 rounded-md border border-line bg-surface-input text-[12.5px] font-mono text-content outline-none focus:border-accent';
+  return (
+    <Modal title={`Move ${name} to a library`} onCancel={onCancel}
+      footer={<><button className={btn} onClick={onCancel}>Cancel</button>
+        <button className={btnPrimary} disabled={bad} onClick={() => onOk(isNew ? { path, alias, isNew } : { ...libs.find((l) => l.alias === pick)!, isNew })}>Move</button></>}>
+      <div className="flex flex-col gap-2 text-[12.5px] text-content-secondary">
+        <label className="flex flex-col gap-1">Library
+          <select value={pick} onChange={(e) => setPick(e.target.value)} className={input}>
+            {libs.map((l) => <option key={l.alias} value={l.alias}>{l.alias}  ({l.path})</option>)}
+            <option value="">New library…</option>
+          </select>
+        </label>
+        {isNew && <>
+          <label className="flex flex-col gap-1">File<input value={path} onChange={(e) => setPath(e.target.value)} spellCheck={false} className={input} /></label>
+          <label className="flex flex-col gap-1">Alias in uses:<input value={alias} onChange={(e) => setAlias(e.target.value)} spellCheck={false} className={input} /></label>
+          {exists(path) && <span className="text-err text-[12px]">That file already exists. Pick it from the list instead.</span>}
+        </>}
+        <span className="text-[12px] text-content-faint">Uses of {name} in the root file become alias.{name}.</span>
+      </div>
+    </Modal>
+  );
+}
+
 function DuplicateDialog({ path, canConvert, exists, onOk, onCancel }: { path: string; canConvert: boolean; exists: (p: string) => boolean; onOk: (target: string, fmt: string) => Promise<void>; onCancel: () => void }) {
   const name = base(path), dir = path.slice(0, path.length - name.length), ext = (name.match(/\.[^.]+$/) || [''])[0], stem = name.slice(0, name.length - ext.length);
   const formats: [string, string, string][] = canConvert

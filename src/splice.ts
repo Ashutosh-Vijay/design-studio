@@ -332,6 +332,28 @@ export function dropRefs(text: string, ref: string, kind: 'type' | 'trait' | 'rt
   return text;
 }
 
+// A declaration's own lines (its key and everything under it), with its indent removed.
+export function declLines(text: string, path: Path): string[] {
+  const E = entries(text), k = find(E, path); if (k < 0) return [];
+  const L = text.split('\n');
+  return L.slice(E[k].line, blockEnd(E, L, k)).map((l) => (l.trim() ? l.slice(Math.min(E[k].ind, l.match(/^\s*/)![0].length)) : ''));
+}
+
+// Uses of a bare name in value positions (type: X, items: X, "prop: X", X[], unions), never in descriptions.
+const PROSE = /^\s*(- )?(description|displayName|usage|title|example|examples|pattern)\s*:/;
+export function usesName(lines: string[], name: string): boolean {
+  const re = new RegExp(`(^|[\\s|(\\[,])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=(\\[\\])?\\??($|[\\s|),\\]]))`);
+  return lines.some((l) => { const m = l.match(/^\s*(?:- )?[^:#]+?\s*:\s*(.+)$/); return !!m && !PROSE.test(l) && re.test(m[1]); });
+}
+// Rewrite those uses, e.g. Order to lib.Order after the type moved into a library.
+export function qualify(text: string, name: string, to: string): string {
+  const re = new RegExp(`(^|[\\s|(\\[,])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=(\\[\\])?\\??($|[\\s|),\\]]))`, 'g');
+  return text.split('\n').map((l) => {
+    const m = l.match(/^(\s*(?:- )?[^:#]+?\s*:\s*)(.+)$/);
+    return !m || PROSE.test(l) ? l : m[1] + m[2].replace(re, (_x, pre) => pre + to);
+  }).join('\n');
+}
+
 // The smallest single change that turns a into b, for the editor (one undo step, cursor kept).
 export function diff(a: string, b: string) {
   let s = 0; const n = Math.min(a.length, b.length);

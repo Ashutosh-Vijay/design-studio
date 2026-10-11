@@ -3,7 +3,7 @@
 // text (src/splice.ts) applied through the editor, so Ctrl Z undoes it and the code stays the master.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Icons } from './components/Icons';
-import { METHODS, BUILTIN_TYPES, entries, kids, kid, keyPathAt, libraryPaths, type Outline } from './raml';
+import { METHODS, BUILTIN_TYPES, entries, kids, kid, keyPathAt, libraryPaths, type Outline, type Decl } from './raml';
 import * as S from './splice';
 
 type Node =
@@ -87,10 +87,14 @@ function AddSelect({ label, options, onPick }: { label: string; options: string[
   );
 }
 
-export function Inspector({ file, text, line, isMain, readOnly, rootFile, outline, textOf, onEdit, onGoLine, onOpen, onRename }: {
+const BTN = 'h-[26px] px-2.5 rounded-md text-[12px] border border-line bg-surface-2 text-content-secondary hover:text-content disabled:opacity-40';
+// What can go into an extracted trait, in the order RAML usually writes them.
+const TRAIT_PARTS = ['queryParameters', 'queryString', 'headers', 'securedBy', 'body', 'responses'];
+
+export function Inspector({ file, text, line, isMain, readOnly, rootFile, outline, textOf, onEdit, onGoLine, onOpen, onRename, onMove, onDelete }: {
   file: string; text: string; line: number; isMain: boolean; readOnly: boolean; rootFile: string; outline: Outline | null; textOf: (path: string) => string | undefined;
   onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void; onOpen: (file: string, from: number) => void;
-  onRename: (from: number) => void;
+  onRename: (from: number) => void; onMove: (d: Decl) => void; onDelete: (d: Decl) => void;
 }) {
   const E = useMemo(() => entries(text), [text]);
   const L = useMemo(() => text.split('\n'), [text]);
@@ -124,7 +128,22 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
   const here = (k: number) => { const [a, b] = span(k); return line >= a && line < b; };
   const rowCls = (k: number) => `group/r rounded-md px-1.5 -mx-1.5 ${here(k) ? 'bg-accent-dim' : 'hover:bg-[var(--hover-overlay)]'}`;
   const [justAdded, setJustAdded] = useState<string | null>(null);
+  // The open extract panel, tied to the node it was opened on (moving away closes it).
+  const [panel, setPanel] = useState<{ id: 'trait' | 'rt'; at: string; name: string; parts: string[] } | null>(null);
+  const nodeKey = node.kind === 'none' || node.kind === 'root' ? node.kind : node.path.join('\0');
   const unique = (base: string, have: string[]) => { let n = base, i = 2; while (have.includes(n) || have.includes(n + '?')) n = base + i++; return n; };
+
+  // A type written out in place (properties, items, enum, facets) rather than named: it can be extracted.
+  const TYPE_FACETS = ['properties', 'items', 'enum', 'pattern', 'minLength', 'maxLength', 'minimum', 'maximum', 'format', 'additionalProperties', 'discriminator', 'minItems', 'maxItems'];
+  const isInline = (path: string[]) => { const k = at(path); return k >= 0 && kids(E, k).some((j) => TYPE_FACETS.includes(E[j].key)); };
+  // Design Center names the new declaration after the original; for a body, after its resource and method.
+  const extractName = (path: string[]) => {
+    const last = path[path.length - 1].replace(/\?$/, '');
+    if (!last.includes('/') && last !== 'body') return S.freeName(text, 'types', last);
+    const seg = [...path].reverse().find((p) => p.startsWith('/') && !p.includes('{'))?.replace(/^\//, '').replace(/[^\w]+(\w)/g, (_m, c) => c.toUpperCase()) ?? 'new';
+    const m = path.find((p) => METHODS.includes(p)) ?? '';
+    return S.freeName(text, 'types', seg + m.charAt(0).toUpperCase() + m.slice(1) + (path.includes('responses') ? 'Response' : 'Request'));
+  };
 
   const typeCell = (path: string[]) => {
     const t = S.typeOf(text, path), d = t && findType(t);
@@ -133,6 +152,9 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
         <Field value={t} mono list="ads-types" placeholder="string" onCommit={(v) => onEdit((x) => S.setType(x, path, v))} className={known ? 'text-[var(--syn-type)]' : 'text-err'} />
         {d && <IconBtn title={`Go to ${d.name}`} onClick={() => onOpen(d.file, d.from)}><Icons.ChevronRight size={12} /></IconBtn>}
+        {isInline(path) && path.join('\0') !== (node.kind === 'decl' ? node.path.join('\0') : '') && (
+          <IconBtn title="Extract to Declaration: make this a named type" onClick={() => onEdit((x) => S.extractType(x, path, extractName(path)))}><Icons.Braces size={12} /></IconBtn>
+        )}
       </span>
     );
   };
@@ -241,6 +263,33 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
     </div>
   );
 
+  // Extract to trait / resource type: a button that opens a small panel (which parts, what name) in place.
+  const extractPanel = (id: 'trait' | 'rt', label: string, parts: string[], defName: string, run: (name: string, parts: string[]) => void, blocked: boolean) => {
+    if (panel?.id !== id || panel.at !== nodeKey) {
+      return <div className="mt-2.5"><button disabled={blocked} title={blocked ? 'Its is: has traits with parameters. Edit those in the code.' : undefined}
+        onClick={() => setPanel({ id, at: nodeKey, name: defName, parts: parts.filter((p) => p !== 'responses' && p !== 'body') })} className={BTN}>{label}</button></div>;
+    }
+    if (id === 'trait' && !parts.length) return <div className="mt-2.5 text-[11.5px] text-content-faint">Nothing to extract: add query parameters, headers or responses first.</div>;
+    return (
+      <div className="mt-2.5 p-2.5 rounded-md border border-line bg-bg flex flex-col gap-2">
+        {id === 'trait' && <div className="flex flex-wrap gap-x-3 gap-y-1">{parts.map((p) => (
+          <label key={p} className="flex items-center gap-1 text-[11.5px] font-mono cursor-pointer">
+            <input type="checkbox" checked={panel.parts.includes(p)} className="accent-[var(--accent)]"
+              onChange={(e) => setPanel({ ...panel, parts: e.target.checked ? [...panel.parts, p] : panel.parts.filter((x) => x !== p) })} />{p}
+          </label>
+        ))}</div>}
+        <label className="flex items-center gap-2"><span className="text-[11.5px] text-content-faint shrink-0">Name</span>
+          <Field value={panel.name} mono focus onCommit={(v) => setPanel({ ...panel, name: v.trim() })} /></label>
+        <div className="flex gap-1.5 justify-end">
+          <button onClick={() => setPanel(null)} className={BTN}>Cancel</button>
+          <button disabled={!/^[A-Za-z_][\w-]*$/.test(panel.name) || (id === 'trait' && !panel.parts.length)}
+            onClick={() => { run(panel.name, panel.parts); setPanel(null); }}
+            className="h-[26px] px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-40">Extract</button>
+        </div>
+      </div>
+    );
+  };
+
   const loc = (k: number) => <button onClick={() => onGoLine(E[k].line)} className="mt-0.5 block font-mono text-[11px] text-content-faint hover:text-accent">{file}:{E[k].line + 1}</button>;
   const title = (inner: ReactNode) => <div className="flex items-center gap-2 min-w-0">{inner}</div>;
   let h: ReactNode;
@@ -260,6 +309,8 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
       <>
         {title(<><Badge m={node.m} /><span className="font-mono text-[13.5px] font-bold break-all">{node.url}</span></>)}
         {k >= 0 && loc(k)}
+        {extractPanel('trait', 'Extract to trait…', TRAIT_PARTS.filter((p) => at([...node.path, p]) >= 0), S.freeName(text, 'traits', 'newTrait'),
+          (name, parts) => onEdit((x) => S.extractTrait(x, node.path, parts, name)), at([...node.path, 'is']) >= 0 && E[at([...node.path, 'is'])].val.includes('{'))}
         {docs(node.path, 'method')}
         {traits(node.path)}
         {uri.length > 0 && (
@@ -304,6 +355,14 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
         {title(<span className="font-mono text-[13.5px] font-bold break-all">{node.url}</span>)}
         {k >= 0 && loc(k)}
         <div className="mt-1 text-[12.5px] text-content-secondary">{methods.length} {methods.length === 1 ? 'method' : 'methods'}{nested.length ? `, ${nested.length} nested` : ''}</div>
+        {rt == null && methods.length > 0 && extractPanel('rt', 'Extract to resource type…', [],
+          // Named after the resource: /orders gives orders, /orders/{id} gives ordersItem.
+          S.freeName(text, 'resourceTypes', (() => {
+            const camel = (s: string) => s.replace(/^\//, '').replace(/[^\w]+(\w)/g, (_m, c) => c.toUpperCase());
+            const last = node.path[node.path.length - 1], stat = [...node.path].reverse().find((p) => !p.includes('{'));
+            return last.includes('{') ? (stat ? camel(stat) : 'new') + 'Item' : camel(last) || 'newResourceType';
+          })()),
+          (name) => onEdit((x) => S.extractResourceType(x, node.path, name)), false)}
         {docs(node.path, 'resource')}
         <Sec title="Resource type">
           {rt != null && E[rt].val.includes('{') ? <div className="font-mono text-[11.5px] text-content-secondary break-all">{E[rt].val}</div>
@@ -331,8 +390,10 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
         {title(<><span className="font-mono text-[13.5px] font-bold break-all">{node.name}</span>{d?.alias && <span className="ml-auto text-[11.5px] text-content-faint">{d.alias}</span>}</>)}
         <div className="mt-1 text-[12.5px] text-content-secondary">{DECL_SECTS[node.sect]}</div>
         {k >= 0 && loc(k)}
-        <div className="mt-3 flex gap-1.5">
-          {d && <button onClick={() => onRename(d.from)} className="h-[26px] px-2.5 rounded-md text-[12px] border border-line bg-surface-2 text-content-secondary hover:text-content">Rename…</button>}
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {d && <button onClick={() => onRename(d.from)} className={BTN}>Rename…</button>}
+          {d && isType && isMain && <button onClick={() => onMove(d)} className={BTN}>Move to library…</button>}
+          {d && node.sect !== 'securitySchemes' && node.sect !== 'annotationTypes' && <button onClick={() => onDelete(d)} className={BTN + ' hover:!text-err'}>Delete…</button>}
         </div>
         {isType && <Sec title="Type">{typeCell(node.path)}</Sec>}
         <div className="mt-3"><Field multiline value={S.scalar(text, [...node.path, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'description', v || null))} /></div>
