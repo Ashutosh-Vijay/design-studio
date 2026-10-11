@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { documentDir } from '@tauri-apps/api/path';
 import { Icons } from './components/Icons';
 import { Modal, TextDialog, btn, btnPrimary } from './App';
 import * as S from './sync';
@@ -43,16 +42,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
   const [report, setReport] = useState<string | null>(null);
   const stop = useRef(false);
 
-  const locate = async (p: S.Remote, org: string) => {
-    const safe = (x: string) => x.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/, '') || 'project';
-    const home = (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '') + `/API Designer Studio/${safe(org)}/`;
-    for (const root of [home + safe(p.name), `${home}${safe(p.name)} (${p.id.slice(0, 8)})`]) {
-      const l = await S.readLink(root);
-      if (l?.projectId === p.id) return { root, here: true };
-      if (!l && !(await invoke<{ files: unknown[] }>('open_project', { root }).then((x) => x.files.length, () => 0))) return { root, here: false };
-    }
-    throw new Error(`Couldn't find a free folder for ${p.name}.`);
-  };
+  const locate = (p: S.Remote, org: string) => S.projectHome(org, p.name, p.id);
   const loadProjects = async (m?: Me) => {
     setStep('projects'); setList(null);
     try {

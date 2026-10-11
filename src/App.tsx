@@ -18,11 +18,12 @@ import { ConnectDialog, AnypointSettings, SyncBar } from './SyncUI';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
 import { DocsPanel } from './Docs';
 import { ApiMap } from './ApiMap';
+import { CreateDialog, NewFileDialog } from './Create';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
 // What the Rust side returns for an opened folder (src-tauri/src/lib.rs, open_project).
-type Project = { root: string; name: string; main: string | null; files: { path: string; size: number }[] };
+type Project = { root: string; name: string; main: string | null; files: { path: string; size: number }[]; dirs: string[] };
 type Recent = { root: string; name: string; opened: number };
 type SyncHooks = { saveAll: () => Promise<void>; notice: (t: string, err: boolean) => void; reload: () => Promise<void>; publish: () => void };
 
@@ -57,6 +58,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [dirtyCount, setDirtyCount] = useState(0);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [creating, setCreating] = useState<'api' | 'fragment' | null>(null);
   // What the project view lends the title bar's sync controls: save everything, show a notice, reload.
   const syncRef = useRef<SyncHooks | null>(null);
   const openFileRef = useRef<(path: string) => void>(() => {});
@@ -183,11 +185,12 @@ export default function App() {
         />
         </Boundary>
       ) : (
-        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onOpenZip={openZip} onPull={() => setConnectOpen(true)}
+        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onOpenZip={openZip} onPull={() => setConnectOpen(true)} onCreate={setCreating}
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
       )}
 
       {connectOpen && <ConnectDialog openRoot={project?.root} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
+      {creating && <CreateDialog what={creating} onClose={() => setCreating(null)} onCreated={(root) => { setCreating(null); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
       {settingsAt && (
         <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)}
@@ -201,10 +204,11 @@ export default function App() {
   );
 }
 
-function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onRemove }: {
+function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate, onRemove }: {
   recent: Recent[]; opening: string | null; error: string | null;
-  onOpen: (root?: string) => void; onOpenZip: () => void; onPull: () => void; onRemove: (root: string) => void;
+  onOpen: (root?: string) => void; onOpenZip: () => void; onPull: () => void; onCreate: (what: 'api' | 'fragment') => void; onRemove: (root: string) => void;
 }) {
+  const [createMenu, setCreateMenu] = useState(false);
   return (
     <div className="flex-1 min-h-0 overflow-auto flex justify-center">
       <div className="w-full max-w-[1000px] grid grid-cols-[340px_minmax(0,1fr)] gap-12 px-10 pt-14 pb-8 content-start">
@@ -212,10 +216,28 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onRemove
           <img src="/logo.svg" width={44} height={44} alt="" />
           <h1 className="mt-4 mb-1.5 text-[22px] font-bold">Design Center specs, on your desktop</h1>
           <p className="text-content-muted leading-relaxed">A desktop designer for Anypoint Design Center specs, RAML and OAS. Big specs open in seconds, and every edit is checked as you type.</p>
+          <div className="relative mt-6">
+            <button disabled={!isTauri || !!opening} onClick={() => setCreateMenu(!createMenu)}
+              className="w-full flex items-center gap-3 p-3 rounded-lg border border-accent-border bg-accent-dim text-left hover:border-accent disabled:opacity-50 disabled:cursor-not-allowed">
+              <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent-ink bg-accent"><Icons.Plus size={17} /></span>
+              <span className="flex-1"><span className="block font-semibold">Create</span><span className="block text-[11.5px] text-content-faint">A new API specification or fragment</span></span>
+              <Icons.ChevronDown size={13} />
+            </button>
+            {createMenu && <>
+              <div className="fixed inset-0 z-30" onClick={() => setCreateMenu(false)} />
+              <div className="absolute left-0 right-0 top-full mt-1 z-40 p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]">
+                {([['api', 'New API Specification', 'How the API behaves and what it exchanges: RAML or OAS'], ['fragment', 'New Fragment', 'Pieces to reuse across APIs: a library, data type, trait…']] as const).map(([id, t, d]) => (
+                  <button key={id} onClick={() => { setCreateMenu(false); onCreate(id); }} className="w-full px-2.5 py-2 rounded-md text-left hover:bg-surface-3">
+                    <span className="block font-semibold text-[12.5px]">{t}</span><span className="block text-[11.5px] text-content-faint">{d}</span>
+                  </button>
+                ))}
+              </div>
+            </>}
+          </div>
           <button
             disabled={!isTauri || !!opening}
             onClick={() => onOpen()}
-            className="mt-6 w-full flex items-center gap-3 p-3 rounded-lg border border-line bg-surface text-left hover:border-accent-border disabled:opacity-50 disabled:cursor-not-allowed"
+            className="mt-2 w-full flex items-center gap-3 p-3 rounded-lg border border-line bg-surface text-left hover:border-accent-border disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent bg-accent-dim"><Icons.Folder size={17} /></span>
             <span className="flex-1"><span className="block font-semibold">Open folder</span><span className="block text-[11.5px] text-content-faint">A spec project on this computer</span></span>
@@ -770,6 +792,30 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   }
 
   function fileMenuItems(path: string): [string, (() => void) | null][] {
+    // '' is the project's top (the + button), 'folder/' a folder: what can be made there.
+    if (path === '' || path.endsWith('/')) {
+      const folder = path.replace(/\/$/, '');
+      return [
+        ['New file…', () => setDialog(<NewFileDialog folder={folder} hasRoot={!!project.main} onClose={() => setDialog(null)} onMake={async (p, text) => {
+          if (project.files.some((f) => f.path.toLowerCase() === p.toLowerCase())) throw new Error(`${p} already exists.`);
+          await invoke('write_file_exact', { root: project.root, path: p, text });
+          setDialog(null); await onRefresh();
+          setOpenDirs((o) => { const n = new Set(o); const parts = p.split('/'); for (let i = 1; i < parts.length; i++) n.add(parts.slice(0, i).join('/')); return n; });
+          openFile(p);
+        }} />)],
+        ['New folder…', () => setDialog(<TextDialog title="New folder" label="Name" value="" okLabel="Create" slashes hint={folder ? `Inside ${folder}. A / makes folders inside it.` : 'A / makes folders inside it.'}
+          onCancel={() => setDialog(null)} onOk={async (v) => {
+            setDialog(null);
+            const parts = v.trim().replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+            try {
+              for (let i = 1; i <= parts.length; i++) { const d = [folder, ...parts.slice(0, i)].filter(Boolean).join('/'); if (!(project.dirs ?? []).includes(d)) await invoke('create_dir', { root: project.root, path: d }).catch((e) => { if (i === parts.length) throw e; }); }
+              await onRefresh();
+              setOpenDirs((o) => { const n = new Set(o); for (let i = 1; i <= parts.length; i++) n.add([folder, ...parts.slice(0, i)].filter(Boolean).join('/')); if (folder) n.add(folder); return n; });
+            } catch (e) { fail(e); }
+          }} />)],
+        ...(folder ? [['Show in folder', () => revealInFolder(folder)] as [string, () => void]] : []),
+      ];
+    }
     if (isReadOnly(path)) return [['Show in folder', () => revealInFolder(path)]];
     return [
       ...(isSpecFile(path) && path !== project.main ? [['Set as root file', () => setRootFile(path)] as [string, () => void]] : []),
@@ -1022,6 +1068,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const list = project.files.filter((f) => !q || f.path.toLowerCase().includes(q));
     const dirs = new Set<string>();
     list.forEach((f) => { const parts = f.path.split('/'); for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/')); });
+    if (!q) for (const d of project.dirs ?? []) if (!/^(exchange_modules|\.)/.test(d)) dirs.add(d); // empty folders too
     const out: { kind: 'dir' | 'file'; path: string; depth: number }[] = [];
     const walk = (prefix: string, depth: number) => {
       const here = (p: string) => p.startsWith(prefix) && !p.slice(prefix.length).includes('/');
@@ -1048,7 +1095,9 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         </nav>
 
         {rail !== 'map' && <aside className="w-[272px] shrink-0 bg-surface border-r border-line flex flex-col min-h-0">
-          <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold">{{ files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[rail]}</div>
+          <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold"><span className="flex-1">{{ files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[rail]}</span>
+            {rail === 'files' && <button title="New file or folder" onClick={(e) => { const b = e.currentTarget.getBoundingClientRect(); setMenu({ path: '', x: b.left, y: b.bottom + 2 }); }}
+              className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.Plus size={14} /></button>}</div>
           {rail === 'deps' ? (
             <DepsPanel root={project.root} paths={listPaths} onChanged={async () => { await syncRef.current?.reload(); }}
               onNotice={(text, err) => setNotice({ text, err })} onOpenFile={(p) => openFile(p)} />
@@ -1068,6 +1117,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             {rows.map((r) => r.kind === 'dir' ? (
               <div key={'d' + r.path} style={{ paddingLeft: 8 + r.depth * 14 }}
                 onClick={() => { const n = new Set(openDirs); n.has(r.path) ? n.delete(r.path) : n.add(r.path); setOpenDirs(n); }}
+                onContextMenu={(e) => { e.preventDefault(); setMenu({ path: r.path + '/', x: e.clientX, y: e.clientY }); }}
                 className="flex items-center gap-1.5 h-6 pr-2 text-[12.5px] text-content-secondary cursor-pointer hover:bg-[var(--hover-overlay)]">
                 <span className="w-3.5 flex justify-center text-content-ghost">{filter || openDirs.has(r.path) ? <Icons.ChevronDown size={11} /> : <Icons.ChevronRight size={11} />}</span>
                 <span className="text-content-faint flex"><Icons.Folder size={13} /></span>
@@ -1428,11 +1478,12 @@ export const btn = 'h-[28px] px-3 rounded-md text-[12.5px] font-medium border bo
 export const btnPrimary = 'h-[28px] px-3 rounded-md text-[12.5px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-45 disabled:cursor-not-allowed';
 const inputCls = 'w-full h-[30px] px-2.5 rounded-md border border-line bg-surface-input text-content outline-none text-[12.5px] focus:border-accent';
 
-export function TextDialog({ title, label, value, okLabel, hint, onOk, onCancel }: { title: string; label: string; value: string; okLabel: string; hint?: string; onOk: (v: string) => void; onCancel: () => void }) {
+export function TextDialog({ title, label, value, okLabel, hint, slashes, onOk, onCancel }: { title: string; label: string; value: string; okLabel: string; hint?: string; slashes?: boolean; onOk: (v: string) => void; onCancel: () => void }) {
   const [v, setV] = useState(value);
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => { const i = ref.current!; i.focus(); const dot = value.lastIndexOf('.'); i.setSelectionRange(0, dot > 0 ? dot : value.length); }, [value]);
-  const ok = v.trim() && v.trim() !== value && !/[\\/:*?"<>|]/.test(v);
+  // slashes: a path is fine (New folder makes the folders in between).
+  const ok = v.trim() && v.trim() !== value && !(slashes ? /[\\:*?"<>|]/ : /[\\/:*?"<>|]/).test(v);
   return (
     <Modal title={title} onCancel={onCancel} footer={<><button className={btn} onClick={onCancel}>Cancel</button><button className={btnPrimary} disabled={!ok} onClick={() => onOk(v.trim())}>{okLabel}</button></>}>
       <label className="block mb-1.5 text-[11.5px] font-semibold text-content-secondary">{label}</label>

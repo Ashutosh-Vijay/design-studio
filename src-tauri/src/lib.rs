@@ -18,12 +18,13 @@ struct Project {
   name: String,
   main: Option<String>, // the root file
   files: Vec<ProjectFile>,
+  dirs: Vec<String>, // every folder, empty ones too, relative with forward slashes
 }
 
 // Folders that are never part of a spec project.
 const SKIP_DIRS: [&str; 5] = [".git", "node_modules", ".apidesigner", "target", ".idea"];
 
-fn walk(root: &Path, dir: &Path, out: &mut Vec<ProjectFile>) -> std::io::Result<()> {
+fn walk(root: &Path, dir: &Path, out: &mut Vec<ProjectFile>, dirs: &mut Vec<String>) -> std::io::Result<()> {
   for entry in fs::read_dir(dir)? {
     let entry = entry?;
     let path = entry.path();
@@ -31,7 +32,8 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<ProjectFile>) -> std::io::Result<
     let meta = entry.metadata()?;
     if meta.is_dir() {
       if !SKIP_DIRS.contains(&name.as_str()) {
-        walk(root, &path, out)?;
+        dirs.push(path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/"));
+        walk(root, &path, out, dirs)?;
       }
     } else {
       let rel = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
@@ -76,11 +78,13 @@ fn open_project(root: String) -> Result<Project, String> {
     return Err(format!("{} isn't a folder, or it isn't there any more.", root));
   }
   let mut files = Vec::new();
-  walk(&root_path, &root_path, &mut files).map_err(|e| format!("Couldn't read {}: {}", root, e))?;
+  let mut dirs = Vec::new();
+  walk(&root_path, &root_path, &mut files, &mut dirs).map_err(|e| format!("Couldn't read {}: {}", root, e))?;
   files.sort_by(|a, b| a.path.cmp(&b.path));
   let main = find_main(&root_path, &files);
   let name = root_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| root.clone());
-  Ok(Project { root, name, main, files })
+  dirs.sort();
+  Ok(Project { root, name, main, files, dirs })
 }
 
 #[tauri::command]
@@ -141,6 +145,14 @@ fn rename_file(root: String, from: String, to: String) -> Result<(), String> {
 fn delete_file(root: String, path: String) -> Result<(), String> {
   let full = inside(&root, &path)?;
   trash::delete(&full).map_err(|e| format!("Couldn't move {} to the Recycle Bin: {}", path, e))
+}
+
+// New folder (Files, +): inside the project only, and never over something that's there.
+#[tauri::command]
+fn create_dir(root: String, path: String) -> Result<(), String> {
+  let full = inside(&root, &path)?;
+  if full.exists() { return Err(format!("{} already exists.", path)); }
+  fs::create_dir(&full).map_err(|e| format!("Couldn't make {}: {}", path, e))
 }
 
 #[derive(Serialize)]
@@ -222,7 +234,7 @@ pub fn run() {
       amf::start_in_background(app.handle());
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
+    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, create_dir, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
       anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only,
       anypoint::anypoint_dev_session])
     .build(tauri::generate_context!())

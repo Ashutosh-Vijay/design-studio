@@ -3,6 +3,7 @@
 // a hash of every file at that commit) and .apidesigner/base/, the files as they were then, which a
 // three-way merge needs when both sides changed a file.
 import { invoke } from '@tauri-apps/api/core';
+import { documentDir } from '@tauri-apps/api/path';
 
 const DC = '/designcenter/api-designer';
 const LINK = '.apidesigner/link.json', BASE = '.apidesigner/base/';
@@ -19,6 +20,27 @@ const branchPath = (l: { projectId: string; branch: string }) => `${DC}/projects
 // File paths go into the URL as one segment, slashes encoded too: reading, deleting and moving a file
 // inside a folder all need %2F (M3 probes; a raw slash answers 404).
 const filePath = (p: string) => encodeURIComponent(p);
+
+// Where a Design Center project lives here: Documents/API Designer Studio/{org}/{project}, with a short id
+// added when another project already has that folder. here: it's already pulled there.
+export async function projectHome(org: string, name: string, id: string) {
+  const safe = (x: string) => x.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/, '') || 'project';
+  const home = (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '') + `/API Designer Studio/${safe(org)}/`;
+  for (const root of [home + safe(name), `${home}${safe(name)} (${id.slice(0, 8)})`]) {
+    const l = await readLink(root);
+    if (l?.projectId === id) return { root, here: true };
+    if (!l && !(await invoke<{ files: unknown[] }>('open_project', { root }).then((x) => x.files.length, () => 0))) return { root, here: false };
+  }
+  throw new Error(`Couldn't find a free folder for ${name}.`);
+}
+export const projectFolder = async (org: string, name: string, id: string) => (await projectHome(org, name, id)).root;
+// A new project in Design Center (Create). Fragments need their kind as subType (probed: library, type,
+// trait, resource_type, example, user_documentation, annotation_type, security_scheme, overlay, extension).
+export async function createProject(name: string, classifier: 'raml' | 'oas' | 'raml-fragment', subType?: string) {
+  const r = await api('POST', `${DC}/projects`, { name, classifier, ...(subType ? { subType } : {}) });
+  if (r.status === 409 || /exist/i.test(r.json?.message ?? '')) throw new Error(`Design Center already has a project called ${name}.`);
+  return must(r, 'Creating the project').json.id as string;
+}
 
 export async function sha(text: string) {
   const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
