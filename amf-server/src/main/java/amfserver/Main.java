@@ -106,6 +106,7 @@ public class Main {
       }
       case "check" -> send(check(req, "validate".equals(req.path("mode").asText())));
       case "convert" -> send(convert(req));
+      case "jsonSchema" -> send(jsonSchema(req));
       default -> send(JSON.createObjectNode().put("id", req.path("id").asLong()).put("ok", false).put("error", "unknown op"));
     }
   }
@@ -176,6 +177,14 @@ public class Main {
     List<ObjectNode> problems = new ArrayList<>();
     for (AMFValidationResult r : parsed.results()) problems.add(problem(r, "parse"));
     String spec = parsed.sourceSpec() == null ? "" : parsed.sourceSpec().id();
+    // Read before validation, which may resolve the unit. The unresolved model keeps links to declarations
+    // (AMF's Editing pipeline was tried: it expands them, losing "used by", and took 4.5 s on a big spec).
+    ObjectNode model = null;
+    if (req.path("model").asBoolean()) {
+      long tm = System.nanoTime();
+      model = model(parsed.baseUnit());
+      model.put("ms", (System.nanoTime() - tm) / 1_000_000);
+    }
     long t2 = t1;
     if (validate && parsed.sourceSpec() != null) {
       // The auto-detect configuration refuses to validate (M0.1): use the detected spec's own.
@@ -188,7 +197,185 @@ public class Main {
     ObjectNode res = reply(req).put("spec", spec).put("parseMs", (t1 - t0) / 1_000_000).put("validateMs", (t2 - t1) / 1_000_000);
     ArrayNode arr = res.putArray("problems");
     problems.forEach(arr::add);
+    if (model != null) res.set("model", model);
     return res;
+  }
+
+  // A declared type as JSON Schema, by AMF (the Inspector's "Copy as JSON Schema"). Parsed without the unit
+  // cache: rendering may resolve the shape, and cached units are shared between checks.
+  static ObjectNode jsonSchema(JsonNode req) throws Exception {
+    if (root == null) throw new IllegalStateException("no project open");
+    AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient().parse(fileUrl(root.resolve(main))).get();
+    // By name and file: element ids can differ between two parses.
+    String name = req.path("name").asText(), file = req.path("file").asText();
+    Deque<BaseUnit> units = new ArrayDeque<>(List.of(parsed.baseUnit())); Set<String> seen = new HashSet<>();
+    while (!units.isEmpty()) {
+      BaseUnit u = units.pop();
+      if (!seen.add(u.id())) continue;
+      units.addAll(u.references());
+      if (u instanceof amf.core.client.platform.model.document.DeclaresModel dm && rel(u.location()).equalsIgnoreCase(file)) for (var d : dm.declares()) {
+        if (d instanceof amf.shapes.client.platform.model.domain.AnyShape s && name.equals(s.name().value())) return reply(req).put("text", APIConfiguration.API().elementClient().toJsonSchema(s));
+      }
+    }
+    throw new IllegalArgumentException("That type isn't in the spec any more. Check again after the spec is read.");
+  }
+
+  // ---------- The API as AMF reads it, for the Inspector (op check with model:true) ----------
+  // Endpoints, operations, parameters, bodies, responses and declared types, each with its file and
+  // position, and the type names as the spec writes them. "Used by" comes from AMF's own links, so it
+  // follows aliases, $refs and libraries exactly.
+  static ObjectNode at(amf.core.client.platform.model.Annotations a) {
+    var r = a.lexical();
+    if (r == null || (r.start().line() == 0 && r.end().line() == 0)) return null;
+    ObjectNode n = JSON.createObjectNode();
+    n.put("file", a.location().map(Main::rel).orElse(main));
+    n.putArray("r").add(r.start().line()).add(r.start().column()).add(r.end().line()).add(r.end().column());
+    return n;
+  }
+  static void put(ObjectNode n, String key, amf.core.client.platform.model.StrField f) {
+    if (f == null || f.isNullOrEmpty()) return;
+    ObjectNode v = n.putObject(key).put("v", f.value());
+    ObjectNode p = at(f.annotations()); if (p != null) v.set("at", p);
+  }
+  static String local(String uri) { return uri == null ? "" : uri.replaceAll(".*[#/]", ""); }
+
+  // A shape's type in one word: Order, lib.Order, Order[], string, A | B.
+  static String typeName(amf.core.client.platform.model.domain.Shape s, int depth) {
+    if (s == null || depth > 6) return "";
+    if (s.isLink()) {
+      String label = s.linkLabel().isNullOrEmpty() ? "" : s.linkLabel().value();
+      if (!label.isEmpty() && !label.startsWith("#") && !label.contains("/")) return label;
+      return s.linkTarget().map(t -> t instanceof amf.core.client.platform.model.domain.Shape sh ? sh.name().value() : "").orElse(local(label));
+    }
+    if (s instanceof amf.shapes.client.platform.model.domain.ScalarShape sc) return local(sc.dataType().value()).replace("dateTime", "datetime").replace("long", "integer").replace("float", "number").replace("double", "number");
+    if (s instanceof amf.shapes.client.platform.model.domain.ArrayShape a) { String i = typeName(a.items(), depth + 1); return (i.isEmpty() ? "any" : i) + "[]"; }
+    if (s instanceof amf.shapes.client.platform.model.domain.UnionShape u) { List<String> xs = new ArrayList<>(); for (var x : u.anyOf()) xs.add(typeName(x, depth + 1)); return String.join(" | ", xs); }
+    if (!s.inherits().isEmpty()) return typeName(s.inherits().get(0), depth + 1);
+    if (s instanceof amf.shapes.client.platform.model.domain.FileShape) return "file";
+    if (s instanceof amf.shapes.client.platform.model.domain.NilShape) return "nil";
+    if (s instanceof amf.shapes.client.platform.model.domain.NodeShape) return "object";
+    return "any";
+  }
+
+  // Every link to a declared type, wherever it sits: [targetId, where, position].
+  static void links(amf.core.client.platform.model.domain.Shape s, String where, List<Object[]> out, Set<String> seen, int depth) {
+    if (s == null || depth > 12) return;
+    if (s.isLink()) { s.linkTarget().ifPresent(t -> out.add(new Object[]{ t.id(), where, at(s.annotations()) })); return; }
+    if (!seen.add(s.id())) return;
+    for (var i : s.inherits()) links(i, where, out, seen, depth + 1);
+    if (s instanceof amf.shapes.client.platform.model.domain.ArrayShape a) links(a.items(), where, out, seen, depth + 1);
+    if (s instanceof amf.shapes.client.platform.model.domain.UnionShape u) for (var x : u.anyOf()) links(x, where, out, seen, depth + 1);
+    if (s instanceof amf.shapes.client.platform.model.domain.NodeShape n) for (var p : n.properties()) links(p.range(), where.isEmpty() ? p.name().value() : where + "." + p.name().value(), out, seen, depth + 1);
+  }
+
+  static ObjectNode payloads(List<? extends amf.shapes.client.platform.model.domain.operations.AbstractPayload> ps, String where, List<Object[]> refs, ArrayNode into) {
+    for (var p : ps) {
+      ObjectNode b = into.addObject().put("media", p.mediaType().isNullOrEmpty() ? "" : p.mediaType().value()).put("type", typeName(p.schema(), 0));
+      ObjectNode a = at(p.annotations()); if (a != null) b.set("at", a);
+      links(p.schema(), where, refs, new HashSet<>(), 0);
+    }
+    return null;
+  }
+
+  static ObjectNode model(BaseUnit unit) {
+    ObjectNode m = JSON.createObjectNode();
+    List<Object[]> refs = new ArrayList<>();
+    if (unit instanceof amf.core.client.platform.model.document.Document doc && doc.encodes() instanceof amf.apicontract.client.platform.model.domain.api.Api<?> api) {
+      put(m, "title", api.name()); put(m, "version", api.version()); put(m, "description", api.description());
+      ArrayNode eps = m.putArray("endpoints");
+      for (var ep : api.endPoints()) {
+        ObjectNode e = eps.addObject().put("path", ep.path().value());
+        ObjectNode ea = at(ep.annotations()); if (ea != null) e.set("at", ea);
+        put(e, "summary", ep.summary()); put(e, "description", ep.description());
+        ArrayNode ops = e.putArray("operations");
+        for (var op : ep.operations()) {
+          String where = op.method().value().toUpperCase() + " " + ep.path().value();
+          ObjectNode o = ops.addObject().put("method", op.method().value());
+          ObjectNode oa = at(op.annotations()); if (oa != null) o.set("at", oa);
+          put(o, "summary", op.summary()); put(o, "description", op.description()); put(o, "operationId", op.operationId());
+          ArrayNode tags = o.putArray("tags"); for (var t : op.tags()) tags.add(t.name().value());
+          ArrayNode params = o.putArray("parameters"), body = o.putArray("body");
+          for (var rq : op.requests()) {
+            for (var group : List.of(rq.queryParameters(), rq.headers(), rq.uriParameters(), rq.cookieParameters())) for (var p : group) {
+              ObjectNode pn = params.addObject().put("name", p.parameterName().isNullOrEmpty() ? p.name().value() : p.parameterName().value())
+                .put("in", p.binding().isNullOrEmpty() ? "" : p.binding().value()).put("required", p.required().value()).put("type", typeName(p.schema(), 0));
+              ObjectNode pa = at(p.annotations()); if (pa != null) pn.set("at", pa);
+              links(p.schema(), where + " " + pn.path("name").asText(), refs, new HashSet<>(), 0);
+            }
+            payloads(rq.payloads(), where + " body", refs, body);
+          }
+          ArrayNode rs = o.putArray("responses");
+          for (var r : op.responses()) {
+            ObjectNode rn = rs.addObject().put("code", r.statusCode().value());
+            ObjectNode ra = at(r.annotations()); if (ra != null) rn.set("at", ra);
+            put(rn, "description", r.description());
+            payloads(r.payloads(), where + " " + r.statusCode().value(), refs, rn.putArray("body"));
+          }
+        }
+      }
+    }
+    // Declared types: this file's, and every library's and fragment's the spec references.
+    ArrayNode types = m.putArray("types");
+    List<ObjectNode> typeNodes = new ArrayList<>();
+    List<Object[]> templateRefs = new ArrayList<>();
+    Deque<BaseUnit> units = new ArrayDeque<>(List.of(unit)); Set<String> seenUnits = new HashSet<>();
+    while (!units.isEmpty()) {
+      BaseUnit u = units.pop();
+      if (!seenUnits.add(u.id())) continue;
+      units.addAll(u.references());
+      if (!(u instanceof amf.core.client.platform.model.document.DeclaresModel dm)) continue;
+      for (var d : dm.declares()) {
+        // Traits and resource types are templates: AMF keeps their bodies as data nodes, so type names
+        // used inside them are read from there (with their positions).
+        if (d instanceof amf.core.client.platform.model.domain.AbstractDeclaration ad) {
+          String kind = d.getClass().getSimpleName().equals("Trait") ? "trait " : "resource type ";
+          templateUses(ad.dataNode(), kind + ad.name().value(), null, templateRefs, 0);
+          continue;
+        }
+        if (!(d instanceof amf.core.client.platform.model.domain.Shape s)) continue;
+        ObjectNode t = types.addObject().put("id", s.id()).put("name", s.name().value()).put("type", typeName(s, 0));
+        ObjectNode ta = at(s.annotations()); if (ta != null) t.set("at", ta);
+        if (s instanceof amf.shapes.client.platform.model.domain.NodeShape n) {
+          ArrayNode props = t.putArray("properties");
+          for (var p : n.properties()) {
+            ObjectNode pn = props.addObject().put("name", p.name().value()).put("type", typeName(p.range(), 0)).put("required", p.minCount().value() > 0);
+            ObjectNode pa = at(p.annotations()); if (pa != null) pn.set("at", pa);
+          }
+        }
+        links(s, s.name().value(), refs, new HashSet<>(), 0);
+        typeNodes.add(t);
+      }
+    }
+    for (ObjectNode t : typeNodes) {
+      ArrayNode used = t.putArray("usedBy");
+      for (Object[] r : refs) if (t.path("id").asText().equals(r[0]) && !t.path("name").asText().equals(String.valueOf(r[1]))) {
+        ObjectNode u = used.addObject().put("where", (String) r[1]); if (r[2] != null) u.set("at", (ObjectNode) r[2]);
+      }
+      // In a template a type is written bare when it's declared in the template's own file, else alias.Name.
+      String name = t.path("name").asText(), file = t.path("at").path("file").asText();
+      for (Object[] r : templateRefs) {
+        String v = ((String) r[0]).replaceAll("\\[\\]$", "").replaceAll("\\?$", "");
+        String bare = v.contains(".") ? v.substring(v.indexOf('.') + 1) : v;
+        String tfile = r[2] == null ? main : ((ObjectNode) r[2]).path("file").asText();
+        boolean here = v.contains(".") ? !file.equals(tfile) && bare.equals(name) : file.equals(tfile) && v.equals(name);
+        if (here) { ObjectNode u = used.addObject().put("where", (String) r[1]); if (r[2] != null) u.set("at", (ObjectNode) r[2]); }
+      }
+    }
+    return m;
+  }
+
+  // Type names in a template body: values of type:, items: and "name: Type" entries, each a candidate
+  // [value, where, position], matched against the declared types afterwards.
+  static void templateUses(amf.core.client.platform.model.domain.DataNode n, String where, String key, List<Object[]> out, int depth) {
+    if (n == null || depth > 20) return;
+    if (n instanceof amf.core.client.platform.model.domain.ScalarNode s) {
+      if (s.value().isNullOrEmpty() || (key != null && Set.of("description", "displayName", "example", "pattern", "usage", "title").contains(key))) return;
+      for (String part : s.value().value().split("\\|")) { String v = part.trim(); if (v.matches("[A-Za-z_][\\w.-]*(\\[\\])?")) out.add(new Object[]{ v, where, at(s.annotations()) }); }
+    } else if (n instanceof amf.core.client.platform.model.domain.ObjectNode o) {
+      for (var e : o.properties().entrySet()) if (!e.getKey().equals("examples") && !e.getKey().equals("example")) templateUses(e.getValue(), where, e.getKey(), out, depth + 1);
+    } else if (n instanceof amf.core.client.platform.model.domain.ArrayNode a) {
+      if (!"is".equals(key)) for (var x : a.members()) templateUses(x, where, key, out, depth + 1);
+    }
   }
 
   // AMF's Compatibility pipeline, as Design Center's Download as / Duplicate As. Not guaranteed valid; the result is checked like any file.
