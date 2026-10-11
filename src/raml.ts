@@ -6,7 +6,7 @@ export const BUILTIN_TYPES = ['string', 'number', 'integer', 'boolean', 'date-on
 
 // One "key:" line. Handles "key : value" (a corpus quirk) and "- key:" list items.
 const KEY_RE = /^(\s*)(- )?("[^"]*"|'[^']*'|[^\s#:][^:#]*?)\s*:(?:\s+(.*))?$/;
-export type Entry = { line: number; ind: number; key: string; val: string; from: number };
+export type Entry = { line: number; ind: number; key: string; val: string; from: number; dash: boolean }; // dash: the key opens a "- " list item
 
 // The shelf, breadcrumb, tree selection and Inspector all read the same text after each keystroke: parse it once.
 let lastText = '', lastEntries: Entry[] = [];
@@ -25,7 +25,7 @@ function parseEntries(text: string): Entry[] {
     if (m && !l.trimStart().startsWith('#')) {
       const ind = m[1].length + (m[2] ? 2 : 0);
       const val = (m[4] || '').replace(/\s+#.*$/, '').trim();
-      out.push({ line: i, ind, key: m[3].replace(/^["']|["']$/g, ''), val, from: pos + ind });
+      out.push({ line: i, ind, key: m[3].replace(/^["']|["']$/g, ''), val, from: pos + ind, dash: !!m[2] });
       if (/^[|>][-+0-9]*$/.test(val)) block = ind;
     }
     pos += l.length + 1;
@@ -97,6 +97,23 @@ export function buildOutline(rootPath: string, rootText: string, libTexts: Map<s
     securitySchemes.push(...declsOf(text, lib.path, lib.alias, 'securitySchemes', 'sec'));
   }
   return { resources, types, traits, resourceTypes, securitySchemes, libraries };
+}
+
+// The same outline for an OAS 3.0 YAML file: paths and their operations, components schemas and security schemes.
+export function buildOasOutline(file: string, text: string): Outline {
+  const E = entries(text), p = topIndex(E, 'paths'), c = topIndex(E, 'components');
+  const resources: Resource[] = p < 0 ? [] : kids(E, p).filter((j) => E[j].key.startsWith('/')).map((j) => ({
+    kind: 'res', id: 'res:' + E[j].key, key: E[j].key, path: E[j].key, from: E[j].from, children: [],
+    methods: kids(E, j).filter((x) => METHODS.includes(E[x].key)).map((x) => {
+      const s = kid(E, x, 'summary');
+      return { kind: 'method', id: `m:${E[x].key}:${E[j].key}`, m: E[x].key, path: E[j].key, name: s != null ? E[s].val : '', from: E[x].from };
+    }),
+  }));
+  const decls = (key: string, kind: Decl['kind']): Decl[] => {
+    const s = c < 0 ? undefined : kid(E, c, key);
+    return s == null ? [] : kids(E, s).map((j) => ({ kind, id: `${kind}:${E[j].key}`, name: E[j].key, alias: null, file, from: E[j].from }));
+  };
+  return { resources, types: decls('schemas', 'type'), traits: [], resourceTypes: [], securitySchemes: decls('securitySchemes', 'sec'), libraries: [] };
 }
 
 // The keys around a line, outermost first (for selecting the tree node under the cursor).

@@ -5,14 +5,14 @@ import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import { listen } from '@tauri-apps/api/event';
 import { METHODS, baseExtensions, languageFor, yamlPathAt } from './editor';
-import { BUILTIN_TYPES, SCALAR_KEYS, entries, kids, normalizePath, buildOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
+import { BUILTIN_TYPES, SCALAR_KEYS, entries, kids, normalizePath, buildOutline, buildOasOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
-import { Inspector } from './Inspector';
+import { Inspector, OasInspector } from './Inspector';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
@@ -37,6 +37,8 @@ function ago(t: number) {
 }
 const base = (p: string) => p.split('/').pop() || p;
 const isReadOnly = (p: string) => p === 'exchange.json' || p.startsWith('exchange_modules/');
+// An OpenAPI 3 file written in YAML: the forms, tree and outline read it with the same line parser as RAML.
+const isOasYaml = (p: string, text: string) => /\.ya?ml$/i.test(p) && /^\s*openapi\s*:\s*['"]?3\./m.test(text);
 
 export default function App() {
   const [project, setProject] = useState<Project | null>(null);
@@ -303,8 +305,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   };
 
   async function rebuildOutline() {
-    const main = project.main; if (!main || !/\.raml$/i.test(main)) { setOutline(null); return; }
+    const main = project.main; if (!main) { setOutline(null); return; }
     const rootText = textOf(main); if (rootText == null) return;
+    if (isOasYaml(main, rootText)) { setOutline(buildOasOutline(main, rootText)); return; }
+    if (!/\.raml$/i.test(main)) { setOutline(null); return; }
     const libs = libraryPaths(main, rootText);
     libraryFiles.current = new Set(libs.map((l) => l.path));
     for (const l of libs) {
@@ -319,8 +323,15 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
 
   // Shelf context and tree selection follow the cursor in the root file.
   function updateCursorViews(path: string, state: EditorState) {
-    if (path !== project.main || !/\.raml$/i.test(path)) { setShelf(null); return; }
     const pos = state.selection.main.head, line = state.doc.lineAt(pos), text = state.doc.toString();
+    // OAS: the tree selection follows paths, operations and schemas; there's no shelf for OAS.
+    if (path === project.main && isOasYaml(path, text)) {
+      setShelf(null);
+      const k = keyPathAt(text, line.number - 1).map((e) => e.key);
+      setSelId(k[0] === 'paths' && k[1] ? (METHODS.includes(k[2]) ? `m:${k[2]}:${k[1]}` : 'res:' + k[1]) : k[0] === 'components' && k[1] === 'schemas' && k[2] ? 'type:' + k[2] : null);
+      return;
+    }
+    if (path !== project.main || !/\.raml$/i.test(path)) { setShelf(null); return; }
     setShelf(shelfContext(text, line.number - 1, pos - line.from));
     const kp = keyPathAt(text, line.number - 1);
     const mi = kp.findIndex((e) => METHODS.includes(e.key));
@@ -1043,8 +1054,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                 onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)}
                 onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }}
                 onMove={openMove} onDelete={deleteDecl} />
+            ) : doc && active === doc.path && isOasYaml(doc.path, doc.text) ? (
+              <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={isReadOnly(doc.path)} onEdit={applyForm} onGoLine={goLine} />
             ) : (
-              <div className="p-4 text-[12.5px] text-content-faint">{active ? 'Forms are for RAML files. OAS forms come later.' : 'Open a file to see it here.'}</div>
+              <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.'
+                : /\.json$/i.test(active) && doc && /"openapi"\s*:/.test(doc.text) ? 'Forms work on OAS 3.0 in YAML. For JSON, edit the code for now.'
+                : 'Forms are for RAML 1.0 and OAS 3.0 (YAML) specs.'}</div>
             )}
           </aside>
         )}
@@ -1136,14 +1151,16 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
   const declRows = (list: Decl[], letter: string, color: string) => list.filter((d) => match((d.alias ? d.alias + '.' : '') + d.name)).map((d) =>
     row(d.id, 0, <><span className="w-3.5" /><span className={`font-mono text-[9.5px] font-bold w-4 h-4 rounded-[3px] inline-flex items-center justify-center ${color}`}>{letter}</span><span className="truncate">{d.name}</span></>,
       () => onPick(d.file, d.from, d.id), d.alias ? <span className="text-[11px] text-content-ghost">{d.alias}</span> : null));
+  const oas = !/\.raml$/i.test(rootFile);
   return (
     <div className="flex-1 overflow-auto pb-3">
-      {sec('Resources', `${all.length} · ${nMethods} methods`, resRows)}
-      {sec('Types', outline.types.length, declRows(outline.types, 'T', 'text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]'))}
-      {sec('Traits', outline.traits.length, declRows(outline.traits, 'Tr', 'text-violet bg-violet-tint'))}
-      {sec('Resource types', outline.resourceTypes.length, declRows(outline.resourceTypes, 'RT', 'text-cyan bg-cyan-tint'))}
+      {/* OAS uses its own words: paths and schemas, and has no traits, resource types or libraries. */}
+      {sec(oas ? 'Paths' : 'Resources', `${all.length} · ${nMethods} ${oas ? 'operations' : 'methods'}`, resRows)}
+      {sec(oas ? 'Schemas' : 'Types', outline.types.length, declRows(outline.types, oas ? 'S' : 'T', 'text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]'))}
+      {!oas && sec('Traits', outline.traits.length, declRows(outline.traits, 'Tr', 'text-violet bg-violet-tint'))}
+      {!oas && sec('Resource types', outline.resourceTypes.length, declRows(outline.resourceTypes, 'RT', 'text-cyan bg-cyan-tint'))}
       {sec('Security schemes', outline.securitySchemes.length, declRows(outline.securitySchemes, 'S', 'text-warn bg-warn-tint'))}
-      {sec('Libraries', outline.libraries.length, outline.libraries.filter((l) => match(l.alias)).map((l) =>
+      {!oas && sec('Libraries', outline.libraries.length, outline.libraries.filter((l) => match(l.alias)).map((l) =>
         row('lib:' + l.alias, 0, <><span className="w-3.5" /><span className="font-mono text-[9.5px] font-bold w-4 h-4 rounded-[3px] inline-flex items-center justify-center text-accent bg-accent-dim">L</span><span className="truncate">{l.alias}</span></>,
           () => onPick(l.path, 0, 'lib:' + l.alias), l.path.startsWith('exchange_modules/') ? <span className="text-[9.5px] font-semibold px-1 rounded border border-cyan-border text-cyan">Exchange</span> : null)))}
     </div>

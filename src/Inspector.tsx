@@ -487,3 +487,242 @@ function usages(name: string, declFile: string, rootFile: string, textOf: (p: st
   }
   return out;
 }
+
+// ---------- OAS 3.0 (YAML) ----------
+// The same idea for OpenAPI files: a form for the operation, path, schema or API under the cursor, every
+// change a minimal splice. Parameters and servers are "- " lists, addressed as #n in a path.
+const OAS_BUILTIN = ['string', 'integer', 'number', 'boolean', 'object', 'array'];
+const REF = '#/components/schemas/';
+
+// A schema's type as one word: Pet (a $ref), Pet[] or string[] (an array), string, object.
+function oasType(text: string, p: string[]): string {
+  const E = entries(text), k = S.find(E, p); if (k < 0) return '';
+  const ref = kid(E, k, '$ref'); if (ref != null) return S.unquote(E[ref].val).replace(REF, '');
+  const t = kid(E, k, 'type'); const tv = t != null ? S.unquote(E[t].val) : '';
+  if (tv === 'array') { const it = oasType(text, [...p, 'items']); return it ? it + '[]' : 'array'; }
+  return tv || (kids(E, k).some((j) => E[j].key === 'properties') ? 'object' : '');
+}
+// Write a type back: built-in names as type:, others as a $ref to components/schemas, X[] as an array of X.
+function setOasType(text: string, p: string[], t: string): string {
+  for (const key of ['$ref', 'type', 'items', 'format']) text = S.remove(text, [...p, key], false);
+  if (!t) return text;
+  const arr = t.endsWith('[]'), b = arr ? t.slice(0, -2) : t;
+  const one = (x: string) => (OAS_BUILTIN.includes(x) ? [`type: ${x}`] : [`$ref: '${REF}${x}'`]);
+  return S.addChild(text, p, arr ? ['type: array', 'items:', ...one(b).map((l) => '  ' + l)] : one(b), true);
+}
+
+export function OasInspector({ file, text, line, readOnly, onEdit, onGoLine }: {
+  file: string; text: string; line: number; readOnly: boolean;
+  onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void;
+}) {
+  const E = useMemo(() => entries(text), [text]);
+  const L = useMemo(() => text.split('\n'), [text]);
+  const kp = useMemo(() => keyPathAt(text, line).map((e) => e.key), [text, line]);
+  const at = (p: string[]) => S.find(E, p);
+  const here = (k: number, end?: number) => line >= E[k].line && line < (end ?? S.blockEnd(E, L, k));
+  const rowCls = (on: boolean) => `group/r rounded-md px-1.5 -mx-1.5 ${on ? 'bg-accent-dim' : 'hover:bg-[var(--hover-overlay)]'}`;
+  const schemasK = at(['components', 'schemas']);
+  const schemaNames = schemasK < 0 ? [] : kids(E, schemasK).map((j) => E[j].key);
+  const known = (t: string) => !t || OAS_BUILTIN.includes(t.replace(/\[\]$/, '')) || schemaNames.includes(t.replace(/\[\]$/, ''));
+
+  const typeCell = (p: string[]) => {
+    const k = at(p);
+    if (k >= 0 && E[k].val.startsWith('{')) return <span className="font-mono text-[11.5px] text-content-secondary truncate" title={E[k].val}>{E[k].val}</span>;
+    const t = oasType(text, p);
+    const target = schemaNames.includes(t.replace(/\[\]$/, '')) ? at(['components', 'schemas', t.replace(/\[\]$/, '')]) : -1;
+    return (
+      <span className="flex items-center gap-0.5 min-w-0 flex-1">
+        <Field value={t} mono list="ads-oas-types" placeholder="string" onCommit={(v) => onEdit((x) => setOasType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
+        {target >= 0 && <IconBtn title={`Go to ${t.replace(/\[\]$/, '')}`} onClick={() => onGoLine(E[target].line)}><Icons.ChevronRight size={12} /></IconBtn>}
+      </span>
+    );
+  };
+  // One row per media type under content:, each with its schema.
+  const content = (p: string[]) => {
+    const k = at([...p, 'content']);
+    const media = k < 0 ? [] : kids(E, k);
+    return (
+      <div className="mt-1 flex flex-col gap-0.5">
+        {media.map((j) => (
+          <div key={E[j].key} className={rowCls(here(j)) + ' flex items-center gap-1.5 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
+            <span className="text-[11px] font-mono text-content-faint shrink-0 max-w-[45%] truncate" title={E[j].key}>{E[j].key}</span>
+            {typeCell([...p, 'content', E[j].key, 'schema'])}
+            <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, [...p, 'content', E[j].key]))}><Icons.X size={11} /></IconBtn></span>
+          </div>
+        ))}
+        <div className="flex"><AddSelect label="Content" options={MEDIA.filter((m) => !media.some((j) => E[j].key === m))} onPick={(m) => onEdit((x) => S.addChild(x, [...p, 'content'], [`${m}:`, '  schema:', '    type: object']))} /></div>
+      </div>
+    );
+  };
+  const field = (p: string[], key: string, placeholder: string, mono = false, multiline = false) => (
+    <Field value={S.scalar(text, [...p, key]) ?? ''} placeholder={placeholder} mono={mono} multiline={multiline} onCommit={(v) => onEdit((x) => S.setScalar(x, p, key, v || null))} />
+  );
+  const loc = (k: number) => <button onClick={() => onGoLine(E[k].line)} className="mt-0.5 block font-mono text-[11px] text-content-faint hover:text-accent">{file}:{E[k].line + 1}</button>;
+  let h: ReactNode;
+
+  if (kp[0] === 'paths' && kp[1] && METHODS.includes(kp[2])) {
+    const op = ['paths', kp[1], kp[2]], k = at(op);
+    const pk = at([...op, 'parameters']), ps = pk < 0 ? [] : S.items(E, pk);
+    const rk = at([...op, 'responses']), codes = rk < 0 ? [] : kids(E, rk);
+    // A new status code is written the way this file already writes them: quoted '200' or bare 200.
+    const quoteCodes = rk >= 0 && codes.length > 0 && /^\s*['"]/.test(L[E[codes[0]].line]);
+    h = (
+      <>
+        <div className="flex items-center gap-2 min-w-0"><Badge m={kp[2]} /><span className="font-mono text-[13.5px] font-bold break-all">{kp[1]}</span></div>
+        {k >= 0 && loc(k)}
+        <div className="mt-3 flex flex-col gap-1.5">
+          {field(op, 'summary', 'Summary')}
+          {field(op, 'description', 'Description', false, true)}
+          {field(op, 'operationId', 'operationId', true)}
+          <Field mono value={(S.list(text, [...op, 'tags']) ?? []).join(', ')} placeholder="Tags, separated by commas" onCommit={(v) => onEdit((x) => S.setList(x, [...op, 'tags'], v.split(',').map((s) => s.trim()).filter(Boolean)))} />
+        </div>
+        <Sec title="Parameters" count={ps.length || undefined}
+          add={<button onClick={() => onEdit((x) => S.addItem(x, [...op, 'parameters'], ['name: param', 'in: query', 'schema:', '  type: string']))} className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />Add</button>}>
+          {ps.length === 0 && <div className="text-[11.5px] text-content-faint">None.</div>}
+          {ps.map((j, n) => {
+            const ip = [...op, 'parameters', '#' + n];
+            const ref = at([...ip, '$ref']);
+            const end = ps[n + 1] != null ? E[ps[n + 1]].line : S.blockEnd(E, L, pk);
+            if (ref >= 0) return <div key={n} className={rowCls(here(j, end)) + ' py-[3px] font-mono text-[11.5px] text-content-secondary'} onClick={() => onGoLine(E[j].line)}>{S.unquote(E[ref].val)}</div>;
+            const where = S.scalar(text, [...ip, 'in']) ?? 'query';
+            return (
+              <div key={n} className={rowCls(here(j, end)) + ' flex items-center gap-1 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
+                <span className="w-[32%] shrink-0"><Field value={S.scalar(text, [...ip, 'name']) ?? ''} mono onCommit={(v) => v && onEdit((x) => S.setInItem(x, [...op, 'parameters'], n, 'name', v))} /></span>
+                <select value={where} onClick={(e) => e.stopPropagation()} onChange={(e) => onEdit((x) => S.setInItem(x, [...op, 'parameters'], n, 'in', e.target.value, true))}
+                  className="h-[26px] w-[62px] shrink-0 rounded border border-line bg-surface-input text-[11px] font-mono text-content-secondary">
+                  {['query', 'path', 'header', 'cookie'].map((w) => <option key={w}>{w}</option>)}
+                </select>
+                {typeCell([...ip, 'schema'])}
+                <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked={where === 'path' || S.scalar(text, [...ip, 'required']) === 'true'} disabled={where === 'path'} className="accent-[var(--accent)]"
+                    onChange={(e) => onEdit((x) => S.setInItem(x, [...op, 'parameters'], n, 'required', e.target.checked ? 'true' : null, true))} />req
+                </label>
+                <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.removeItem(x, [...op, 'parameters'], n))}><Icons.X size={11} /></IconBtn></span>
+              </div>
+            );
+          })}
+        </Sec>
+        {(['post', 'put', 'patch'].includes(kp[2]) || at([...op, 'requestBody']) >= 0) && <Sec title="Request body">{content([...op, 'requestBody'])}</Sec>}
+        <Sec title="Responses" count={codes.length || undefined}
+          add={<AddSelect label="Add response" options={Object.keys(CODES).filter((c) => !codes.some((j) => E[j].key === c))}
+            onPick={(c) => onEdit((x) => S.addChild(x, [...op, 'responses'], [`${quoteCodes || !codes.length ? `'${c}'` : c}:`, `  description: ${CODES[c]}`]))} />}>
+          {codes.map((j) => {
+            const p = [...op, 'responses', E[j].key];
+            return (
+              <div key={E[j].key} className={rowCls(here(j)) + ' border border-line rounded-md p-2 mb-1.5 mx-0 bg-bg'} onClick={() => onGoLine(E[j].line)}>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-[11.5px] px-1.5 rounded-[3px]" style={{ color: codeColor(E[j].key), background: `color-mix(in oklch, ${codeColor(E[j].key)} 13%, transparent)` }}>{E[j].key}</span>
+                  <Field value={S.scalar(text, [...p, 'description']) ?? ''} placeholder="Description (required in OAS)" onCommit={(v) => onEdit((x) => S.setScalar(x, p, 'description', v || null))} />
+                  <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => S.remove(x, p, false))}><Icons.X size={11} /></IconBtn></span>
+                </div>
+                {content(p)}
+              </div>
+            );
+          })}
+        </Sec>
+      </>
+    );
+  } else if (kp[0] === 'paths' && kp[1]) {
+    const p = ['paths', kp[1]], k = at(p);
+    const ops = k < 0 ? [] : kids(E, k).filter((j) => METHODS.includes(E[j].key));
+    h = (
+      <>
+        <span className="font-mono text-[13.5px] font-bold break-all">{kp[1]}</span>
+        {k >= 0 && loc(k)}
+        <div className="mt-3 flex flex-col gap-1.5">{field(p, 'summary', 'Summary')}{field(p, 'description', 'Description', false, true)}</div>
+        <Sec title="Operations" count={ops.length || undefined} add={<AddSelect label="Add operation" options={METHODS.filter((m) => !ops.some((j) => E[j].key === m))}
+          onPick={(m) => onEdit((x) => S.addChild(x, p, [`${m}:`, '  responses:', "    '200':", '      description: OK']))} />}>
+          {ops.map((j) => <div key={E[j].key} onClick={() => onGoLine(E[j].line)} className="flex items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md cursor-pointer hover:bg-[var(--hover-overlay)]"><Badge m={E[j].key} /><span className="text-[12px] truncate">{S.scalar(text, [...p, E[j].key, 'summary']) ?? ''}</span></div>)}
+        </Sec>
+      </>
+    );
+  } else if (kp[0] === 'components' && kp[1] === 'schemas' && kp[2]) {
+    const p = ['components', 'schemas', kp[2]], k = at(p);
+    const pk = at([...p, 'properties']), props = pk < 0 ? [] : kids(E, pk);
+    const req = S.list(text, [...p, 'required']) ?? [];
+    const refs = L.map((l, i) => [l, i] as const).filter(([l]) => l.includes(`${REF}${kp[2]}'`) || l.includes(`${REF}${kp[2]}"`) || new RegExp(`${REF}${kp[2]}\\s*$`).test(l));
+    h = (
+      <>
+        <span className="font-mono text-[13.5px] font-bold break-all">{kp[2]}</span>
+        <div className="mt-1 text-[12.5px] text-content-secondary">Schema</div>
+        {k >= 0 && loc(k)}
+        <Sec title="Type">{typeCell(p)}</Sec>
+        <div className="mt-3">{field(p, 'description', 'Description', false, true)}</div>
+        {at([...p, 'enum']) >= 0 ? (
+          <Sec title="Values"><Field mono value={(S.list(text, [...p, 'enum']) ?? []).join(', ')} onCommit={(v) => onEdit((x) => S.setList(x, [...p, 'enum'], v.split(',').map((s) => s.trim()).filter(Boolean)))} /></Sec>
+        ) : (
+          <Sec title="Properties" count={props.length || undefined}
+            add={<button onClick={() => { let n = 'property', i = 2; while (props.some((j) => E[j].key === n)) n = 'property' + i++; onEdit((x) => S.addChild(x, [...p, 'properties'], [`${n}:`, '  type: string'])); }}
+              className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />Add property</button>}>
+            {props.length === 0 && <div className="text-[11.5px] text-content-faint">No properties.</div>}
+            {props.map((j) => {
+              const pp = [...p, 'properties', E[j].key];
+              return (
+                <div key={E[j].key} className={rowCls(here(j)) + ' flex items-center gap-1 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
+                  <span className="w-[38%] shrink-0"><Field value={E[j].key} mono onCommit={(v) => v && onEdit((x) => {
+                    // A renamed property keeps its place in required:.
+                    let y = S.renameKey(x, pp, v);
+                    if (req.includes(E[j].key)) y = S.setList(y, [...p, 'required'], req.map((r) => (r === E[j].key ? v : r)));
+                    return y;
+                  })} /></span>
+                  {typeCell(pp)}
+                  <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={req.includes(E[j].key)} className="accent-[var(--accent)]"
+                      onChange={(e) => onEdit((x) => S.setList(x, [...p, 'required'], e.target.checked ? [...req, E[j].key] : req.filter((r) => r !== E[j].key)))} />req
+                  </label>
+                  <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => {
+                    const y = S.remove(x, pp);
+                    return req.includes(E[j].key) ? S.setList(y, [...p, 'required'], req.filter((r) => r !== E[j].key)) : y;
+                  })}><Icons.X size={11} /></IconBtn></span>
+                </div>
+              );
+            })}
+          </Sec>
+        )}
+        <Sec title="Used by" count={refs.length}>
+          {refs.slice(0, 40).map(([, i]) => {
+            const kk = keyPathAt(text, i).map((e) => e.key), m = kk.findIndex((x) => METHODS.includes(x));
+            return (
+              <div key={i} onClick={() => onGoLine(i)} className="flex items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md cursor-pointer hover:bg-[var(--hover-overlay)] text-[12px]">
+                {m >= 0 ? <Badge m={kk[m]} /> : null}
+                <span className="font-mono text-[11.5px] truncate">{m >= 0 ? kk[m - 1] : kk.slice(0, 3).join('.')}</span>
+                <span className="ml-auto text-[11px] text-content-faint whitespace-nowrap">{m >= 0 ? kk.slice(m + 1).filter((x) => !['content', 'schema', 'items', '$ref'].includes(x)).slice(0, 2).join(' ') : ''}</span>
+              </div>
+            );
+          })}
+          {refs.length === 0 && <div className="text-[11.5px] text-content-faint">Nothing refers to this schema.</div>}
+        </Sec>
+      </>
+    );
+  } else {
+    const sk = at(['servers']), servers = sk < 0 ? [] : S.items(E, sk);
+    const pk = at(['paths']);
+    h = (
+      <>
+        <span className="text-[13.5px] font-bold">{S.scalar(text, ['info', 'title']) || 'Untitled API'}</span>
+        <div className="mt-1 text-[12.5px] text-content-secondary">OpenAPI {S.scalar(text, ['openapi'])}, {pk < 0 ? 0 : kids(E, pk).length} paths, {schemaNames.length} schemas</div>
+        <Sec title="Info">
+          <div className="flex flex-col gap-1.5">{field(['info'], 'title', 'Title')}{field(['info'], 'version', 'Version', true)}{field(['info'], 'description', 'Description', false, true)}</div>
+        </Sec>
+        <Sec title="Servers" count={servers.length || undefined}
+          add={<button onClick={() => onEdit((x) => S.addItem(x, ['servers'], ['url: https://api.example.com']))} className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />Add</button>}>
+          {servers.map((_j, n) => (
+            <div key={n} className="group/r flex items-center gap-1 py-[3px]">
+              <Field value={S.scalar(text, ['servers', '#' + n, 'url']) ?? ''} mono onCommit={(v) => v && onEdit((x) => S.setInItem(x, ['servers'], n, 'url', v))} />
+              <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.removeItem(x, ['servers'], n))}><Icons.X size={11} /></IconBtn></span>
+            </div>
+          ))}
+        </Sec>
+        <div className="mt-4 text-[11.5px] text-content-faint">Put the cursor in a path, an operation or a schema to edit it here.</div>
+      </>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
+      {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />Read-only: managed by Exchange</div>}
+      <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
+      <datalist id="ads-oas-types">{[...schemaNames, ...OAS_BUILTIN].map((t) => <option key={t} value={t} />)}</datalist>
+    </div>
+  );
+}

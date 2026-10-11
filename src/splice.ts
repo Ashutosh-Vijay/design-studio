@@ -5,15 +5,62 @@ import { entries, kids, kid, type Entry } from './raml';
 
 export type Path = string[];
 
+// A path step "#n" is the nth item of a "- " list (OAS parameters, servers). It finds the item's first key;
+// the steps after it look among that item's keys.
 export function find(E: Entry[], path: Path): number {
-  let ck = -1;
+  let ck = -1, item: [number, number] | null = null, seq = -1;
   for (const key of path) {
-    const list = ck < 0 ? E.flatMap((e, i) => (e.ind === 0 ? [i] : [])) : kids(E, ck);
+    if (key.startsWith('#')) {
+      if (ck < 0) return -1;
+      const its = items(E, ck), n = +key.slice(1);
+      if (n >= its.length) return -1;
+      seq = ck; item = [its[n], its[n + 1] ?? Infinity]; ck = its[n];
+      continue;
+    }
+    const list = item ? kids(E, seq).filter((i) => i >= item![0] && i < item![1]) : ck < 0 ? E.flatMap((e, i) => (e.ind === 0 ? [i] : [])) : kids(E, ck);
     const j = list.find((i) => E[i].key === key);
     if (j == null) return -1;
-    ck = j;
+    ck = j; item = null;
   }
   return ck;
+}
+// The entries that open each item of a "- " list under key k.
+export const items = (E: Entry[], k: number) => kids(E, k).filter((j) => E[j].dash);
+// The lines of the nth item: from its dash line to the next item (or the list's end).
+function itemLines(E: Entry[], L: string[], k: number, n: number): [number, number] {
+  const its = items(E, k);
+  let end = its[n + 1] != null ? E[its[n + 1]].line : blockEnd(E, L, k);
+  while (end - 1 > E[its[n]].line && !L[end - 1].trim()) end--;
+  return [E[its[n]].line, end];
+}
+
+// Add an item to a "- " list, at the indent its items already use: addItem(t, [...op, 'parameters'], ['name: id', 'in: path']).
+export function addItem(text: string, path: Path, lines: string[]): string {
+  text = ensure(text, path);
+  const E = entries(text), k = find(E, path), L = text.split('\n');
+  const its = items(E, k);
+  const col = its.length ? E[its[0]].ind - 2 : E[k].ind + step(E);
+  const add = lines.map((l, i) => ' '.repeat(col) + (i === 0 ? '- ' : '  ') + l);
+  if (E[k].val) L[E[k].line] = L[E[k].line].replace(/:\s.*$/, ':'); // "parameters: []" becomes a block
+  L.splice(its.length ? itemLines(E, L, k, its.length - 1)[1] : blockEnd(E, L, k), 0, ...add);
+  return L.join('\n');
+}
+// Remove the nth item of a list (the list itself goes when it ends up empty).
+export function removeItem(text: string, path: Path, n: number): string {
+  const E = entries(text), k = find(E, path); if (k < 0 || n >= items(E, k).length) return text;
+  const L = text.split('\n'), [a, b] = itemLines(E, L, k, n);
+  L.splice(a, b - a);
+  text = L.join('\n');
+  const E2 = entries(text), k2 = find(E2, path);
+  return k2 >= 0 && !items(E2, k2).length && blockEnd(E2, text.split('\n'), k2) === E2[k2].line + 1 ? remove(text, path, false) : text;
+}
+// Set a key inside the nth item of a list: changed in place, or added at the end of the item.
+export function setInItem(text: string, path: Path, n: number, key: string, value: string | null, raw = false): string {
+  const E = entries(text), k = find(E, [...path, '#' + n, key]);
+  if (k >= 0 || value == null || value === '') return setScalar(text, [...path, '#' + n], key, value, raw);
+  const s = find(E, path), L = text.split('\n'), [, end] = itemLines(E, L, s, n);
+  L.splice(end, 0, ' '.repeat(E[items(E, s)[n]].ind) + key + ': ' + (raw ? value : quote(value)));
+  return L.join('\n');
 }
 
 // The file's indent step (2 in nearly every spec), from the smallest indent in use.
@@ -84,7 +131,7 @@ export function ensure(text: string, path: Path): string {
 
 // Where RAML keys usually sit inside a resource or method, so a new one lands where people expect it
 // (query parameters before the body and responses, methods and nested resources last).
-const ORDER = ['displayName', 'description', 'type', 'is', 'securedBy', 'uriParameters', 'queryParameters', 'queryString', 'headers', 'body', 'responses'];
+const ORDER = ['title', 'summary', 'displayName', 'description', 'type', 'is', 'securedBy', 'uriParameters', 'queryParameters', 'queryString', 'headers', 'body', 'responses'];
 const rank = (k: string) => (ORDER.includes(k) ? ORDER.indexOf(k) : k.startsWith('/') || ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'].includes(k) ? 100 : -1);
 
 // Lines (indented relative to the child level) added as the parent's last child, or before the first
@@ -94,7 +141,7 @@ function insertLines(text: string, E: Entry[], parent: number, lines: string[], 
   const ind = ' '.repeat(childInd(E, parent));
   const add = lines.map((l) => (l ? ind + l : ''));
   let at: number;
-  const later = key && parent >= 0 && rank(key) >= 0 ? kids(E, parent).find((j) => rank(E[j].key) > rank(key) || (rank(key) <= 2 && rank(E[j].key) < 0)) : undefined;
+  const later = key && parent >= 0 && rank(key) >= 0 ? kids(E, parent).find((j) => rank(E[j].key) > rank(key) || (rank(key) <= 4 && rank(E[j].key) < 0)) : undefined;
   const firstRes = E.find((e) => e.ind === 0 && e.key.startsWith('/'));
   if (first && parent >= 0) at = E[parent].line + 1;
   else if (later != null) at = E[later].line;
