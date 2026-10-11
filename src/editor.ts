@@ -1,7 +1,7 @@
 // CodeMirror 6 setup: theme from our CSS variables, RAML-aware highlighting, and the cursor's YAML path.
-import { EditorState, type Extension } from '@codemirror/state';
+import { EditorState, type Extension, type Range } from '@codemirror/state';
 import {
-  EditorView, Decoration, MatchDecorator, ViewPlugin, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
+  EditorView, Decoration, WidgetType, MatchDecorator, ViewPlugin, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
   drawSelection, highlightSpecialChars, rectangularSelection, crosshairCursor, dropCursor, type DecorationSet, type ViewUpdate,
 } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -55,6 +55,12 @@ const theme = EditorView.theme({
   '.ads-type, .ads-type *': { color: 'var(--syn-type)' },
   '.ads-include, .ads-include *': { color: 'var(--syn-fn)', fontStyle: 'italic' },
   '.ads-path': { textDecoration: 'underline dotted', textUnderlineOffset: '3px' },
+  '.ads-conflict-mark': { backgroundColor: 'color-mix(in oklch, var(--warn) 22%, transparent)', color: 'var(--content-muted)' },
+  '.ads-conflict-mine': { backgroundColor: 'color-mix(in oklch, var(--accent) 12%, transparent)' },
+  '.ads-conflict-theirs': { backgroundColor: 'color-mix(in oklch, var(--cyan) 12%, transparent)' },
+  '.ads-conflict-btns': { marginLeft: '14px', display: 'inline-flex', gap: '6px', fontFamily: 'var(--font-sans, system-ui)' },
+  '.ads-conflict-btns button': { height: '18px', padding: '0 8px', borderRadius: '4px', border: '1px solid var(--line)', backgroundColor: 'var(--surface-2)', color: 'var(--content-secondary)', fontSize: '11px', cursor: 'pointer' },
+  '.ads-conflict-btns button:hover': { borderColor: 'var(--accent-border)', color: 'var(--content)' },
 });
 
 const highlight = HighlightStyle.define([
@@ -91,6 +97,51 @@ const ramlPlugin = ViewPlugin.fromClass(class {
   update(u: ViewUpdate) { this.decorations = ramlMarks.updateDeco(u, this.decorations); }
 }, { decorations: (v) => v.decorations });
 
+// Conflicts left by a Pull (sync.ts merge3): each block gets Keep mine / Keep theirs / Keep both on its
+// first line, and the two versions are tinted.
+class ConflictButtons extends WidgetType {
+  constructor(readonly from: number, readonly to: number, readonly mine: string[], readonly theirs: string[]) { super(); }
+  eq(o: ConflictButtons) { return o.from === this.from && o.to === this.to && o.mine.join('\n') === this.mine.join('\n') && o.theirs.join('\n') === this.theirs.join('\n'); }
+  toDOM(view: EditorView) {
+    const box = document.createElement('span');
+    box.className = 'ads-conflict-btns';
+    for (const [label, lines] of [['Keep mine', this.mine], ['Keep theirs', this.theirs], ['Keep both', [...this.mine, ...this.theirs]]] as const) {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.onmousedown = (e) => {
+        e.preventDefault();
+        // Nothing kept: the block's lines go, with the line break after them.
+        const to = !lines.length && this.to < view.state.doc.length ? this.to + 1 : this.to;
+        view.dispatch({ changes: { from: this.from, to, insert: lines.join('\n') }, selection: { anchor: this.from }, userEvent: 'input' });
+        view.focus();
+      };
+      box.append(b);
+    }
+    return box;
+  }
+  ignoreEvent() { return true; }
+}
+function conflictDeco(view: EditorView): DecorationSet {
+  const doc = view.state.doc, out: Range<Decoration>[] = [];
+  if (!doc.toString().includes('<<<<<<< yours')) return Decoration.none;
+  for (let n = 1; n <= doc.lines; n++) {
+    if (doc.line(n).text !== '<<<<<<< yours') continue;
+    let mid = 0, end = 0;
+    for (let k = n + 1; k <= doc.lines && !end; k++) { const t = doc.line(k).text; if (t === '=======' && !mid) mid = k; else if (t === '>>>>>>> Design Center' && mid) end = k; }
+    if (!end) continue;
+    const lines = (a: number, b: number) => { const r: string[] = []; for (let k = a; k < b; k++) r.push(doc.line(k).text); return r; };
+    out.push(Decoration.widget({ widget: new ConflictButtons(doc.line(n).from, doc.line(end).to, lines(n + 1, mid), lines(mid + 1, end)), side: 1 }).range(doc.line(n).to));
+    for (let k = n; k <= end; k++) out.push(Decoration.line({ class: k === n || k === mid || k === end ? 'ads-conflict-mark' : k < mid ? 'ads-conflict-mine' : 'ads-conflict-theirs' }).range(doc.line(k).from));
+    n = end;
+  }
+  return Decoration.set(out, true);
+}
+const conflictPlugin = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+  constructor(view: EditorView) { this.decorations = conflictDeco(view); }
+  update(u: ViewUpdate) { if (u.docChanged) this.decorations = conflictDeco(u.view); }
+}, { decorations: (v) => v.decorations });
+
 export function languageFor(path: string): Extension {
   if (/\.json$/i.test(path)) return json();
   if (/\.(raml|ya?ml)$/i.test(path)) return [yaml(), ramlPlugin];
@@ -104,7 +155,7 @@ export function baseExtensions(): Extension[] {
     EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
     rectangularSelection(), crosshairCursor(), highlightActiveLine(), highlightSelectionMatches(),
     indentUnit.of('  '), EditorState.tabSize.of(2),
-    syntaxHighlighting(highlight), theme, findWidget,
+    syntaxHighlighting(highlight), theme, findWidget, conflictPlugin,
     keymap.of([{ key: 'Mod-h', run: openReplace }, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
   ];
 }

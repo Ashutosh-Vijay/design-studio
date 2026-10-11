@@ -184,7 +184,7 @@ export default function App() {
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
       )}
 
-      {connectOpen && <ConnectDialog onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
+      {connectOpen && <ConnectDialog openRoot={project?.root} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
       {settingsAt && (
         <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)}
@@ -226,7 +226,7 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onRemove
           <button disabled={!isTauri || !!opening} onClick={onPull}
             className="mt-2 w-full flex items-center gap-3 p-3 rounded-lg border border-line bg-surface text-left hover:border-accent-border disabled:opacity-50 disabled:cursor-not-allowed">
             <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent bg-accent-dim"><Icons.Download size={17} /></span>
-            <span className="flex-1"><span className="block font-semibold">Pull from Design Center</span><span className="block text-[11.5px] text-content-faint">Sign in, pick a project, edit it here</span></span>
+            <span className="flex-1"><span className="block font-semibold">Pull from Design Center</span><span className="block text-[11.5px] text-content-faint">Sign in, open one project or pull them all</span></span>
           </button>
           {!isTauri && <p className="mt-3 text-[12px] text-warn">Running in a plain browser. Start the app with npm run tauri dev to open folders.</p>}
           {opening && <p className="mt-3 text-[12px] text-content-faint">Opening {opening}…</p>}

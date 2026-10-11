@@ -387,6 +387,13 @@ pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: Stri
 #[tauri::command]
 pub async fn anypoint_hold_lock(app: AppHandle, project: String, branch: String) -> Result<(), String> {
   tauri::async_runtime::spawn_blocking(move || {
+    // Already held (Lock while I edit, then Push): nothing to do. Held on another branch: let that one go first.
+    let held = app.state::<Arc<Anypoint>>().lock.lock().unwrap().take();
+    if let Some(h) = held {
+      if h.project == project && h.branch == branch { *app.state::<Arc<Anypoint>>().lock.lock().unwrap() = Some(h); return Ok(()); }
+      h.stop.store(true, Ordering::SeqCst);
+      let _ = call(&app, "POST", &format!("/designcenter/api-designer/projects/{}/branches/{}/releaseLock", h.project, h.branch), Some(&json!({})));
+    }
     let base = format!("/designcenter/api-designer/projects/{project}/branches/{branch}");
     let r = call(&app, "POST", &format!("{base}/acquireLock"), Some(&json!({})))?;
     let me = access(&app)?.1;
