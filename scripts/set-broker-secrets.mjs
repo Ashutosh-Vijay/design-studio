@@ -22,8 +22,11 @@ const values = {
 for (const [name, value] of Object.entries(values)) {
   if (!value) { console.log(`${name} is missing from .env. Nothing was changed after this point.`); process.exit(1); }
   // The value goes in on stdin, so it never appears in a command line or the output.
-  const r = spawnSync('npx', ['--yes', 'wrangler@4', 'pages', 'secret', 'put', name, '--project-name', 'ashutosh-vijay'],
-    { input: value, encoding: 'utf8', shell: process.platform === 'win32' });
+  // npx is a .cmd on Windows, so it goes through cmd.exe there (the command is all fixed text).
+  const cmd = `npx --yes wrangler@4 pages secret put ${name} --project-name ashutosh-vijay`;
+  const r = process.platform === 'win32'
+    ? spawnSync('cmd.exe', ['/d', '/s', '/c', cmd], { input: value, encoding: 'utf8' })
+    : spawnSync('sh', ['-c', cmd], { input: value, encoding: 'utf8' });
   const out = `${r.stdout}${r.stderr}`;
   if (r.status !== 0) { console.log(`Setting ${name} failed:\n${out.split(value).join('<hidden>').slice(-600)}`); process.exit(1); }
   console.log(`${name}: set`);
