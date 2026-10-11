@@ -14,7 +14,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
-import { ConnectDialog, AnypointSettings, SyncBar } from './SyncUI';
+import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu } from './SyncUI';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
 import { DocsPanel } from './Docs';
 import { ApiMap } from './ApiMap';
@@ -148,6 +148,8 @@ export default function App() {
           <img src="/logo.svg" width={22} height={22} alt="" />
         </button>
         <span data-tauri-drag-region className="text-[13px] font-semibold">{project ? project.name : APP_NAME}</span>
+        {project && isTauri && <ProjectMenu key={project.root} root={project.root} name={project.name} onNotice={(t, err) => syncRef.current?.notice(t, err)}
+          onOpen={(root) => openFolder(root)} onGone={() => { const l = recent.filter((r) => r.root !== project.root); writeRecent(l); setRecent(l); setProject(null); setDirtyCount(0); }} />}
         {project && <span data-tauri-drag-region className="text-[12px] text-content-faint">{dirtyCount ? `${dirtyCount} unsaved` : 'All changes saved'}</span>}
         <div data-tauri-drag-region className="flex-1 h-full" />
         {project && isTauri && (

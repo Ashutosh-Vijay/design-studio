@@ -2,7 +2,8 @@
 // and in the title bar the branch and "Push N changes" / "Up to date with Design Center".
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { Modal, TextDialog, btn, btnPrimary } from './App';
 import * as S from './sync';
@@ -40,6 +41,16 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
   // Where each project lives on this computer: its own folder under Documents, found again by its link.
   const [where, setWhere] = useState<Record<string, { root: string; here: boolean }>>({});
   const [report, setReport] = useState<string | null>(null);
+  // The picked project's details and actions, as in Design Center's list.
+  const [info, setInfo] = useState<{ created: number; owner: string; type: string; perms: S.Perms } | null>(null);
+  const [dlg, setDlg] = useState<ReactNode>(null);
+  useEffect(() => {
+    setInfo(null); if (!pick) return;
+    Promise.all([S.projectInfo(pick.id), S.sharedWith(pick.id).catch(() => [] as S.Person[])]).then(([i, sw]) => setInfo({
+      created: i.meta.createdDate, type: i.meta.type === 'raml-fragment' ? 'API fragment' : 'API specification', perms: i.perms,
+      owner: i.meta.createdBy === me?.user_id ? 'you' : sw.find((x) => x.isOwner)?.name ?? 'someone else',
+    }), () => {});
+  }, [pick]); // eslint-disable-line react-hooks/exhaustive-deps
   const stop = useRef(false);
 
   const locate = (p: S.Remote, org: string) => S.projectHome(org, p.name, p.id);
@@ -211,6 +222,29 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
             </div>
           ))}
         </div>
+        {pick && (
+          <div className="flex items-center gap-2 text-[11.5px] text-content-faint">
+            <span className="flex-1 min-w-0 truncate">{info ? `${info.type}, created ${new Date(info.created).toLocaleDateString()} by ${info.owner}` : 'Reading the details…'}</span>
+            {([['Share…', 'canShare', () => setDlg(<ShareDialog projectId={pick.id} name={pick.name} org={me!.org_id} onClose={() => setDlg(null)} onSaved={(t) => { setDlg(null); setReport(t); }} />)],
+              ['Rename…', 'canRename', () => setDlg(<TextDialog title="Rename project" label="Name in Design Center" value={pick.name} okLabel="Rename" onCancel={() => setDlg(null)}
+                onOk={async (v) => { setDlg(null); try { await S.renameProject(pick.id, v); setReport(`Renamed to ${v}.`); setPick({ ...pick, name: v }); await loadProjects(); } catch (e) { setErr(String(e)); } }} />)],
+              ['Delete…', 'canDelete', () => setDlg(<DeleteProject name={pick.name} onCancel={() => setDlg(null)} onOk={async (alsoHere) => {
+                setDlg(null);
+                try {
+                  await S.deleteProject(pick.id);
+                  const w = where[pick.id];
+                  if (alsoHere && w?.here && w.root !== openRoot?.replace(/\\/g, '/')) { const r = w.root.replace(/\/+$/, ''); await invoke('delete_file', { root: r.slice(0, r.lastIndexOf('/')), path: r.slice(r.lastIndexOf('/') + 1) }); }
+                  setReport(`Deleted ${pick.name} from Design Center.`); setPick(null); await loadProjects();
+                } catch (e) { setErr(String(e)); }
+              }} />)],
+            ] as const).map(([label, perm, fn]) => {
+              const off = me?.read_only ? 'The connection is read only. Turn it off in settings.' : info && info.perms[perm] === false ? "Your Design Center permissions don't allow it." : !info ? 'Reading permissions…' : null;
+              return <button key={label} disabled={!!off} title={off ?? undefined} onClick={fn} className={`shrink-0 hover:text-content underline disabled:no-underline disabled:opacity-50 ${label === 'Delete…' ? 'text-err' : ''}`}>{label}</button>;
+            })}
+            <button className="shrink-0 hover:text-content underline" onClick={() => me && openUrl(S.projectUrls(me.host, me.org_id, pick.id).web)}>Open in Design Center</button>
+          </div>
+        )}
+        {dlg}
         {pick && (here ? (
           <div className="flex items-start gap-3 text-[11.5px] text-content-faint">
             <span className="flex-1 min-w-0">Opens your copy in <span className="font-mono select-text break-all">{where[pick.id].root}</span>. If Design Center has newer changes, the title bar offers a Pull.</span>
@@ -307,6 +341,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
   const [conflicts, setConflicts] = useState(0);
   const [lockedBy, setLockedBy] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
+  const [perms, setPerms] = useState<S.Perms>({}); // a Viewer can't push or publish
   const holdingRef = useRef(false); holdingRef.current = holding;
   const lockTried = useRef(0);
   const timer = useRef(0);
@@ -320,6 +355,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     setConflicts(marked);
     if (remote) {
       S.remoteState(l).then((r) => { setBehind(r.behind); setLockedBy(r.lockedBy); }, () => {});
+      S.projectPermissions(l.projectId).then(setPerms, () => {});
       invoke<Me | null>('anypoint_status').then((m) => setReadOnly(!!m?.read_only), () => {});
     }
   };
@@ -385,11 +421,12 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
           : conflicts ? <span title="Pick Keep mine, Keep theirs or Keep both on each one in the editor, then push">{conflicts} {conflicts === 1 ? 'conflict' : 'conflicts'} to sort out before pushing</span>
           : behind ? <><span>Design Center has changes</span><button onClick={pull} className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Pull</button></>
           : toPush && readOnly ? <span title="This connection is read only. Turn it off in settings to push.">Saved on this computer · read only, {toPush} {toPush === 1 ? 'change' : 'changes'} not sent</span>
+          : toPush && perms.canModify === false ? <span title="Design Center shares this project with you as a Viewer. Your changes stay on this computer.">Saved on this computer · view only in Design Center</span>
           : toPush && lockedBy ? <span title="Push when they're done. If they change the same lines, a Pull shows both versions.">Saved on this computer · {lockedBy} is editing in Design Center</span>
           : toPush ? <><span>Saved on this computer</span><button onClick={push} title="Send your saved changes to Design Center" className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Push {toPush} {toPush === 1 ? 'change' : 'changes'}</button></>
           : <button onClick={() => run('Checking Design Center…', async () => {})} title="Check Design Center now" className="hover:text-content">Up to date with Design Center</button>}
       </span>
-      <button onClick={onPublish} disabled={!!busy} title={readOnly ? 'This connection is read only. Turn it off in settings to publish.' : 'Publish this project to Exchange'}
+      <button onClick={onPublish} disabled={!!busy || perms.canPublish === false} title={perms.canPublish === false ? "Your Design Center permissions don't allow publishing this project." : readOnly ? 'This connection is read only. Turn it off in settings to publish.' : 'Publish this project to Exchange'}
         className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[12px] text-accent border border-accent-border hover:bg-accent-dim disabled:opacity-50">
         <Icons.Exchange size={14} />Publish
       </button>
@@ -411,5 +448,146 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
       {asking && <TextDialog title={`New branch from ${link.branch}`} label="Name" value="" okLabel="Create and switch" hint="Design Center makes it from the branch you're on. Your folder switches to it."
         onCancel={() => setAsking(false)} onOk={(v) => newBranch(v.trim())} />}
     </>
+  );
+}
+
+// ---------- The project menu (Design Center's gear menu), in the title bar ----------
+export function ProjectMenu({ root, name, onNotice, onOpen, onGone }: {
+  root: string; name: string; onNotice: (text: string, err: boolean) => void; onOpen: (root: string) => void; onGone: () => void;
+}) {
+  const [at, setAt] = useState<DOMRect | null>(null);
+  const [st, setSt] = useState<{ link: S.Link | null; me: Me | null; perms: S.Perms } | null>(null);
+  const [dlg, setDlg] = useState<ReactNode>(null);
+  const open = async (r: DOMRect) => {
+    setAt(r); setSt(null);
+    const [link, me] = await Promise.all([S.readLink(root), invoke<Me | null>('anypoint_status').catch(() => null)]);
+    setSt({ link, me, perms: link && me ? await S.projectPermissions(link.projectId).catch(() => ({})) : {} });
+  };
+  const run = async (fn: () => Promise<string | void>) => { try { const t = await fn(); if (t) onNotice(t, false); } catch (e) { onNotice(String(e).replace(/^Error: /, ''), true); } };
+  const l = st?.link, me = st?.me, p = st?.perms ?? {};
+  const why = (can?: boolean) => (!l ? 'This folder isn\'t linked to a Design Center project.' : !me ? 'Sign in to Anypoint first.' : me.read_only ? 'The connection is read only. Turn it off in settings.' : can === false ? 'Your Design Center permissions don\'t allow it on this project.' : null);
+  const urls = l && me ? S.projectUrls(me.host, me.org_id, l.projectId) : null;
+  const items: [string, string | null, () => void][] = !st ? [] : [
+    ['Rename project…', why(p.canRename), () => setDlg(<TextDialog title="Rename project" label="Name in Design Center" value={l!.projectName} okLabel="Rename" hint="Only the name in Design Center changes. The folder on this computer stays where it is."
+      onCancel={() => setDlg(null)} onOk={(v) => { setDlg(null); run(async () => {
+        await S.renameProject(l!.projectId, v);
+        await invoke('write_file_exact', { root, path: '.apidesigner/link.json', text: JSON.stringify({ ...l!, projectName: v }, null, 2) + '\n' });
+        window.dispatchEvent(new Event('ads-files-changed'));
+        return `Renamed to ${v} in Design Center.`;
+      }); }} />)],
+    ['Duplicate project…', why(), () => setDlg(<TextDialog title="Duplicate project" label="Name of the copy" value={`${l!.projectName} copy`} okLabel="Duplicate" hint="A new Design Center project with these files, pulled into its own folder."
+      onCancel={() => setDlg(null)} onOk={(v) => { setDlg(null); run(async () => { onNotice(`Making ${v} in Design Center…`, false); const dest = await S.duplicateProject(root, v, me!.org_name || 'Anypoint'); onOpen(dest); }); }} />)],
+    ['Share…', why(p.canShare), () => setDlg(<ShareDialog projectId={l!.projectId} name={l!.projectName} org={me!.org_id} onClose={() => setDlg(null)} onSaved={(t) => { setDlg(null); onNotice(t, false); }} />)],
+    ['Download as zip…', null, () => run(async () => {
+      const dest = await saveDialog({ title: 'Download as zip', defaultPath: `${name}.zip`, filters: [{ name: 'Zip', extensions: ['zip'] }] });
+      if (!dest) return;
+      const n = await invoke<number>('export_zip', { root, dest });
+      return `Saved ${n} files to ${dest}.`;
+    })],
+    ['Copy Git URL', l ? (urls ? null : 'Sign in to Anypoint first.') : 'This folder isn\'t linked to a Design Center project.', () => run(async () => { await navigator.clipboard.writeText(urls!.git); return 'Copied the Git URL. Pushing to it with git doesn\'t reach Design Center: use Push here.'; })],
+    ['Open in Design Center', urls ? null : l ? 'Sign in to Anypoint first.' : 'This folder isn\'t linked to a Design Center project.', () => openUrl(urls!.web)],
+    ['Show in folder', null, () => run(async () => { await revealItemInDir(root); })],
+    ['Delete project…', why(p.canDelete), () => setDlg(<DeleteProject name={l!.projectName} onCancel={() => setDlg(null)} onOk={(alsoHere) => { setDlg(null); run(async () => {
+      await S.deleteProject(l!.projectId);
+      if (alsoHere) { const r = root.replace(/[\\/]+$/, ''); await invoke('delete_file', { root: r.slice(0, r.search(/[\\/][^\\/]*$/)), path: r.split(/[\\/]/).pop() }); onGone(); return `Deleted ${l!.projectName} from Design Center, and moved this copy to the ${TRASH}.`; }
+      await invoke('delete_file', { root, path: '.apidesigner' }).catch(() => {});
+      window.dispatchEvent(new Event('ads-files-changed'));
+      return `Deleted ${l!.projectName} from Design Center. This copy stays here, no longer linked.`;
+    }); }} />)],
+  ];
+  return (
+    <>
+      <button title="Project" onClick={(e) => (at ? setAt(null) : open(e.currentTarget.getBoundingClientRect()))} className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-2 hover:text-content"><Icons.More size={14} /></button>
+      {at && (
+        <div className="fixed inset-0 z-40" onMouseDown={() => setAt(null)}>
+          <div className="fixed w-[230px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" style={{ left: at.left, top: at.bottom + 4 }} onMouseDown={(e) => e.stopPropagation()}>
+            {!st && <div className="px-2 py-1.5 text-[12px] text-content-faint">Loading…</div>}
+            {items.map(([label, off, fn], i) => (
+              <div key={label}>
+                {(i === 3 || i === 7) && <div className="my-1 border-t border-line-subtle" />}
+                <button disabled={!!off} title={off ?? undefined} onClick={() => { setAt(null); fn(); }}
+                  className={`w-full h-7 px-2 rounded text-left text-[12.5px] hover:bg-surface-3 disabled:text-content-ghost disabled:hover:bg-transparent ${label.startsWith('Delete') ? 'text-err' : 'text-content-secondary hover:text-content'}`}>{label}</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {dlg}
+    </>
+  );
+}
+const TRASH = /Windows/.test(navigator.userAgent) ? 'Recycle Bin' : 'Trash';
+
+function DeleteProject({ name, onCancel, onOk }: { name: string; onCancel: () => void; onOk: (alsoHere: boolean) => void }) {
+  const [also, setAlso] = useState(false);
+  const [typed, setTyped] = useState('');
+  return (
+    <Modal title="Delete project" onCancel={onCancel} footer={<><button className={btn} onClick={onCancel}>Cancel</button>
+      <button className={`${btnPrimary} !bg-err`} disabled={typed.trim() !== name} onClick={() => onOk(also)}>Delete</button></>}>
+      <div className="flex flex-col gap-3 text-[12.5px]">
+        <div><b>{name}</b> goes from Design Center for everyone it's shared with, with all its branches. That can't be undone there. Assets already in Exchange stay.</div>
+        <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Type the project's name to confirm</span>
+          <input value={typed} onChange={(e) => setTyped(e.target.value)} spellCheck={false} className="h-[28px] px-2 rounded-md border border-line bg-surface-input font-mono text-[12px] outline-none focus:border-accent" /></label>
+        <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={also} onChange={(e) => setAlso(e.target.checked)} className="accent-[var(--accent)]" />Also move my copy on this computer to the {TRASH}</label>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- Share (Design Center's: Viewer, Editor, Admin, Remove Access, for people and teams) ----------
+export function ShareDialog({ projectId, name, org, onClose, onSaved }: { projectId: string; name: string; org: string; onClose: () => void; onSaved: (text: string) => void }) {
+  const [list, setList] = useState<S.Person[] | null>(null);
+  const [orig, setOrig] = useState<Record<string, string>>({});
+  const [q, setQ] = useState(''); const [found, setFound] = useState<S.Person[]>([]);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { S.sharedWith(projectId).then((l) => { setList(l); setOrig(Object.fromEntries(l.map((x) => [x.id, x.role ?? '']))); }, (e) => setErr(String(e))); }, [projectId]);
+  useEffect(() => {
+    if (q.trim().length < 2) { setFound([]); return; }
+    const t = setTimeout(() => S.findPeople(org, q.trim()).then(setFound, () => {}), 250);
+    return () => clearTimeout(t);
+  }, [q, org]);
+  const ROLES: [string, string][] = [['VIEWER', 'Viewer'], ['EDITOR', 'Editor'], ['ADMIN', 'Admin'], ['REMOVE_ACCESS', 'Remove access']];
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const changed = list!.filter((x) => !x.isOwner && x.role !== orig[x.id]);
+      const shared = changed.filter((x) => x.role !== 'REMOVE_ACCESS').map((x) => ({ id: x.id, role: x.role!, type: x.type }));
+      const revoked = changed.filter((x) => x.role === 'REMOVE_ACCESS' && orig[x.id]).map((x) => ({ id: x.id, role: orig[x.id], type: x.type }));
+      if (shared.length || revoked.length) await S.saveShare(projectId, shared, revoked);
+      onSaved(shared.length || revoked.length ? `Sharing for ${name} saved.` : 'Nothing changed.');
+    } catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(false); }
+  };
+  return (
+    <Modal title={`Share ${name}`} onCancel={onClose} width={520} footer={<><button className={btn} onClick={onClose}>Cancel</button><button className={btnPrimary} disabled={!list || busy} onClick={save}>Save</button></>}>
+      <div className="flex flex-col gap-3 text-[12.5px]">
+        <div className="relative">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Add people or teams by name" spellCheck={false} className="w-full h-[28px] px-2 rounded-md border border-line bg-surface-input text-[12.5px] outline-none focus:border-accent" />
+          {found.filter((f) => !list?.some((x) => x.id === f.id)).length > 0 && (
+            <div className="absolute left-0 right-0 top-full mt-1 z-10 max-h-[180px] overflow-auto p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]">
+              {found.filter((f) => !list?.some((x) => x.id === f.id)).map((f) => (
+                <button key={f.id} onClick={() => { setList([...(list ?? []), { ...f, role: 'VIEWER' }]); setQ(''); }} className="w-full px-2 py-1.5 rounded text-left hover:bg-surface-3">
+                  <span className="font-semibold">{f.name}</span> <span className="text-[11.5px] text-content-faint">{f.type === 'team' ? 'team' : f.username ?? f.email}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="max-h-[260px] overflow-auto rounded-md border border-line">
+          {!list && !err && <div className="p-3 text-content-faint">Loading…</div>}
+          {list?.map((x) => (
+            <div key={x.id} className="flex items-center gap-2 px-3 py-2 border-b border-line-secondary last:border-b-0">
+              <span className="min-w-0 flex-1"><span className="block font-semibold truncate">{x.name}</span><span className="block text-[11.5px] text-content-faint truncate">{x.type === 'team' ? 'Team' : x.username ?? x.email}</span></span>
+              {x.isOwner ? <span className="text-[12px] text-content-faint">Owner</span> : (
+                <select value={x.role} onChange={(e) => setList(list.map((y) => (y.id === x.id ? { ...y, role: e.target.value } : y)))} className="h-[26px] px-1.5 rounded-md border border-line bg-surface-input text-[12px]">
+                  {ROLES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                </select>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="text-[11.5px] text-content-faint">Saved in Design Center, the same as sharing there. Transfer ownership is only in Design Center.</div>
+        {err && <div className="text-[12px] text-err select-text">{err}</div>}
+      </div>
+    </Modal>
   );
 }

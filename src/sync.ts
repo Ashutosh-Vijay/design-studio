@@ -413,3 +413,45 @@ export async function removeDependency(root: string, paths: string[], dep: { gro
   await writeDescriptor(root, x.text, (d) => { d.dependencies = (d.dependencies ?? []).filter((y) => !(y.groupId === dep.groupId && y.assetId === dep.assetId)); });
   await deleteDir(root, depDir(dep));
 }
+
+// ---------- Project actions (Design Center's project list and gear menu) ----------
+// Calls read from Design Center's own web app (its api-designer provider) and probed on the trial org.
+export const projectUrls = (host: string, org: string, id: string) => ({ git: `${host}/git/${org}/${id}`, web: `${host}/designcenter/designer/#/project/${id}` });
+export type Perms = { canModify?: boolean; canRename?: boolean; canDelete?: boolean; canShare?: boolean; canPublish?: boolean; canOwn?: boolean };
+export type Person = { id: string; type: 'user' | 'team'; name: string; username?: string; email?: string; role?: string; isOwner?: boolean };
+export async function projectInfo(id: string) {
+  const [meta, perms] = await Promise.all([api('GET', `${DC}/projects/${id}`), api('GET', `${DC}/projects/${id}/access/permissions`)]);
+  return { meta: must(meta, 'Reading the project').json as { name: string; createdBy: string; createdDate: number; lastUpdatedDate: number; type: string; organizationId: string; defaultBranch: string },
+    perms: (perms.status < 300 ? perms.json : {}) as Perms };
+}
+export const projectPermissions = async (id: string): Promise<Perms> => { const r = await api('GET', `${DC}/projects/${id}/access/permissions`); return r.status < 300 ? r.json : {}; };
+export async function renameProject(id: string, name: string) { must(await api('PUT', `${DC}/projects/${id}/rename`, { name }), 'Renaming the project'); }
+export async function deleteProject(id: string) { must(await api('DELETE', `${DC}/projects/${id}`), 'Deleting the project'); }
+export async function sharedWith(id: string): Promise<Person[]> { return must(await api('GET', `${DC}/projects/${id}/access/permissions/share`), 'Reading who it is shared with').json.sharedWith ?? []; }
+export async function findPeople(org: string, q: string): Promise<Person[]> { return must(await api('GET', `${DC}/organizations/${org}/identities?search=${encodeURIComponent(q)}`), 'Searching people and teams').json ?? []; }
+export async function saveShare(id: string, shared: { id: string; role: string; type: string }[], revoked: { id: string; role: string; type: string }[]) {
+  must(await api('POST', `${DC}/projects/${id}/access/permissions/share`, { sharedWith: shared, revoked }), 'Saving who it is shared with');
+}
+// Duplicate project: a new Design Center project of the same kind, with this one's files (Exchange
+// dependencies come with exchange.json), pulled into its own folder and pushed.
+export async function duplicateProject(root: string, name: string, org: string) {
+  const x = await readDescriptor(root);
+  const main = x?.d.main ?? '';
+  const text = main ? await readLocal(root, main) : null;
+  const sub = /^#%RAML 1\.0 (\w+)/.exec(text ?? '')?.[1];
+  const SUB: Record<string, string> = { Library: 'library', DataType: 'type', Trait: 'trait', ResourceType: 'resource_type', NamedExample: 'example', DocumentationItem: 'user_documentation', AnnotationTypeDeclaration: 'annotation_type', SecurityScheme: 'security_scheme', Overlay: 'overlay', Extension: 'extension' };
+  const classifier = sub && SUB[sub] ? 'raml-fragment' : x?.d.classifier === 'oas' || /\.(json|ya?ml)$/i.test(main) ? 'oas' : 'raml';
+  const id = await createProject(name, classifier, sub ? SUB[sub] : undefined);
+  const dest = await projectFolder(org, name, id);
+  await clone(dest, id, name, 'master');
+  const created = await readDescriptor(dest);
+  // Design Center's starter file goes; this project's files come in; exchange.json keeps the new asset id.
+  if (created?.d.main && created.d.main !== main) await invoke('delete_file', { root: dest, path: created.d.main });
+  const files = (await invoke<{ files: { path: string }[] }>('open_project', { root })).files.map((f) => f.path).filter((p) => !p.startsWith('exchange_modules/') && p !== 'exchange.json');
+  for (const p of files) await invoke('write_file_exact', { root: dest, path: p, text: (await readLocal(root, p)) ?? '' });
+  if (created) await writeDescriptor(dest, created.text, (d) => { d.main = main || d.main; d.dependencies = x?.d.dependencies ?? []; });
+  const paths = (await invoke<{ files: { path: string }[] }>('open_project', { root: dest })).files.map((f) => f.path);
+  await push(dest, (await readLink(dest))!, paths);
+  await fetchDependencies(dest);
+  return dest;
+}

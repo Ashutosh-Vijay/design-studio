@@ -147,6 +147,23 @@ fn delete_file(root: String, path: String) -> Result<(), String> {
   trash::delete(&full).map_err(|e| format!("Couldn't move {} to the Recycle Bin: {}", path, e))
 }
 
+// Download as zip (the project menu): every file, Exchange dependencies included, as Design Center's
+// Download Project gives it; the app's own .apidesigner folder and .git stay out.
+#[tauri::command]
+fn export_zip(root: String, dest: String) -> Result<usize, String> {
+  let root_path = PathBuf::from(&root);
+  let (mut files, mut dirs) = (Vec::new(), Vec::new());
+  walk(&root_path, &root_path, &mut files, &mut dirs).map_err(|e| e.to_string())?;
+  let mut zw = zip::ZipWriter::new(fs::File::create(&dest).map_err(|e| format!("Couldn't write {}: {}", dest, e))?);
+  let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+  for f in &files {
+    zw.start_file(f.path.as_str(), opts).map_err(|e| e.to_string())?;
+    std::io::Write::write_all(&mut zw, &fs::read(root_path.join(&f.path)).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+  }
+  zw.finish().map_err(|e| e.to_string())?;
+  Ok(files.len())
+}
+
 // New folder (Files, +): inside the project only, and never over something that's there.
 #[tauri::command]
 fn create_dir(root: String, path: String) -> Result<(), String> {
@@ -234,7 +251,7 @@ pub fn run() {
       amf::start_in_background(app.handle());
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, create_dir, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
+    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, create_dir, export_zip, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
       anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only,
       anypoint::anypoint_dev_session])
     .build(tauri::generate_context!())
