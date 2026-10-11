@@ -23,6 +23,7 @@ export const depsNote = (d: { fetched: string[]; failed: string[] }) => d.failed
 export function ConnectDialog({ onClose, onPulled }: { onClose: () => void; onPulled: (root: string, note: string | null) => void }) {
   const [me, setMe] = useState<Me | null>(null);
   const [step, setStep] = useState<'checking' | 'choose' | 'waiting' | 'projects'>('checking');
+  const [way, setWay] = useState<'ours' | 'byok'>('ours');
   const [acts, setActs] = useState<'user' | 'app'>('user');
   const [region, setRegion] = useState(REGIONS[0][1]);
   const [clientId, setClientId] = useState(''); const [secret, setSecret] = useState('');
@@ -44,9 +45,12 @@ export function ConnectDialog({ onClose, onPulled }: { onClose: () => void; onPu
   }, [pick]);
 
   const connect = async () => {
-    setErr(null); if (acts === 'user') setStep('waiting');
+    setErr(null); if (way === 'ours' || acts === 'user') setStep('waiting');
     try {
-      const m = await invoke<Me>('anypoint_connect', { mode: acts === 'user' ? 'code' : 'client', clientId: clientId.trim(), clientSecret: secret.trim(), host: region });
+      const mode = way === 'ours' ? 'anypoint' : acts === 'user' ? 'code' : 'client';
+      // __ADS_BROKER and __ADS_HOST: a local broker and stand-in Anypoint for development tests (release builds ignore the broker one).
+      const dev = window as unknown as { __ADS_BROKER?: string; __ADS_HOST?: string };
+      const m = await invoke<Me>('anypoint_connect', { mode, clientId: clientId.trim(), clientSecret: secret.trim(), host: dev.__ADS_HOST ?? region, broker: dev.__ADS_BROKER ?? null });
       setMe(m); setSecret(''); await loadProjects();
     } catch (e) { setErr(String(e)); setStep('choose'); }
   };
@@ -67,36 +71,47 @@ export function ConnectDialog({ onClose, onPulled }: { onClose: () => void; onPu
   let title = 'Connect to Anypoint', sub: ReactNode = 'Pull projects from Design Center, push your changes back, and publish to Exchange.', body: ReactNode = null, foot: ReactNode = null;
   if (step === 'checking') body = <div className="py-6 text-center text-content-faint text-[12.5px]">Checking the connection…</div>;
   else if (step === 'choose') {
+    const ours = way === 'ours', usOnly = ours && region !== REGIONS[0][1];
+    const choice = (id: 'ours' | 'byok', t: ReactNode, d: string) => (
+      <button onClick={() => setWay(id)} className={`w-full flex gap-2.5 p-2.5 rounded-lg border text-left ${way === id ? 'border-accent-border bg-accent-dim' : 'border-line hover:border-content-ghost'}`}>
+        <span className={`mt-0.5 w-3.5 h-3.5 shrink-0 rounded-full border-2 ${way === id ? 'border-accent bg-accent' : 'border-content-ghost'}`} />
+        <span><span className="block font-semibold text-[12.5px]">{t}</span><span className="block text-[11.5px] text-content-faint">{d}</span></span>
+      </button>
+    );
     body = (
-      <div className="flex flex-col gap-3 text-[12.5px]">
-        <div className="text-content-secondary">Use your company's own Connected App. An admin creates it in Access Management.</div>
-        <div className="flex flex-col gap-1">
-          <span className="text-[11.5px] text-content-faint">The app acts</span>
-          <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-line w-fit">
-            {([['user', 'On behalf of a user'], ['app', 'On its own behalf']] as const).map(([id, label]) => (
-              <button key={id} onClick={() => setActs(id)} className={`h-6 px-2.5 rounded text-[11.5px] ${acts === id ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint'}`}>{label}</button>
-            ))}
+      <div className="flex flex-col gap-2.5 text-[12.5px]">
+        {choice('ours', <>Sign in with Anypoint <span className="ml-1 text-[10px] font-semibold px-1.5 rounded border border-accent-border text-accent">Recommended</span></>, 'Your usual Anypoint login in the browser, with SSO and MFA. Nothing to set up.')}
+        {choice('byok', 'Use your own Connected App', 'For companies that only allow their own. An admin creates it in Access Management.')}
+        {!ours && <div className="ml-6 flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-[11.5px] text-content-faint">The app acts</span>
+            <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-line w-fit">
+              {([['user', 'On behalf of a user'], ['app', 'On its own behalf']] as const).map(([id, label]) => (
+                <button key={id} onClick={() => setActs(id)} className={`h-6 px-2.5 rounded text-[11.5px] ${acts === id ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint'}`}>{label}</button>
+              ))}
+            </div>
+            <span className="text-[11.5px] text-content-faint leading-snug">{acts === 'user'
+              ? <>You sign in in the browser, with SSO and MFA as usual. In the Connected App, add <span className="font-mono text-content-secondary select-text">{REDIRECT}</span> as a redirect URI, and the Full Access and Background Access scopes.</>
+              : 'No browser sign-in. Good for shared machines. Give the app the Design Center Developer scope.'}</span>
           </div>
-          <span className="text-[11.5px] text-content-faint leading-snug">{acts === 'user'
-            ? <>You sign in in the browser, with SSO and MFA as usual. In the Connected App, add <span className="font-mono text-content-secondary select-text">{REDIRECT}</span> as a redirect URI, and the Full Access and Background Access scopes.</>
-            : 'No browser sign-in. Good for shared machines. Give the app the Design Center Developer scope.'}</span>
-        </div>
-        <div className="flex gap-2">
-          <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Client ID</span>
-            <input value={clientId} onChange={(e) => setClientId(e.target.value)} spellCheck={false} placeholder="Paste the client ID" className="h-[28px] px-2 rounded-md border border-line bg-surface-input font-mono text-[12px] outline-none focus:border-accent" /></label>
-          <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Client secret</span>
-            <input value={secret} onChange={(e) => setSecret(e.target.value)} type="password" placeholder="Paste the client secret" className="h-[28px] px-2 rounded-md border border-line bg-surface-input font-mono text-[12px] outline-none focus:border-accent" /></label>
-        </div>
-        <div className="flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Key size={12} />Kept in {KEYCHAIN}, never in a project file.</div>
-        <label className="flex items-center gap-2.5"><span className="text-[11.5px] text-content-faint">Region</span>
+          <div className="flex gap-2">
+            <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Client ID</span>
+              <input value={clientId} onChange={(e) => setClientId(e.target.value)} spellCheck={false} placeholder="Paste the client ID" className="h-[28px] px-2 rounded-md border border-line bg-surface-input font-mono text-[12px] outline-none focus:border-accent" /></label>
+            <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Client secret</span>
+              <input value={secret} onChange={(e) => setSecret(e.target.value)} type="password" placeholder="Paste the client secret" className="h-[28px] px-2 rounded-md border border-line bg-surface-input font-mono text-[12px] outline-none focus:border-accent" /></label>
+          </div>
+          <div className="flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Key size={12} />Kept in {KEYCHAIN}, never in a project file.</div>
+        </div>}
+        <label className="mt-1 flex items-center gap-2.5"><span className="text-[11.5px] text-content-faint">Region</span>
           <select value={region} onChange={(e) => setRegion(e.target.value)} className="h-[26px] px-1.5 rounded-md border border-line bg-surface-input text-[12px]">
             {REGIONS.map(([n, h]) => <option key={h} value={h}>{n}</option>)}
           </select>
           <span className="text-[11.5px] text-content-faint">Where your Anypoint organization lives.</span></label>
+        {usOnly && <div className="text-[11.5px] text-warn">Sign in with Anypoint works for organizations in the US region. In another region, use your own Connected App.</div>}
       </div>
     );
     foot = <><span className="flex-1" /><button className={btn} onClick={onClose}>Cancel</button>
-      <button className={btnPrimary} disabled={!clientId.trim() || !secret.trim()} onClick={connect}>{acts === 'user' ? 'Continue in the browser' : 'Connect'}</button></>;
+      <button className={btnPrimary} disabled={ours ? usOnly : !clientId.trim() || !secret.trim()} onClick={connect}>{ours || acts === 'user' ? 'Continue in the browser' : 'Connect'}</button></>;
   } else if (step === 'waiting') {
     body = (
       <div className="py-6 flex flex-col items-center gap-2 text-center">

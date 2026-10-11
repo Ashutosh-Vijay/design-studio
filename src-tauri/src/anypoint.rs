@@ -18,9 +18,26 @@ pub const REDIRECT: &str = "http://localhost:8765/callback";
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Connection {
-  mode: String, // "code" (browser sign-in) or "client" (client credentials)
+  mode: String, // "anypoint" (our Connected App, through the broker), "code" (your own, browser sign-in) or "client" (your own, client credentials)
   client_id: String,
   host: String, // https://anypoint.mulesoft.com, or a regional host
+  #[serde(default)]
+  broker: String, // where "anypoint" mode signs in and refreshes
+}
+
+// The sign-in broker on ashutosh-vijay.dev holds our Connected App's secret (PLAN 2.1).
+pub const BROKER: &str = "https://ashutosh-vijay.dev/api-designer-studio/auth";
+fn broker_post(broker: &str, action: &str, body: Value) -> Result<Value, String> {
+  let res = client().post(format!("{broker}/{action}")).json(&body).send().map_err(|e| format!("Couldn't reach the sign-in service: {e}"))?;
+  let status = res.status();
+  let v: Value = res.json().unwrap_or(json!({}));
+  if status.is_success() { return Ok(v); }
+  Err(match v["error"].as_str().unwrap_or("") {
+    "not_configured" => "Sign in with Anypoint isn't available yet. Use your own Connected App for now.".into(),
+    "invalid_grant" => "The sign-in has expired. Sign in again.".into(),
+    "expired" => "The sign-in took too long. Try again.".into(),
+    e => format!("The sign-in service answered {status}{}{e}.", if e.is_empty() { "" } else { ": " }),
+  })
 }
 
 #[derive(Clone, Serialize)]
@@ -128,10 +145,14 @@ fn access(app: &AppHandle) -> Result<(String, Me, String), String> {
     if Instant::now() < s.expires { return Ok((s.access.clone(), s.me.clone(), s.conn.host.clone())); }
   }
   let conn: Connection = std::fs::read_to_string(conn_file(app)?).ok().and_then(|t| serde_json::from_str(&t).ok()).ok_or("Not signed in to Anypoint.")?;
-  let secret = keychain("client-secret")?.get_password().map_err(|_| "The Connected App secret isn't in the keychain any more. Sign in again.")?;
-  let tokens = if conn.mode == "client" {
+  let tokens = if conn.mode == "anypoint" {
+    let refresh = keychain("refresh-token")?.get_password().map_err(|_| "Sign in again to continue.")?;
+    broker_post(&conn.broker, "refresh", json!({ "refresh_token": refresh }))?
+  } else if conn.mode == "client" {
+    let secret = keychain("client-secret")?.get_password().map_err(|_| "The Connected App secret isn't in the keychain any more. Sign in again.")?;
     token_request(&conn.host, json!({ "grant_type": "client_credentials", "client_id": conn.client_id, "client_secret": secret }))?
   } else {
+    let secret = keychain("client-secret")?.get_password().map_err(|_| "The Connected App secret isn't in the keychain any more. Sign in again.")?;
     let refresh = keychain("refresh-token")?.get_password().map_err(|_| "Sign in again to continue.")?;
     token_request(&conn.host, json!({ "grant_type": "refresh_token", "client_id": conn.client_id, "client_secret": secret, "refresh_token": refresh }))?
   };
@@ -196,18 +217,61 @@ fn browser_sign_in(host: &str, client_id: &str, secret: &str) -> Result<Value, S
   Err("The sign-in was interrupted.".into())
 }
 
+// Sign in with Anypoint: the broker gives the login link, Anypoint sends the browser back through the
+// broker to http://127.0.0.1:{port}/done with a sealed ticket, and only this app (it holds the verifier
+// whose hash started it) can turn the ticket into tokens.
+fn broker_sign_in(broker: &str) -> Result<Value, String> {
+  use base64::Engine;
+  use sha2::Digest;
+  let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Couldn't open a local port for the sign-in: {e}"))?;
+  let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+  let verifier = random_hex() + &random_hex();
+  let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes()));
+  let start = broker_post(broker, "start", json!({ "challenge": challenge, "port": port }))?;
+  let url = start["url"].as_str().ok_or("The sign-in service sent no link.")?;
+  tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| format!("Couldn't open the browser: {e}"))?;
+  let done = Arc::new(AtomicBool::new(false));
+  { let done = done.clone(); std::thread::spawn(move || { std::thread::sleep(Duration::from_secs(300)); if !done.load(Ordering::SeqCst) { let _ = std::net::TcpStream::connect(("127.0.0.1", port)).map(|mut s| s.write_all(b"GET /timeout HTTP/1.1\r\n\r\n")); } }); }
+  let page = |msg: &str| format!("<!doctype html><meta charset=utf-8><title>API Designer Studio</title><body style=\"font:15px system-ui;margin:3em\"><h2>{msg}</h2>");
+  for stream in listener.incoming() {
+    let Ok(mut stream) = stream else { continue };
+    let mut buf = [0u8; 16384];
+    let n = stream.read(&mut buf).unwrap_or(0);
+    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+    let target = req.split_whitespace().nth(1).unwrap_or("/").to_string();
+    let reply = |s: &mut std::net::TcpStream, body: String| { let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()); };
+    if target.starts_with("/timeout") { return Err("No sign-in within five minutes.".into()); }
+    if !target.starts_with("/done") { reply(&mut stream, String::new()); continue; }
+    let q = target.split_once('?').map(|x| x.1).unwrap_or("");
+    done.store(true, Ordering::SeqCst);
+    if let Some(err) = query_param(q, "error") {
+      reply(&mut stream, page("The sign-in didn't finish. See API Designer Studio."));
+      return Err(if err == "access_denied" { "The sign-in was cancelled.".into() } else { format!("Anypoint said: {err} {}", query_param(q, "error_description").unwrap_or_default()) });
+    }
+    let ticket = query_param(q, "ticket").ok_or("The sign-in came back without a ticket.")?;
+    let tokens = broker_post(broker, "collect", json!({ "ticket": ticket, "verifier": verifier }));
+    reply(&mut stream, page(if tokens.is_ok() { "Signed in. You can close this tab and go back to API Designer Studio." } else { "The sign-in didn't finish. See API Designer Studio." }));
+    return tokens;
+  }
+  Err("The sign-in was interrupted.".into())
+}
+
 #[tauri::command]
-pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, client_secret: String, host: String) -> Result<Me, String> {
+pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, client_secret: String, host: String, broker: Option<String>) -> Result<Me, String> {
   tauri::async_runtime::spawn_blocking(move || {
     let host = host.trim_end_matches('/').to_string();
-    let tokens = if mode == "client" {
+    // A different broker only in development, for testing against a local one.
+    let broker = broker.filter(|_| cfg!(debug_assertions)).unwrap_or_else(|| BROKER.to_string());
+    let tokens = if mode == "anypoint" {
+      broker_sign_in(&broker)?
+    } else if mode == "client" {
       token_request(&host, json!({ "grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret }))?
     } else {
       browser_sign_in(&host, &client_id, &client_secret)?
     };
-    let conn = Connection { mode, client_id, host };
+    let conn = Connection { broker: if mode == "anypoint" { broker } else { String::new() }, mode, client_id, host };
     let me = start_session(&app, conn.clone(), &tokens)?;
-    keychain("client-secret")?.set_password(&client_secret).map_err(|e| e.to_string())?;
+    if conn.mode != "anypoint" { keychain("client-secret")?.set_password(&client_secret).map_err(|e| e.to_string())?; }
     let f = conn_file(&app)?;
     if let Some(d) = f.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
     std::fs::write(f, serde_json::to_string(&conn).unwrap()).map_err(|e| e.to_string())?;
@@ -340,7 +404,7 @@ pub async fn anypoint_dev_session(app: AppHandle, client_id: String, client_secr
   if !cfg!(debug_assertions) { return Err("Not available.".into()); }
   tauri::async_runtime::spawn_blocking(move || {
     let tokens = token_request(&host, json!({ "grant_type": "refresh_token", "client_id": client_id, "client_secret": client_secret, "refresh_token": refresh_token }))?;
-    let conn = Connection { mode: "code".into(), client_id, host };
+    let conn = Connection { mode: "code".into(), client_id, host, broker: String::new() };
     let me = start_session(&app, conn.clone(), &tokens)?;
     keychain("client-secret")?.set_password(&client_secret).map_err(|e| e.to_string())?;
     let f = conn_file(&app)?;
