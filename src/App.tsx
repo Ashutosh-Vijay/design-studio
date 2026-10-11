@@ -13,6 +13,7 @@ import { Icons } from './components/Icons';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
+import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
@@ -39,6 +40,7 @@ const base = (p: string) => p.split('/').pop() || p;
 const isReadOnly = (p: string) => p === 'exchange.json' || p.startsWith('exchange_modules/');
 // An OpenAPI 3 file written in YAML: the forms, tree and outline read it with the same line parser as RAML.
 const isOasYaml = (p: string, text: string) => /\.ya?ml$/i.test(p) && /^\s*openapi\s*:\s*['"]?3\./m.test(text);
+const isOasJson = (p: string, text: string) => /\.json$/i.test(p) && /"openapi"\s*:\s*"3\./.test(text);
 
 export default function App() {
   const [project, setProject] = useState<Project | null>(null);
@@ -146,6 +148,13 @@ export default function App() {
       </header>
 
       {project ? (
+        <Boundary resetKey={project.root} fallback={(e) => (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[13px] text-content-secondary select-text">
+            <span className="text-err">Something went wrong: {e}</span>
+            <span className="text-content-faint">Unsaved work, as of a few seconds ago, is offered back when the project opens again.</span>
+            <button className="h-[28px] px-3 rounded-md border border-line bg-surface-2 hover:text-content" onClick={() => location.reload()}>Reload the window</button>
+          </div>
+        )}>
         <ProjectView
           key={project.root}
           project={project}
@@ -155,6 +164,7 @@ export default function App() {
           openFileRef={openFileRef}
           settingsButton={settingsBtn('relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center text-content-faint hover:text-content-secondary')}
         />
+        </Boundary>
       ) : (
         <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onOpenZip={openZip}
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
@@ -310,6 +320,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const main = project.main; if (!main) { setOutline(null); return; }
     const rootText = textOf(main); if (rootText == null) return;
     if (isOasYaml(main, rootText)) { setOutline(buildOasOutline(main, rootText)); return; }
+    if (isOasJson(main, rootText)) { const o = buildOasJsonOutline(main, rootText); if (o) setOutline(o); return; } // unreadable JSON keeps the last tree
     if (!/\.raml$/i.test(main)) { setOutline(null); return; }
     const libs = libraryPaths(main, rootText);
     libraryFiles.current = new Set(libs.map((l) => l.path));
@@ -327,6 +338,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   function updateCursorViews(path: string, state: EditorState) {
     const pos = state.selection.main.head, line = state.doc.lineAt(pos), text = state.doc.toString();
     // OAS: the tree selection follows paths, operations and schemas; there's no shelf for OAS.
+    if (path === project.main && isOasJson(path, text)) { setShelf(null); setSelId(oasJsonSelection(text, line.from + line.text.search(/\S|$/))); return; }
     if (path === project.main && isOasYaml(path, text)) {
       setShelf(null);
       const k = keyPathAt(text, line.number - 1).map((e) => e.key);
@@ -354,6 +366,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const v = view.current; if (!v || !activeRef.current || isReadOnly(activeRef.current)) return;
     const t = v.state.doc.toString(), nt = fn(t); if (nt === t) return;
     v.dispatch({ changes: diff(t, nt), userEvent: 'input.form' });
+  }
+  function goOffset(pos: number) {
+    const v = view.current; if (!v) return;
+    pos = Math.min(pos, v.state.doc.length);
+    v.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'nearest', yMargin: 60 }) });
   }
   // Selecting something in the Inspector selects it in the code.
   function goLine(n: number) {
@@ -846,7 +863,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const diags: Diagnostic[] = problems.filter((p) => p.file === active).map((p) => {
       const l = doc.line(Math.min(Math.max(p.line, 1), doc.lines));
       const from = Math.min(l.from + p.col, l.to);
-      const el = doc.line(Math.min(Math.max(p.endLine, p.line), doc.lines));
+      const el = doc.line(Math.min(Math.max(p.endLine, p.line, 1), doc.lines)); // AMF reports some problems at line 0
       const to = Math.max(from, Math.min(el.from + p.endCol, el.to));
       return { from, to: to > from ? to : Math.min(from + 1, doc.length), severity: p.severity, message: p.message };
     });
@@ -1068,7 +1085,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         {inspOpen && (
           <aside className="w-[330px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
-            <FormBoundary resetKey={doc ? doc.path + ":" + doc.line : ""}>
+            <Boundary resetKey={doc ? doc.path + ":" + doc.line : ""} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {e}. The code editor still works; move the cursor to try again.</div>}>
             {doc && active === doc.path && /\.raml$/i.test(doc.path) ? (
               <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={isReadOnly(doc.path)} outline={outline} model={amfModel}
                 onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)} onOpenAt={revealAt} onJsonSchema={copyJsonSchema}
@@ -1076,12 +1093,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                 onMove={openMove} onDelete={deleteDecl} />
             ) : doc && active === doc.path && isOasYaml(doc.path, doc.text) ? (
               <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
+            ) : doc && active === doc.path && isOasJson(doc.path, doc.text) ? (
+              <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
             ) : (
-              <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.'
-                : /\.json$/i.test(active) && doc && /"openapi"\s*:/.test(doc.text) ? 'Forms work on OAS 3.0 in YAML. For JSON, edit the code for now.'
-                : 'Forms are for RAML 1.0 and OAS 3.0 (YAML) specs.'}</div>
+              <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.' : 'Forms are for RAML 1.0 and OAS 3.0 specs.'}</div>
             )}
-            </FormBoundary>
+            </Boundary>
           </aside>
         )}
         <nav className="w-10 shrink-0 bg-rail border-l border-line flex flex-col items-center py-2.5">
@@ -1115,15 +1132,14 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
 }
 
 // A bug in a form shows up in the Inspector, not as a blank window; moving the cursor tries again.
-class FormBoundary extends Component<{ children: ReactNode; resetKey: string }, { error: string | null }> {
+// Used twice: around the Inspector (a form bug leaves the editor working) and around the whole project
+// view (a bug anywhere shows a message and a way back, never a blank window; unsaved text is in the
+// recovery journal).
+class Boundary extends Component<{ children: ReactNode; resetKey: string; fallback: (error: string) => ReactNode }, { error: string | null }> {
   state = { error: null as string | null };
   static getDerivedStateFromError(e: unknown) { return { error: e instanceof Error ? e.message : String(e) }; }
   componentDidUpdate(prev: { resetKey: string }) { if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null }); }
-  render() {
-    return this.state.error
-      ? <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {this.state.error}. The code editor still works; move the cursor to try again.</div>
-      : this.props.children;
-  }
+  render() { return this.state.error ? this.props.fallback(this.state.error) : this.props.children; }
 }
 
 const METHOD_STYLE: Record<string, string> = {

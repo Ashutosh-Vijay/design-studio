@@ -27,17 +27,17 @@ export function nodeAt(text: string, line: number, isMain: boolean): Node {
   return isMain ? { kind: 'root' } : { kind: 'none' };
 }
 
-const CODES: Record<string, string> = { 200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No content', 400: 'Bad request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not found', 409: 'Conflict', 422: 'Unprocessable', 500: 'Server error', 502: 'Bad gateway', 503: 'Unavailable' };
-const MEDIA = ['application/json', 'application/xml', 'text/plain', 'multipart/form-data', 'application/x-www-form-urlencoded'];
+export const CODES: Record<string, string> = { 200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No content', 400: 'Bad request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not found', 409: 'Conflict', 422: 'Unprocessable', 500: 'Server error', 502: 'Bad gateway', 503: 'Unavailable' };
+export const MEDIA = ['application/json', 'application/xml', 'text/plain', 'multipart/form-data', 'application/x-www-form-urlencoded'];
 const METHOD_STYLE: Record<string, string> = {
   get: 'text-cyan bg-cyan-tint', post: 'text-[var(--ok)] bg-[color-mix(in_oklch,var(--ok)_14%,transparent)]', put: 'text-warn bg-warn-tint',
   patch: 'text-violet bg-violet-tint', delete: 'text-err bg-err-tint', head: 'text-content-muted bg-surface-3', options: 'text-content-muted bg-surface-3',
 };
-const Badge = ({ m }: { m: string }) => <span className={`font-mono text-[9.5px] font-bold w-[38px] h-4 rounded-[3px] shrink-0 inline-flex items-center justify-center ${METHOD_STYLE[m] ?? ''}`}>{m.toUpperCase()}</span>;
-const codeColor = (c: string) => (c[0] === '2' ? 'var(--ok)' : c[0] === '4' ? 'var(--warn)' : c[0] === '5' ? 'var(--err)' : 'var(--content-muted)');
+export const Badge = ({ m }: { m: string }) => <span className={`font-mono text-[9.5px] font-bold w-[38px] h-4 rounded-[3px] shrink-0 inline-flex items-center justify-center ${METHOD_STYLE[m] ?? ''}`}>{m.toUpperCase()}</span>;
+export const codeColor = (c: string) => (c[0] === '2' ? 'var(--ok)' : c[0] === '4' ? 'var(--warn)' : c[0] === '5' ? 'var(--err)' : 'var(--content-muted)');
 
 // A text box that writes on Enter or when you leave it; Escape puts the old value back.
-function Field({ value, onCommit, placeholder, mono, multiline, list, className = '', focus, onFocused }: {
+export function Field({ value, onCommit, placeholder, mono, multiline, list, className = '', focus, onFocused }: {
   value: string; onCommit: (v: string) => void; placeholder?: string; mono?: boolean; multiline?: boolean; list?: string; className?: string; focus?: boolean; onFocused?: () => void;
 }) {
   // A row just added through "Add" takes the focus with its name selected, ready to type over.
@@ -57,11 +57,11 @@ function Field({ value, onCommit, placeholder, mono, multiline, list, className 
         onKeyDown={(e) => { esc(e); if (e.key === 'Enter') e.currentTarget.blur(); }} className={cls + ' h-[26px]'} />;
 }
 
-const IconBtn = ({ title, onClick, children }: { title: string; onClick: () => void; children: ReactNode }) => (
+export const IconBtn = ({ title, onClick, children }: { title: string; onClick: () => void; children: ReactNode }) => (
   <button title={title} onClick={(e) => { e.stopPropagation(); onClick(); }} className="w-[22px] h-[22px] shrink-0 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">{children}</button>
 );
 
-function Sec({ title, count, add, children }: { title: string; count?: number; add?: ReactNode; children: ReactNode }) {
+export function Sec({ title, count, add, children }: { title: string; count?: number; add?: ReactNode; children: ReactNode }) {
   return (
     <div className="mt-[18px]">
       <h4 className="m-0 mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">
@@ -74,7 +74,7 @@ function Sec({ title, count, add, children }: { title: string; count?: number; a
 }
 
 // A small picker that looks like a button: "+ Add response" with the choices in a native select.
-function AddSelect({ label, options, onPick }: { label: string; options: string[]; onPick: (v: string) => void }) {
+export function AddSelect({ label, options, onPick }: { label: string; options: string[]; onPick: (v: string) => void }) {
   if (!options.length) return null;
   return (
     <label className="relative normal-case tracking-normal font-medium text-[11px] text-accent hover:underline cursor-pointer flex items-center gap-0.5">
@@ -102,7 +102,7 @@ export type AmfModel = {
 };
 
 // Where a type is used, as AMF links say: "GET /orders 200", "Customer.address", "resource type item".
-function UsedBy({ uses, onOpenAt }: { uses: AmfModel['types'][number]['usedBy'] | null; onOpenAt: (at: At) => void }) {
+export function UsedBy({ uses, onOpenAt }: { uses: AmfModel['types'][number]['usedBy'] | null; onOpenAt: (at: At) => void }) {
   if (!uses) return <Sec title="Used by"><div className="text-[11.5px] text-content-faint">Shown after the next check.</div></Sec>;
   return (
     <Sec title="Used by" count={uses.length}>
@@ -122,7 +122,7 @@ function UsedBy({ uses, onOpenAt }: { uses: AmfModel['types'][number]['usedBy'] 
   );
 }
 
-const BTN = 'h-[26px] px-2.5 rounded-md text-[12px] border border-line bg-surface-2 text-content-secondary hover:text-content disabled:opacity-40';
+export const BTN = 'h-[26px] px-2.5 rounded-md text-[12px] border border-line bg-surface-2 text-content-secondary hover:text-content disabled:opacity-40';
 // What can go into an extracted trait, in the order RAML usually writes them.
 const TRAIT_PARTS = ['queryParameters', 'queryString', 'headers', 'securedBy', 'body', 'responses'];
 
