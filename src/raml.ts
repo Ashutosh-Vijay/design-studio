@@ -113,8 +113,8 @@ export function keyPathAt(text: string, line: number): Entry[] {
 // ---------- The shelf: what can go at the cursor, Design Center's columns ----------
 export type ShelfCol = { title: string; items: string[] };
 export type ShelfCtx =
-  | { kind: 'type'; line: number; label: string }
-  | { kind: 'is'; line: number; label: string }
+  | { kind: 'type'; line: number; label: string; value: string }
+  | { kind: 'is'; line: number; label: string; value: string }
   | { kind: 'keys'; cols: ShelfCol[]; label: string; container: number; E: Entry[] }
   | { kind: 'none'; label: string };
 
@@ -134,8 +134,11 @@ export const SCALAR_KEYS = ['title', 'version', 'baseUri', 'mediaType', 'descrip
 export function shelfContext(text: string, line: number, col: number): ShelfCtx {
   const E = entries(text), L = text.split('\n');
   const here = E.findIndex((e) => e.line === line);
-  if (here >= 0 && (E[here].key === 'type' || E[here].key === 'items')) return { kind: 'type', line, label: E[here].key };
-  if (here >= 0 && E[here].key === 'is') return { kind: 'is', line, label: 'is' };
+  // The type or trait list only when picking a value: the value is empty, or the cursor is after the colon.
+  // On the key itself of a line that already has a value, the shelf shows its block's keys instead.
+  const picking = here >= 0 && (!E[here].val || col > (L[line] ?? '').indexOf(':', E[here].ind));
+  if (picking && (E[here].key === 'type' || E[here].key === 'items')) return { kind: 'type', line, label: E[here].key, value: E[here].val };
+  if (picking && E[here].key === 'is') return { kind: 'is', line, label: 'is', value: E[here].val };
   let ck = -1;
   if (here >= 0 && !E[here].val) ck = here; // on a block key: suggest what goes inside it
   else if (here >= 0) { for (let j = here - 1; j >= 0; j--) if (E[j].ind < E[here].ind) { ck = j; break; } }
@@ -146,7 +149,10 @@ export function shelfContext(text: string, line: number, col: number): ShelfCtx 
   }
   const key = ck >= 0 ? E[ck].key : null;
   const kind = ck < 0 ? 'root' : key!.startsWith('/') ? 'resource' : METHODS.includes(key!) ? 'method' : key === 'responses' ? 'responses'
-    : /^\d{3}$/.test(key!) ? 'response' : key === 'body' ? 'body' : key!.includes('/') ? 'media' : null;
+    : /^\d{3}$/.test(key!) ? 'response'
+    // A body that names its type directly (the default media type) takes type and examples, not media types.
+    : key === 'body' ? (kids(E, ck).some((j) => ['type', 'example', 'examples', 'properties', 'schema'].includes(E[j].key)) ? 'media' : 'body')
+    : key!.includes('/') ? 'media' : null;
   const label = ck < 0 ? 'top level' : keyPathAt(text, E[ck].line).map((e) => e.key).join(' › ');
   if (!kind) return { kind: 'none', label };
   const have = new Set((ck < 0 ? E.filter((e) => e.ind === 0) : kids(E, ck).map((j) => E[j])).map((e) => e.key));

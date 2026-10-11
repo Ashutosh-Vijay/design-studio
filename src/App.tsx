@@ -1082,6 +1082,8 @@ function Shelf({ ctx, open, setOpen, onPick, types, traits }: {
     types.forEach((t) => { const g = t.includes('.') ? t.split('.')[0] : 'This file'; groups.set(g, [...(groups.get(g) ?? []), t]); });
     cols = [...[...groups].map(([title, items]) => ({ title, items })), { title: 'Built-in', items: BUILTIN_TYPES.slice(0, 10) }];
   } else if (ctx.kind === 'is') cols = [{ title: 'Traits', items: traits }];
+  // What's already there is highlighted: the current type, or the traits already applied.
+  const current = ctx.kind === 'type' ? [ctx.value.replace(/\[\]$/, '')] : ctx.kind === 'is' ? ctx.value.replace(/[[\]]/g, '').split(',').map((s) => s.trim()) : [];
   return (
     <section className="shrink-0 flex flex-col bg-bg border-t border-line-subtle" style={{ height: open ? 136 : 26 }}>
       <div className="h-[26px] shrink-0 flex items-center gap-2 pl-3.5 pr-2 text-[11px] text-content-faint">
@@ -1101,7 +1103,7 @@ function Shelf({ ctx, open, setOpen, onPick, types, traits }: {
               {c.items.map((it) => (
                 <button key={it} onMouseDown={(e) => { e.preventDefault(); onPick(it); }} title={it}
                   style={{ borderLeftColor: SHELF_BAR[c.title] ?? 'var(--syn-number)' }}
-                  className="block text-left h-[22px] px-2 mb-px font-mono text-[12px] text-content-secondary border-l-2 rounded-r hover:bg-surface-2 hover:text-content whitespace-nowrap">
+                  className={`block text-left h-[22px] px-2 mb-px font-mono text-[12px] border-l-2 rounded-r hover:bg-surface-2 hover:text-content whitespace-nowrap ${current.includes(it) ? 'bg-accent-dim text-content' : 'text-content-secondary'}`}>
                   {/* Under a library's own column the alias is already the heading: show Name, insert alias.Name. */}
                   {it.startsWith(c.title + '.') ? it.slice(c.title.length + 1) : it}
                 </button>
