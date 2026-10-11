@@ -299,6 +299,13 @@ function takeChildren(text: string, path: Path, pick: (key: string) => boolean):
   return { text: L.join('\n'), lines };
 }
 const nest = (E: Entry[], lines: string[]) => lines.map((l) => (l ? ' '.repeat(step(E)) + l : ''));
+// An empty "example:" says nothing, and AMF ignores it in a resource but validates it as null inside a
+// trait or resource type (found on a real spec). Templates leave those lines out, so the API means the same.
+const dropEmptyExamples = (lines: string[]) => lines.filter((l, i) => {
+  if (!/^\s*(- )?examples?:\s*(#.*)?$/.test(l)) return true;
+  const next = lines.slice(i + 1).find((x) => x.trim());
+  return !!next && next.search(/\S/) > l.search(/\S/);
+});
 
 // A name not yet used in a declaration section; a number is added when taken, as Design Center does.
 export function freeName(text: string, sect: string, base: string): string {
@@ -325,7 +332,7 @@ export function extractType(text: string, path: Path, name: string): string {
 export function extractTrait(text: string, methodPath: Path, keys: string[], name: string): string {
   const r = takeChildren(text, methodPath, (k) => keys.includes(k));
   if (!r.lines.length) return text;
-  let t = addChild(r.text, ['traits'], [`${name}:`, ...nest(entries(r.text), r.lines)]);
+  let t = addChild(r.text, ['traits'], [`${name}:`, ...nest(entries(r.text), dropEmptyExamples(r.lines))]);
   t = setList(t, [...methodPath, 'is'], [...(list(t, [...methodPath, 'is']) ?? []), name]);
   return t;
 }
@@ -336,7 +343,7 @@ export function extractResourceType(text: string, resPath: Path, name: string): 
   const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
   const r = takeChildren(text, resPath, (k) => METHODS.includes(k.replace(/\?$/, '')) || k === 'is');
   if (!r.lines.length) return text;
-  const t = addChild(r.text, ['resourceTypes'], [`${name}:`, ...nest(entries(r.text), r.lines)]);
+  const t = addChild(r.text, ['resourceTypes'], [`${name}:`, ...nest(entries(r.text), dropEmptyExamples(r.lines))]);
   return setScalar(t, resPath, 'type', name);
 }
 
