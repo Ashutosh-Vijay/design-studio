@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
+import { Component, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
 import { EditorState, type Extension } from '@codemirror/state';
 import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
@@ -1049,6 +1049,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         {inspOpen && (
           <aside className="w-[330px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
+            <FormBoundary resetKey={doc ? doc.path + ":" + doc.line : ""}>
             {doc && active === doc.path && /\.raml$/i.test(doc.path) ? (
               <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={isReadOnly(doc.path)} rootFile={project.main ?? ''} outline={outline} textOf={textOf}
                 onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)}
@@ -1061,6 +1062,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                 : /\.json$/i.test(active) && doc && /"openapi"\s*:/.test(doc.text) ? 'Forms work on OAS 3.0 in YAML. For JSON, edit the code for now.'
                 : 'Forms are for RAML 1.0 and OAS 3.0 (YAML) specs.'}</div>
             )}
+            </FormBoundary>
           </aside>
         )}
         <nav className="w-10 shrink-0 bg-rail border-l border-line flex flex-col items-center py-2.5">
@@ -1091,6 +1093,18 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       </footer>
     </>
   );
+}
+
+// A bug in a form shows up in the Inspector, not as a blank window; moving the cursor tries again.
+class FormBoundary extends Component<{ children: ReactNode; resetKey: string }, { error: string | null }> {
+  state = { error: null as string | null };
+  static getDerivedStateFromError(e: unknown) { return { error: e instanceof Error ? e.message : String(e) }; }
+  componentDidUpdate(prev: { resetKey: string }) { if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null }); }
+  render() {
+    return this.state.error
+      ? <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {this.state.error}. The code editor still works; move the cursor to try again.</div>
+      : this.props.children;
+  }
 }
 
 const METHOD_STYLE: Record<string, string> = {

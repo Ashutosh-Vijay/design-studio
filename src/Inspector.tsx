@@ -385,6 +385,7 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
     const d = outline && [...outline.types, ...outline.traits, ...outline.resourceTypes, ...outline.securitySchemes].find((x) => x.file === file && x.name === node.name);
     const isType = node.sect === 'types';
     const enumK = at([...node.path, 'enum']);
+    const included = k >= 0 && /^!include\s/.test(E[k].val);
     h = (
       <>
         {title(<><span className="font-mono text-[13.5px] font-bold break-all">{node.name}</span>{d?.alias && <span className="ml-auto text-[11.5px] text-content-faint">{d.alias}</span>}</>)}
@@ -395,16 +396,51 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
           {d && isType && isMain && <button onClick={() => onMove(d)} className={BTN}>Move to library…</button>}
           {d && node.sect !== 'securitySchemes' && node.sect !== 'annotationTypes' && <button onClick={() => onDelete(d)} className={BTN + ' hover:!text-err'}>Delete…</button>}
         </div>
-        {isType && <Sec title="Type">{typeCell(node.path)}</Sec>}
-        <div className="mt-3"><Field multiline value={S.scalar(text, [...node.path, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'description', v || null))} /></div>
-        {node.sect === 'traits' && <div className="mt-1.5"><Field value={S.scalar(text, [...node.path, 'usage']) ?? ''} placeholder="Usage" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'usage', v || null))} /></div>}
-        {isType && enumK >= 0 && (
+        {/* Declared in its own file (name: !include file.raml): the form for it is in that file. */}
+        {included && <Sec title="Defined in">{example(node.path)}<div className="mt-1 text-[11px] text-content-faint">Open the file to edit it.</div></Sec>}
+        {!included && isType && <Sec title="Type">{typeCell(node.path)}</Sec>}
+        {!included && <div className="mt-3"><Field multiline value={S.scalar(text, [...node.path, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'description', v || null))} /></div>}
+        {!included && node.sect === 'traits' && <>
+          <div className="mt-1.5"><Field value={S.scalar(text, [...node.path, 'usage']) ?? ''} placeholder="Usage" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'usage', v || null))} /></div>
+          {/* A trait is the part of a method it adds: parameters, headers, responses. */}
+          {params(node.path, 'queryParameters', 'Query parameters', 'Add')}
+          {params(node.path, 'headers', 'Headers', 'Add')}
+          <Sec title="Responses" count={kids(E, at([...node.path, 'responses'])).length || undefined}
+            add={<AddSelect label="Add response" options={Object.keys(CODES).filter((c) => at([...node.path, 'responses', c]) < 0)} onPick={(c) => onEdit((x) => S.addChild(x, [...node.path, 'responses'], [`${c}:`]))} />}>
+            {at([...node.path, 'responses']) >= 0 && kids(E, at([...node.path, 'responses'])).map((j) => (
+              <div key={E[j].key} onClick={() => onGoLine(E[j].line)} className={rowCls(j) + ' flex items-center gap-2 py-[3px] cursor-pointer'}>
+                <span className="font-mono font-bold text-[11.5px] px-1.5 rounded-[3px]" style={{ color: codeColor(E[j].key), background: `color-mix(in oklch, ${codeColor(E[j].key)} 13%, transparent)` }}>{E[j].key}</span>
+                <span className="text-[12px] truncate">{S.scalar(text, [...node.path, 'responses', E[j].key, 'description']) ?? ''}</span>
+              </div>
+            ))}
+          </Sec>
+        </>}
+        {!included && node.sect === 'resourceTypes' && (
+          <Sec title="Methods" add={<AddSelect label="Add method" options={METHODS.filter((m) => at([...node.path, m]) < 0 && at([...node.path, m + '?']) < 0)} onPick={(m) => onEdit((x) => S.addChild(x, node.path, [`${m}:`]))} />}>
+            {kids(E, k).filter((j) => METHODS.includes(E[j].key.replace(/\?$/, ''))).map((j) => (
+              <div key={E[j].key} onClick={() => onGoLine(E[j].line)} className="flex items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md cursor-pointer hover:bg-[var(--hover-overlay)]">
+                <Badge m={E[j].key.replace(/\?$/, '')} />{E[j].key.endsWith('?') && <span className="text-[11px] text-content-faint">optional</span>}
+              </div>
+            ))}
+          </Sec>
+        )}
+        {!included && node.sect === 'securitySchemes' && <>
+          <Sec title="Scheme type">
+            <select value={S.scalar(text, [...node.path, 'type']) ?? ''} onChange={(e) => onEdit((x) => S.setScalar(x, node.path, 'type', e.target.value || null))}
+              className="w-full h-[26px] rounded border border-line bg-surface-input text-[12px] font-mono text-content px-1.5">
+              {['', 'OAuth 2.0', 'OAuth 1.0', 'Basic Authentication', 'Digest Authentication', 'Pass Through'].concat((S.scalar(text, [...node.path, 'type']) ?? '').startsWith('x-') ? [S.scalar(text, [...node.path, 'type'])!] : []).map((t) => <option key={t} value={t}>{t || 'Choose a type'}</option>)}
+            </select>
+          </Sec>
+          {params([...node.path, 'describedBy'], 'headers', 'Headers it needs', 'Add')}
+          {params([...node.path, 'describedBy'], 'queryParameters', 'Query parameters it needs', 'Add')}
+        </>}
+        {!included && isType && enumK >= 0 && (
           <Sec title="Values" count={(S.list(text, [...node.path, 'enum']) ?? []).length}>
             <Field mono value={(S.list(text, [...node.path, 'enum']) ?? []).join(', ')} onCommit={(v) => onEdit((x) => S.setList(x, [...node.path, 'enum'], v.split(',').map((s) => s.trim()).filter(Boolean)))} />
             <div className="mt-1 text-[11px] text-content-faint">Separated by commas.</div>
           </Sec>
         )}
-        {isType && enumK < 0 && params(node.path, 'properties', 'Properties', 'Add property', 'No properties.')}
+        {!included && isType && enumK < 0 && params(node.path, 'properties', 'Properties', 'Add property', 'No properties.')}
         {isType && (
           <Sec title="Used by" count={used.length}>
             {used.slice(0, 40).map((u, i) => (

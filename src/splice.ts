@@ -154,8 +154,13 @@ function insertLines(text: string, E: Entry[], parent: number, lines: string[], 
   }
   else if (parent < 0) { at = L.length; while (at > 0 && !L[at - 1].trim()) at--; }
   else at = blockEnd(E, L, parent);
-  // A parent written as "key: value" or "key: {}" gets its value replaced by the block.
-  if (parent >= 0 && E[parent].val && !/^[|>]/.test(E[parent].val)) L[E[parent].line] = L[E[parent].line].replace(/:\s.*$/, ':');
+  // A parent written as "key: {}" or "[]" gets its value replaced by the block. "key: Type" is RAML's short
+  // form of a type, so the type moves into the block as type: Type and nothing is lost.
+  if (parent >= 0 && E[parent].val && !/^[|>]/.test(E[parent].val)) {
+    const v = E[parent].val;
+    L[E[parent].line] = L[E[parent].line].replace(/:\s.*$/, ':');
+    if (!/^(\{\s*\}|\[\s*\]|null|~)$/.test(v) && !lines.some((l) => /^type\s*:/.test(l))) add.unshift(ind + 'type: ' + v);
+  }
   L.splice(at, 0, ...add);
   return L.join('\n');
 }

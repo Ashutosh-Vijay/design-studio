@@ -33,6 +33,7 @@ function parseEntries(text: string): Entry[] {
   return out;
 }
 export function kids(E: Entry[], k: number): number[] {
+  if (k < 0 || k >= E.length) return []; // a key that isn't there has no children
   const out: number[] = []; let ci: number | null = null;
   for (let j = k + 1; j < E.length; j++) {
     if (E[j].ind <= E[k].ind) break;
