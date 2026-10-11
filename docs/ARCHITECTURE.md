@@ -107,11 +107,13 @@ api-designer-studio/
 | op | input | output |
 |---|---|---|
 | `open` | `root`, `main` | ok |
-| `overlay` | `{path: text}` for changed files, `generation` | ok |
-| `parse` | `generation` | `outline`, `problems` (parse phase), `ms` |
-| `validate` | `generation` | `problems` (validation phase), `ms` |
-| `resolve` | `generation` | resolved model JSON (M5: docs, mock, graph) |
-| `close` | | ok |
+| `overlay` | `{files: {path: text or null}}` (unsaved text) | ok |
+| `check` | `mode: parse or validate`, `model` (optional) | `problems`, `spec`, `parseMs`, `validateMs`; with `model`: the API as AMF reads it (endpoints, operations, parameters, bodies, responses, types with positions, type names and Used by from AMF links) |
+| `convert` | `path`, `to` (oas30, oas20, raml10), `syntax` | the converted text (Duplicate As) |
+| `jsonSchema` | `name`, `file` of a declared type | AMF's JSON Schema for it |
+| `resolve` | | resolved model JSON (planned for M5: docs, mock, graph) |
+
+As built: there is one `check` op (a newer queued check makes an older one answer `{stale: true}`), and unchanged libraries and fragments come from AMF's `UnitCache`. The app asks for the model with the idle full check (it costs about 0.2 s on a big spec), not with every keystroke.
 
 **File loading:** a custom AMF `ResourceLoader` serves an overlay first, then disk, so unsaved edits are checked without writing files.
 
