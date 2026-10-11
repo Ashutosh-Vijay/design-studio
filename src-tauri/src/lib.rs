@@ -150,17 +150,11 @@ struct ZipImport {
   duplicates: Vec<String>, // entries that were in the zip more than once: the last copy wins
 }
 
-// Unpacks a Design Center or Exchange zip into a new folder. Exchange zips can hold the same
-// entry twice (M0.1); the last one wins and the names are reported. Entries can't escape the folder.
-#[tauri::command]
-fn import_zip(zip_path: String, dest: String) -> Result<ZipImport, String> {
-  let dest_path = PathBuf::from(&dest);
-  if dest_path.exists() && fs::read_dir(&dest_path).map(|mut d| d.next().is_some()).unwrap_or(false) {
-    return Err(format!("{} already has files in it. Pick an empty or new folder.", dest));
-  }
-  fs::create_dir_all(&dest_path).map_err(|e| format!("Couldn't create {}: {}", dest, e))?;
-  let file = fs::File::open(&zip_path).map_err(|e| format!("Couldn't open {}: {}", zip_path, e))?;
-  let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("That isn't a readable zip: {}", e))?;
+// Unpacks a zip into a folder: entries that would land outside it are skipped (zip-slip), and a name that
+// appears twice (compared without case, as Windows and macOS do) is reported; the last copy wins.
+// Used by the zip import and for Exchange dependencies.
+pub fn unzip_into<R: std::io::Read + std::io::Seek>(reader: R, dest_path: &Path) -> Result<(usize, Vec<String>), String> {
+  let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("That isn't a readable zip: {}", e))?;
   let mut seen = std::collections::HashSet::new();
   let mut duplicates = Vec::new();
   let mut count = 0;
@@ -171,7 +165,6 @@ fn import_zip(zip_path: String, dest: String) -> Result<ZipImport, String> {
       continue;
     }
     let name = rel.to_string_lossy().replace('\\', "/");
-    // Compared without case: on Windows and macOS two names that differ only in case are one file.
     if !seen.insert(name.to_lowercase()) {
       duplicates.push(name.clone());
     } else {
@@ -184,6 +177,20 @@ fn import_zip(zip_path: String, dest: String) -> Result<ZipImport, String> {
     let mut f = fs::File::create(&out).map_err(|e| format!("Couldn't write {}: {}", name, e))?;
     std::io::copy(&mut entry, &mut f).map_err(|e| e.to_string())?;
   }
+  Ok((count, duplicates))
+}
+
+// Unpacks a Design Center or Exchange zip into a new folder. Exchange zips can hold the same
+// entry twice (M0.1); the last one wins and the names are reported. Entries can't escape the folder.
+#[tauri::command]
+fn import_zip(zip_path: String, dest: String) -> Result<ZipImport, String> {
+  let dest_path = PathBuf::from(&dest);
+  if dest_path.exists() && fs::read_dir(&dest_path).map(|mut d| d.next().is_some()).unwrap_or(false) {
+    return Err(format!("{} already has files in it. Pick an empty or new folder.", dest));
+  }
+  fs::create_dir_all(&dest_path).map_err(|e| format!("Couldn't create {}: {}", dest, e))?;
+  let file = fs::File::open(&zip_path).map_err(|e| format!("Couldn't open {}: {}", zip_path, e))?;
+  let (count, duplicates) = unzip_into(file, &dest_path)?;
   Ok(ZipImport { root: dest, files: count, duplicates })
 }
 
@@ -216,7 +223,7 @@ pub fn run() {
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
-      anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock,
+      anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency,
       anypoint::anypoint_dev_session])
     .build(tauri::generate_context!())
     .expect("error while building API Designer Studio")

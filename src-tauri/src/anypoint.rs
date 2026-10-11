@@ -264,6 +264,32 @@ pub async fn anypoint_api(app: AppHandle, method: String, path: String, body: Op
   tauri::async_runtime::spawn_blocking(move || call(&app, &method, &path, body.as_ref())).await.map_err(|e| e.to_string())?
 }
 
+// An Exchange dependency into exchange_modules/{group}/{asset}/{version}/, where Design Center's own
+// zips put it. The asset's fragment zip comes from a signed download link, so that request has no token.
+#[tauri::command]
+pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: String, asset: String, version: String) -> Result<usize, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    // These become folder names: nothing that could climb out of exchange_modules.
+    let safe = |s: &str| !s.is_empty() && s != "." && s != ".." && s.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
+    if !(safe(&group) && safe(&asset) && safe(&version)) { return Err(format!("{group}/{asset}/{version} isn't a dependency name this app can store.")); }
+    let r = call(&app, "GET", &format!("/exchange/api/v2/assets/{group}/{asset}/{version}"), None)?;
+    if r.status == 404 || r.status == 403 { return Err(format!("{asset} {version} isn't in Exchange, or this account can't see it.")); }
+    if r.status >= 300 { return Err(format!("Exchange answered {} for {asset} {version}.", r.status)); }
+    // The fragment's own files: not the "fat" zip (which nests its dependencies) and not the original upload.
+    let files = r.json["files"].as_array().cloned().unwrap_or_default();
+    let class = |f: &Value| f["classifier"].as_str().unwrap_or("").to_string();
+    let zip = files.iter().find(|f| f["packaging"] == "zip" && !class(f).starts_with("fat-") && !class(f).starts_with("original-") && !class(f).is_empty())
+      .or_else(|| files.iter().find(|f| f["packaging"] == "zip"))
+      .ok_or(format!("{asset} {version} has no files to download in Exchange."))?;
+    let link = zip["externalLink"].as_str().ok_or("Exchange gave no download link.")?;
+    let bytes = client().get(link).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes()).map_err(|e| format!("Couldn't download {asset} {version}: {e}"))?;
+    let dest = std::path::PathBuf::from(&root).join("exchange_modules").join(&group).join(&asset).join(&version);
+    if dest.exists() { std::fs::remove_dir_all(&dest).map_err(|e| e.to_string())?; }
+    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+    crate::unzip_into(std::io::Cursor::new(bytes), &dest).map(|(n, _)| n)
+  }).await.map_err(|e| e.to_string())?
+}
+
 // Take the branch's lock and keep it alive (locks lapse after about a minute) until released.
 #[tauri::command]
 pub async fn anypoint_hold_lock(app: AppHandle, project: String, branch: String) -> Result<(), String> {

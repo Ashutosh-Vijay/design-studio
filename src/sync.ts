@@ -64,7 +64,7 @@ export async function clone(root: string, projectId: string, projectName: string
   for (const [p, t] of files) await invoke('write_file_exact', { root, path: p, text: t });
   await invoke('write_file_exact', { root, path: '.apidesigner/.gitignore', text: '*\n' });
   await writeBase(root, l, files);
-  return { files: files.size };
+  return { files: files.size, deps: await fetchDependencies(root) };
 }
 
 // What changed here since the last sync, by comparing each file with its hash then.
@@ -92,7 +92,7 @@ export type Conflict = { path: string; kind: 'lines' | 'deleted here' | 'deleted
 export const MARK = '<<<<<<< yours';
 export async function pull(root: string, l: Link) {
   const h = await head(l);
-  if (h === l.baseCommit) return { updated: [] as string[], removed: [] as string[], conflicts: [] as Conflict[], upToDate: true };
+  if (h === l.baseCommit) return { updated: [] as string[], removed: [] as string[], conflicts: [] as Conflict[], upToDate: true, deps: { fetched: [] as string[], failed: [] as string[] } };
   const theirs = await remoteFiles(l);
   const updated: string[] = [], removed: string[] = [], conflicts: Conflict[] = [];
   for (const p of new Set([...theirs.keys(), ...Object.keys(l.files)])) {
@@ -114,7 +114,7 @@ export async function pull(root: string, l: Link) {
   }
   // In step with Design Center's commit now: what's left different here is yours to push.
   await writeBase(root, { ...l, baseCommit: h }, theirs);
-  return { updated, removed, conflicts, upToDate: false };
+  return { updated, removed, conflicts, upToDate: false, deps: updated.includes('exchange.json') ? await fetchDependencies(root) : { fetched: [] as string[], failed: [] as string[] } };
 }
 
 // ---------- Push: send your changes, holding the branch's lock ----------
@@ -149,6 +149,32 @@ export async function push(root: string, l: Link, paths: string[]) {
   return { sent: ch.count };
 }
 
+// ---------- Exchange dependencies ----------
+// Design Center keeps a project's dependencies in exchange.json and fetches them itself; here they go
+// into exchange_modules/{group}/{asset}/{version}/ (as in its zips), then each fragment's own dependencies.
+// Only missing ones are fetched, so offline work keeps what's there. Returns what was fetched and what failed.
+export async function fetchDependencies(root: string) {
+  type Dep = { groupId: string; assetId: string; version: string };
+  const depsOf = async (folder: string): Promise<Dep[]> => {
+    try { return (JSON.parse(await invoke<string>('read_text_file', { root, path: `${folder}exchange.json` })).dependencies ?? []) as Dep[]; } catch { return []; }
+  };
+  const queue = await depsOf(''), seen = new Set<string>();
+  const fetched: string[] = [], failed: string[] = [];
+  while (queue.length) {
+    const d = queue.shift()!;
+    const dir = `exchange_modules/${d.groupId}/${d.assetId}/${d.version}/`;
+    if (!d.groupId || !d.assetId || !d.version || seen.has(dir)) continue;
+    seen.add(dir);
+    const have = await invoke<{ files: unknown[] }>('open_project', { root: `${root}/${dir}` }).then((p) => p.files.length > 0, () => false);
+    if (!have) {
+      try { await invoke('anypoint_fetch_dependency', { root, group: d.groupId, asset: d.assetId, version: d.version }); fetched.push(`${d.assetId} ${d.version}`); }
+      catch (e) { failed.push(String(e).replace(/^Error: /, '').replace(/\.$/, '')); continue; }
+    }
+    queue.push(...(await depsOf(dir)));
+  }
+  return { fetched, failed };
+}
+
 // ---------- Branches ----------
 export async function createBranch(l: Link, name: string) {
   must(await api('POST', `${DC}/projects/${l.projectId}/branches`, { name, source: l.branch }), `Creating the branch ${name}`);
@@ -163,6 +189,7 @@ export async function switchBranch(root: string, l: Link, branch: string, paths:
   for (const p of Object.keys(l.files)) if (!files.has(p)) await invoke('delete_file', { root, path: p });
   for (const [p, t] of files) await invoke('write_file_exact', { root, path: p, text: t });
   await writeBase(root, next, files);
+  return fetchDependencies(root);
 }
 
 // ---------- Three-way merge, by lines ----------

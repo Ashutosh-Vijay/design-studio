@@ -15,8 +15,12 @@ const REDIRECT = 'http://localhost:8765/callback';
 const KEYCHAIN = /Windows/.test(navigator.userAgent) ? 'Windows Credential Manager' : /Mac/.test(navigator.userAgent) ? 'the macOS Keychain' : 'the system keyring';
 const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
 
+// What a notice says about dependencies that couldn't be fetched (fetched ones need no mention).
+export const depsNote = (d: { fetched: string[]; failed: string[] }) => d.failed.length
+  ? `Some Exchange dependencies couldn't be fetched, so checking may report missing files: ${d.failed.join('; ')}.` : null;
+
 // Connect to Anypoint, then pick a project and where to put it. Opens on the project list when signed in.
-export function ConnectDialog({ onClose, onPulled }: { onClose: () => void; onPulled: (root: string) => void }) {
+export function ConnectDialog({ onClose, onPulled }: { onClose: () => void; onPulled: (root: string, note: string | null) => void }) {
   const [me, setMe] = useState<Me | null>(null);
   const [step, setStep] = useState<'checking' | 'choose' | 'waiting' | 'projects'>('checking');
   const [acts, setActs] = useState<'user' | 'app'>('user');
@@ -54,8 +58,9 @@ export function ConnectDialog({ onClose, onPulled }: { onClose: () => void; onPu
       // Only into an empty or new folder: a pull never mixes with files already there.
       const existing = await invoke<{ files: unknown[] }>('open_project', { root }).catch(() => null);
       if (existing && existing.files.length) throw new Error('That folder already has files. Pick an empty or new folder.');
-      await S.clone(root, pick.id, pick.name, branch);
-      onPulled(root);
+      setBusy('Pulling the files and their Exchange dependencies…');
+      const r = await S.clone(root, pick.id, pick.name, branch);
+      onPulled(root, depsNote(r.deps));
     } catch (e) { setErr(String(e)); setBusy(null); }
   };
 
@@ -212,6 +217,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged }
   const pull = () => run('Pulling…', async () => {
     const r = await S.pull(root, (await S.readLink(root))!);
     await onChanged();
+    const dn = depsNote(r.deps); if (dn) { onNotice(dn, true); return; }
     if (r.conflicts.length) onNotice(`Pulled. ${r.conflicts.length === 1 ? 'One file needs' : `${r.conflicts.length} files need`} a look: ${r.conflicts.map((c) => c.kind === 'lines' ? `${c.path} (both changed the same lines; the file holds both versions between <<<<<<< and >>>>>>>)` : `${c.path} (${c.kind}, the changed version was kept)`).join('; ')}.`, true);
     else onNotice(r.upToDate ? 'Already up to date.' : `Pulled ${r.updated.length + r.removed.length} ${r.updated.length + r.removed.length === 1 ? 'change' : 'changes'} from Design Center.`, false);
   });
@@ -220,10 +226,10 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged }
     setMenu({ x: r.left + r.width / 2 - 130, y: r.bottom + 4, branches: [] });
     try { setMenu({ x: r.left + r.width / 2 - 130, y: r.bottom + 4, branches: (await S.branches(link.projectId)).map((b) => b.name) }); } catch (err) { setMenu(null); onNotice(String(err), true); }
   };
-  const switchTo = (b: string) => { setMenu(null); run(`Switching to ${b}…`, async () => { await S.switchBranch(root, (await S.readLink(root))!, b, await listFiles()); await onChanged(); onNotice(`Now on ${b}.`, false); }); };
+  const switchTo = (b: string) => { setMenu(null); run(`Switching to ${b}…`, async () => { const d = await S.switchBranch(root, (await S.readLink(root))!, b, await listFiles()); await onChanged(); onNotice(depsNote(d) ?? `Now on ${b}.`, !!depsNote(d)); }); };
   const newBranch = (name: string) => {
     setAsking(false);
-    run('Creating the branch…', async () => { const l = (await S.readLink(root))!; await S.createBranch(l, name); await S.switchBranch(root, l, name, await listFiles()); await onChanged(); onNotice(`Created ${name} and switched to it.`, false); });
+    run('Creating the branch…', async () => { const l = (await S.readLink(root))!; await S.createBranch(l, name); const d = await S.switchBranch(root, l, name, await listFiles()); await onChanged(); onNotice(depsNote(d) ?? `Created ${name} and switched to it.`, !!depsNote(d)); });
   };
 
   return (
