@@ -12,7 +12,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
-import { Inspector, OasInspector } from './Inspector';
+import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
@@ -262,6 +262,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const [closedSecs, setClosedSecs] = useState<Set<string>>(new Set(['Resource types', 'Security schemes']));
   const libTexts = useRef(new Map<string, string>());
   const [problems, setProblems] = useState<Problem[]>([]);
+  // The API as AMF reads it (types, their uses, positions), refreshed by each full check.
+  const [amfModel, setAmfModel] = useState<AmfModel | null>(null);
   const [problemsOpen, setProblemsOpen] = useState(false);
   const [engine, setEngine] = useState<{ state: string; detail: string; ms?: string }>({ state: 'starting', detail: '' });
   const gen = useRef(0), applied = useRef(0), sentOverlay = useRef(new Set<string>());
@@ -804,10 +806,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     setEngine((e) => (e.state === 'failed' ? e : { ...e, state: 'checking' }));
     try {
       await syncOverlays();
-      const r = await amf('check', { mode });
+      const r = await amf('check', { mode, model: mode === 'validate' });
       if (r.stale || g < applied.current) return;
       applied.current = g;
       setProblems((prev) => (mode === 'validate' ? r.problems : [...r.problems, ...prev.filter((x) => x.phase === 'validate')]));
+      if (r.model) setAmfModel(r.model);
       setEngine({ state: 'ready', detail: '', ms: mode === 'validate' ? `Checked in ${((r.parseMs + r.validateMs) / 1000).toFixed(1)} s` : `Read in ${(r.parseMs / 1000).toFixed(2)} s` });
     } catch (e) {
       // The checker answered but couldn't read the spec: that's a problem with the spec, not a dead
@@ -922,6 +925,22 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   async function reveal(path: string, from: number) {
     await openFile(path);
     const v = view.current!; v.dispatch({ selection: { anchor: Math.min(from, v.state.doc.length) }, effects: EditorView.scrollIntoView(Math.min(from, v.state.doc.length), { y: 'center' }) }); v.focus();
+  }
+  // A place AMF reported (line from 1, column from 0), in whichever file it is.
+  async function revealAt(at: At) {
+    await openFile(at.file);
+    const v = view.current!, d = v.state.doc, l = d.line(Math.min(Math.max(at.r[0], 1), d.lines));
+    const pos = Math.min(l.from + at.r[1], l.to);
+    v.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) }); v.focus();
+  }
+  // AMF's JSON Schema for a declared type, onto the clipboard.
+  async function copyJsonSchema(name: string, file: string) {
+    try {
+      await syncOverlays();
+      const r = await amf('jsonSchema', { name, file });
+      await navigator.clipboard.writeText(r.text);
+      setNotice({ text: `Copied ${name} as JSON Schema.`, err: false });
+    } catch (e) { fail(e); }
   }
   function jumpTo(from: number) {
     const v = view.current!; v.dispatch({ selection: { anchor: from }, scrollIntoView: true }); v.focus();
@@ -1051,12 +1070,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
             <FormBoundary resetKey={doc ? doc.path + ":" + doc.line : ""}>
             {doc && active === doc.path && /\.raml$/i.test(doc.path) ? (
-              <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={isReadOnly(doc.path)} rootFile={project.main ?? ''} outline={outline} textOf={textOf}
-                onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)}
+              <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={isReadOnly(doc.path)} outline={outline} model={amfModel}
+                onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)} onOpenAt={revealAt} onJsonSchema={copyJsonSchema}
                 onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }}
                 onMove={openMove} onDelete={deleteDecl} />
             ) : doc && active === doc.path && isOasYaml(doc.path, doc.text) ? (
-              <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={isReadOnly(doc.path)} onEdit={applyForm} onGoLine={goLine} />
+              <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
             ) : (
               <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.'
                 : /\.json$/i.test(active) && doc && /"openapi"\s*:/.test(doc.text) ? 'Forms work on OAS 3.0 in YAML. For JSON, edit the code for now.'

@@ -3,7 +3,7 @@
 // text (src/splice.ts) applied through the editor, so Ctrl Z undoes it and the code stays the master.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Icons } from './components/Icons';
-import { METHODS, BUILTIN_TYPES, entries, kids, kid, keyPathAt, libraryPaths, type Outline, type Decl } from './raml';
+import { METHODS, BUILTIN_TYPES, entries, kids, kid, keyPathAt, type Outline, type Decl } from './raml';
 import * as S from './splice';
 
 type Node =
@@ -87,24 +87,58 @@ function AddSelect({ label, options, onPick }: { label: string; options: string[
   );
 }
 
+// The API as AMF reads it (amf-server's check with model:true). Positions: [line from 1, column from 0, end line, end column].
+export type At = { file: string; r: [number, number, number, number] };
+type AmfField = { v: string; at?: At };
+type AmfPayload = { media: string; type: string; at?: At };
+export type AmfModel = {
+  title?: AmfField; version?: AmfField; description?: AmfField;
+  endpoints: { path: string; at?: At; summary?: AmfField; description?: AmfField; operations: {
+    method: string; at?: At; summary?: AmfField; description?: AmfField; operationId?: AmfField; tags: string[];
+    parameters: { name: string; in: string; required: boolean; type: string; at?: At }[]; body: AmfPayload[];
+    responses: { code: string; at?: AmfField['at']; description?: AmfField; body: AmfPayload[] }[];
+  }[] }[];
+  types: { id: string; name: string; type: string; at?: At; properties?: { name: string; type: string; required: boolean; at?: At }[]; usedBy: { where: string; at?: At }[] }[];
+};
+
+// Where a type is used, as AMF links say: "GET /orders 200", "Customer.address", "resource type item".
+function UsedBy({ uses, onOpenAt }: { uses: AmfModel['types'][number]['usedBy'] | null; onOpenAt: (at: At) => void }) {
+  if (!uses) return <Sec title="Used by"><div className="text-[11.5px] text-content-faint">Shown after the next check.</div></Sec>;
+  return (
+    <Sec title="Used by" count={uses.length}>
+      {uses.slice(0, 60).map((u, i) => {
+        const m = u.where.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) (\S+)\s*(.*)$/);
+        return (
+          <div key={i} onClick={() => u.at && onOpenAt(u.at)} title={u.at ? `${u.at.file}:${u.at.r[0]}` : undefined}
+            className="flex items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md cursor-pointer hover:bg-[var(--hover-overlay)] text-[12px]">
+            {m ? <Badge m={m[1].toLowerCase()} /> : <span className="font-mono text-[9.5px] font-bold w-4 h-4 shrink-0 rounded-[3px] inline-flex items-center justify-center text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]">T</span>}
+            <span className="font-mono text-[11.5px] truncate">{m ? m[2] : u.where}</span>
+            {m && <span className="ml-auto text-[11px] text-content-faint whitespace-nowrap">{m[3]}</span>}
+          </div>
+        );
+      })}
+      {uses.length === 0 && <div className="text-[11.5px] text-content-faint">Nothing uses this type.</div>}
+    </Sec>
+  );
+}
+
 const BTN = 'h-[26px] px-2.5 rounded-md text-[12px] border border-line bg-surface-2 text-content-secondary hover:text-content disabled:opacity-40';
 // What can go into an extracted trait, in the order RAML usually writes them.
 const TRAIT_PARTS = ['queryParameters', 'queryString', 'headers', 'securedBy', 'body', 'responses'];
 
-export function Inspector({ file, text, line, isMain, readOnly, rootFile, outline, textOf, onEdit, onGoLine, onOpen, onRename, onMove, onDelete }: {
-  file: string; text: string; line: number; isMain: boolean; readOnly: boolean; rootFile: string; outline: Outline | null; textOf: (path: string) => string | undefined;
+export function Inspector({ file, text, line, isMain, readOnly, outline, model, onEdit, onGoLine, onOpen, onOpenAt, onRename, onMove, onDelete, onJsonSchema }: {
+  file: string; text: string; line: number; isMain: boolean; readOnly: boolean; outline: Outline | null; model: AmfModel | null;
   onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void; onOpen: (file: string, from: number) => void;
   onRename: (from: number) => void; onMove: (d: Decl) => void; onDelete: (d: Decl) => void;
+  onOpenAt: (at: At) => void; onJsonSchema: (name: string, file: string) => void;
 }) {
   const E = useMemo(() => entries(text), [text]);
   const L = useMemo(() => text.split('\n'), [text]);
   const node = useMemo(() => nodeAt(text, line, isMain), [text, line, isMain]);
-  // "Used by" reads every library, so only when the type or the text changes, not on cursor moves.
-  const typeName = node.kind === 'decl' && node.sect === 'types' ? node.name : null;
-  const used = useMemo(() => {
-    const d = typeName && outline?.types.find((x) => x.file === file && x.name === typeName);
-    return d ? usages(d.name, d.file, rootFile, textOf, outline) : [];
-  }, [typeName, file, rootFile, outline, text]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "Used by" is AMF's: its links follow aliases, $refs, libraries and templates exactly. It refreshes with
+  // each full check; null until the first one.
+  const amfType = node.kind === 'decl' && node.sect === 'types' ? model?.types.find((t) => t.name === node.name && t.at?.file === file) : undefined;
+  const used = model ? amfType?.usedBy ?? [] : null;
   const own = outline?.libraries.find((l) => l.path === file)?.alias ?? null;
   // Names this file can refer to: its own declarations bare, the others through the root's aliases.
   const typeNames = useMemo(() => [...(outline?.types ?? []).map((d) => (d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name)), ...BUILTIN_TYPES], [outline, own]);
@@ -394,6 +428,7 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
         <div className="mt-3 flex flex-wrap gap-1.5">
           {d && <button onClick={() => onRename(d.from)} className={BTN}>Rename…</button>}
           {d && isType && isMain && <button onClick={() => onMove(d)} className={BTN}>Move to library…</button>}
+          {isType && amfType && <button onClick={() => onJsonSchema(node.name, file)} className={BTN} title="AMF renders this type as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>}
           {d && node.sect !== 'securitySchemes' && node.sect !== 'annotationTypes' && <button onClick={() => onDelete(d)} className={BTN + ' hover:!text-err'}>Delete…</button>}
         </div>
         {/* Declared in its own file (name: !include file.raml): the form for it is in that file. */}
@@ -441,17 +476,7 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
           </Sec>
         )}
         {!included && isType && enumK < 0 && params(node.path, 'properties', 'Properties', 'Add property', 'No properties.')}
-        {isType && (
-          <Sec title="Used by" count={used.length}>
-            {used.slice(0, 40).map((u, i) => (
-              <div key={i} onClick={() => onOpen(u.file, u.from)} className="flex items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md cursor-pointer hover:bg-[var(--hover-overlay)] text-[12px]">
-                {u.m ? <Badge m={u.m} /> : <span className="font-mono text-[9.5px] font-bold w-4 h-4 rounded-[3px] inline-flex items-center justify-center text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]">T</span>}
-                <span className="font-mono text-[11.5px] truncate">{u.label}</span><span className="ml-auto text-[11px] text-content-faint whitespace-nowrap">{u.where}</span>
-              </div>
-            ))}
-            {used.length === 0 && <div className="text-[11.5px] text-content-faint">Nothing uses this type.</div>}
-          </Sec>
-        )}
+        {isType && <UsedBy uses={used} onOpenAt={onOpenAt} />}
       </>
     );
   } else if (node.kind === 'root') {
@@ -490,40 +515,6 @@ export function Inspector({ file, text, line, isMain, readOnly, rootFile, outlin
   );
 }
 
-// Where a type is used: through each file's aliases for its library, and bare inside its own file.
-// Only value positions count (type:, items:, "name: Type", unions), never descriptions.
-function usages(name: string, declFile: string, rootFile: string, textOf: (p: string) => string | undefined, outline: Outline | null) {
-  if (!outline) return [];
-  const out: { file: string; from: number; m: string | null; label: string; where: string }[] = [];
-  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const files = [...new Set([rootFile, ...outline.libraries.map((l) => l.path), declFile])];
-  for (const f of files) {
-    const t = textOf(f); if (t == null) continue;
-    const names = libraryPaths(f, t).filter((l) => l.path === declFile).map((l) => `${esc(l.alias)}\\.${esc(name)}`);
-    if (f === declFile) names.push(esc(name));
-    if (!names.length) continue;
-    const re = new RegExp(`(^|[\\s|(\\[,:])(${names.join('|')})(?=(\\[\\])?\\??($|[\\s|),\\]]))`);
-    let pos = 0;
-    t.split('\n').forEach((l, i) => {
-      const m = l.match(/^(\s*(?:- )?[^:#]+?\s*:\s*)(.+)$/);
-      if (m && !/^\s*(description|displayName|usage|title|example|examples|pattern)\s*:/.test(l) && re.test(m[2])) {
-        const kp = keyPathAt(t, i), mi = kp.findIndex((e) => METHODS.includes(e.key));
-        const decl = kp[0] && DECL_SECTS[kp[0].key] && kp[1];
-        if (!(f === declFile && decl && kp.length === 2 && kp[1].key === name)) {
-          out.push({
-            file: f, from: pos + l.match(/^\s*/)![0].length,
-            m: mi >= 0 ? kp[mi].key : null,
-            label: mi >= 0 ? kp.slice(0, mi).map((e) => e.key).join('') : decl ? (decl.key + (kp.length > 3 ? '.' + kp[kp.length - 1].key : '')) : kp.map((e) => e.key).join('.'),
-            where: mi >= 0 ? kp.slice(mi + 1).map((e) => e.key).filter((x) => !['body', 'type', 'properties'].includes(x)).slice(0, 2).join(' ') : f === declFile ? '' : f.split('/').pop()!,
-          });
-        }
-      }
-      pos += l.length + 1;
-    });
-  }
-  return out;
-}
-
 // ---------- OAS 3.0 (YAML) ----------
 // The same idea for OpenAPI files: a form for the operation, path, schema or API under the cursor, every
 // change a minimal splice. Parameters and servers are "- " lists, addressed as #n in a path.
@@ -547,9 +538,9 @@ function setOasType(text: string, p: string[], t: string): string {
   return S.addChild(text, p, arr ? ['type: array', 'items:', ...one(b).map((l) => '  ' + l)] : one(b), true);
 }
 
-export function OasInspector({ file, text, line, readOnly, onEdit, onGoLine }: {
-  file: string; text: string; line: number; readOnly: boolean;
-  onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void;
+export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLine, onOpenAt, onJsonSchema }: {
+  file: string; text: string; line: number; readOnly: boolean; model: AmfModel | null;
+  onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void; onOpenAt: (at: At) => void; onJsonSchema: (name: string, file: string) => void;
 }) {
   const E = useMemo(() => entries(text), [text]);
   const L = useMemo(() => text.split('\n'), [text]);
@@ -676,12 +667,13 @@ export function OasInspector({ file, text, line, readOnly, onEdit, onGoLine }: {
     const p = ['components', 'schemas', kp[2]], k = at(p);
     const pk = at([...p, 'properties']), props = pk < 0 ? [] : kids(E, pk);
     const req = S.list(text, [...p, 'required']) ?? [];
-    const refs = L.map((l, i) => [l, i] as const).filter(([l]) => l.includes(`${REF}${kp[2]}'`) || l.includes(`${REF}${kp[2]}"`) || new RegExp(`${REF}${kp[2]}\\s*$`).test(l));
+    const amfSchema = model?.types.find((t) => t.name === kp[2] && t.at?.file === file);
     h = (
       <>
         <span className="font-mono text-[13.5px] font-bold break-all">{kp[2]}</span>
         <div className="mt-1 text-[12.5px] text-content-secondary">Schema</div>
         {k >= 0 && loc(k)}
+        {amfSchema && <div className="mt-3"><button onClick={() => onJsonSchema(kp[2], file)} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button></div>}
         <Sec title="Type">{typeCell(p)}</Sec>
         <div className="mt-3">{field(p, 'description', 'Description', false, true)}</div>
         {at([...p, 'enum']) >= 0 ? (
@@ -715,19 +707,7 @@ export function OasInspector({ file, text, line, readOnly, onEdit, onGoLine }: {
             })}
           </Sec>
         )}
-        <Sec title="Used by" count={refs.length}>
-          {refs.slice(0, 40).map(([, i]) => {
-            const kk = keyPathAt(text, i).map((e) => e.key), m = kk.findIndex((x) => METHODS.includes(x));
-            return (
-              <div key={i} onClick={() => onGoLine(i)} className="flex items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md cursor-pointer hover:bg-[var(--hover-overlay)] text-[12px]">
-                {m >= 0 ? <Badge m={kk[m]} /> : null}
-                <span className="font-mono text-[11.5px] truncate">{m >= 0 ? kk[m - 1] : kk.slice(0, 3).join('.')}</span>
-                <span className="ml-auto text-[11px] text-content-faint whitespace-nowrap">{m >= 0 ? kk.slice(m + 1).filter((x) => !['content', 'schema', 'items', '$ref'].includes(x)).slice(0, 2).join(' ') : ''}</span>
-              </div>
-            );
-          })}
-          {refs.length === 0 && <div className="text-[11.5px] text-content-faint">Nothing refers to this schema.</div>}
-        </Sec>
+        <UsedBy uses={model ? amfSchema?.usedBy ?? [] : null} onOpenAt={onOpenAt} />
       </>
     );
   } else {
