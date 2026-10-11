@@ -23,7 +23,12 @@ pub struct Connection {
   host: String, // https://anypoint.mulesoft.com, or a regional host
   #[serde(default)]
   broker: String, // where "anypoint" mode signs in and refreshes
+  // Read only: every call that could change Design Center or Exchange is refused in call(), before any
+  // request is made. Missing in an old file means read only, the safe side.
+  #[serde(default = "yes")]
+  read_only: bool,
 }
+fn yes() -> bool { true }
 
 // The sign-in broker on ashutosh-vijay.dev holds our Connected App's secret (PLAN 2.1).
 pub const BROKER: &str = "https://ashutosh-vijay.dev/api-designer-studio/auth";
@@ -48,6 +53,7 @@ pub struct Me {
   org_name: String,
   host: String,
   mode: String,
+  read_only: bool,
 }
 
 struct Session {
@@ -115,7 +121,7 @@ fn fetch_me(host: &str, access: &str, mode: &str) -> Result<Me, String> {
       user_id: u["id"].as_str().unwrap_or("").into(),
       org_id: u["organizationId"].as_str().or(u["organization"]["id"].as_str()).unwrap_or("").into(),
       org_name: u["organization"]["name"].as_str().unwrap_or("").into(),
-      host: host.into(), mode: mode.into(),
+      host: host.into(), mode: mode.into(), read_only: true,
     });
   }
   let c = &v["client"];
@@ -123,13 +129,14 @@ fn fetch_me(host: &str, access: &str, mode: &str) -> Result<Me, String> {
     username: c["name"].as_str().unwrap_or("Connected App").into(),
     user_id: c["client_id"].as_str().unwrap_or("").into(),
     org_id: c["org_id"].as_str().unwrap_or("").into(),
-    org_name: String::new(), host: host.into(), mode: mode.into(),
+    org_name: String::new(), host: host.into(), mode: mode.into(), read_only: true,
   })
 }
 
 fn start_session(app: &AppHandle, conn: Connection, tokens: &Value) -> Result<Me, String> {
   let access = tokens["access_token"].as_str().ok_or("Anypoint sent no access token.")?.to_string();
-  let me = fetch_me(&conn.host, &access, &conn.mode)?;
+  let mut me = fetch_me(&conn.host, &access, &conn.mode)?;
+  me.read_only = conn.read_only;
   if let Some(r) = tokens["refresh_token"].as_str() { keychain("refresh-token")?.set_password(r).map_err(|e| e.to_string())?; }
   let secs = tokens["expires_in"].as_u64().unwrap_or(3600);
   let state = app.state::<Arc<Anypoint>>();
@@ -257,7 +264,7 @@ fn broker_sign_in(broker: &str) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, client_secret: String, host: String, broker: Option<String>) -> Result<Me, String> {
+pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, client_secret: String, host: String, broker: Option<String>, read_only: Option<bool>) -> Result<Me, String> {
   tauri::async_runtime::spawn_blocking(move || {
     let host = host.trim_end_matches('/').to_string();
     // A different broker only in development, for testing against a local one.
@@ -269,7 +276,7 @@ pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, c
     } else {
       browser_sign_in(&host, &client_id, &client_secret)?
     };
-    let conn = Connection { broker: if mode == "anypoint" { broker } else { String::new() }, mode, client_id, host };
+    let conn = Connection { broker: if mode == "anypoint" { broker } else { String::new() }, mode, client_id, host, read_only: read_only.unwrap_or(true) };
     let me = start_session(&app, conn.clone(), &tokens)?;
     if conn.mode != "anypoint" { keychain("client-secret")?.set_password(&client_secret).map_err(|e| e.to_string())?; }
     let f = conn_file(&app)?;
@@ -297,14 +304,36 @@ pub async fn anypoint_disconnect(app: AppHandle) -> Result<(), String> {
   Ok(())
 }
 
+// Turn read only on or off for the current connection (Settings). Kept with the connection.
+#[tauri::command]
+pub async fn anypoint_set_read_only(app: AppHandle, on: bool) -> Result<(), String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    let f = conn_file(&app)?;
+    let mut conn: Connection = std::fs::read_to_string(&f).ok().and_then(|t| serde_json::from_str(&t).ok()).ok_or("Not signed in to Anypoint.")?;
+    conn.read_only = on;
+    std::fs::write(&f, serde_json::to_string(&conn).unwrap()).map_err(|e| e.to_string())?;
+    if let Some(s) = app.state::<Arc<Anypoint>>().session.lock().unwrap().as_mut() { s.conn.read_only = on; s.me.read_only = on; }
+    Ok(())
+  }).await.map_err(|e| e.to_string())?
+}
+
 #[derive(Serialize)]
 pub struct Reply { status: u16, json: Value, text: String }
+
+// What a read-only connection may do: read (GET), and Design Center's status call, which only reports the
+// lock and the branch's position. Everything else (save, delete, move, lock, publish, new branch) is a write.
+fn is_read(method: &str, path: &str) -> bool {
+  method == "GET" || (method == "POST" && path.starts_with("/designcenter/") && path.ends_with("/status"))
+}
 
 fn call(app: &AppHandle, method: &str, path: &str, body: Option<&Value>) -> Result<Reply, String> {
   let ok = path.starts_with("/designcenter/") || path.starts_with("/exchange/") || path == "/accounts/api/me";
   if !ok { return Err(format!("Not an allowed Anypoint path: {path}")); }
   for attempt in 0..2 {
     let (token, me, host) = access(app)?;
+    if me.read_only && !is_read(method, path) {
+      return Err("This connection is read only, so nothing that would change Design Center was sent. Turn read only off in settings to push.".into());
+    }
     let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
     let mut rq = client().request(m, format!("{host}{path}")).bearer_auth(&token).header("x-organization-id", &me.org_id).header("x-owner-id", &me.user_id).header("accept", "application/json");
     if let Some(b) = body { rq = rq.json(b); }
@@ -404,7 +433,7 @@ pub async fn anypoint_dev_session(app: AppHandle, client_id: String, client_secr
   if !cfg!(debug_assertions) { return Err("Not available.".into()); }
   tauri::async_runtime::spawn_blocking(move || {
     let tokens = token_request(&host, json!({ "grant_type": "refresh_token", "client_id": client_id, "client_secret": client_secret, "refresh_token": refresh_token }))?;
-    let conn = Connection { mode: "code".into(), client_id, host, broker: String::new() };
+    let conn = Connection { mode: "code".into(), client_id, host, broker: String::new(), read_only: false };
     let me = start_session(&app, conn.clone(), &tokens)?;
     keychain("client-secret")?.set_password(&client_secret).map_err(|e| e.to_string())?;
     let f = conn_file(&app)?;

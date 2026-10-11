@@ -8,7 +8,7 @@ import { Icons } from './components/Icons';
 import { Modal, TextDialog, btn, btnPrimary } from './App';
 import * as S from './sync';
 
-export type Me = { username: string; user_id: string; org_id: string; org_name: string; host: string; mode: string };
+export type Me = { username: string; user_id: string; org_id: string; org_name: string; host: string; mode: string; read_only: boolean };
 const REGIONS: [string, string][] = [['US', 'https://anypoint.mulesoft.com'], ['EU', 'https://eu1.anypoint.mulesoft.com']];
 const REDIRECT = 'http://localhost:8765/callback';
 // Where secrets go, in the words of each system.
@@ -24,6 +24,7 @@ export function ConnectDialog({ onClose, onPulled }: { onClose: () => void; onPu
   const [me, setMe] = useState<Me | null>(null);
   const [step, setStep] = useState<'checking' | 'choose' | 'waiting' | 'projects'>('checking');
   const [way, setWay] = useState<'ours' | 'byok'>('ours');
+  const [readOnly, setReadOnly] = useState(true);
   const [acts, setActs] = useState<'user' | 'app'>('user');
   const [region, setRegion] = useState(REGIONS[0][1]);
   const [clientId, setClientId] = useState(''); const [secret, setSecret] = useState('');
@@ -50,7 +51,7 @@ export function ConnectDialog({ onClose, onPulled }: { onClose: () => void; onPu
       const mode = way === 'ours' ? 'anypoint' : acts === 'user' ? 'code' : 'client';
       // __ADS_BROKER and __ADS_HOST: a local broker and stand-in Anypoint for development tests (release builds ignore the broker one).
       const dev = window as unknown as { __ADS_BROKER?: string; __ADS_HOST?: string };
-      const m = await invoke<Me>('anypoint_connect', { mode, clientId: clientId.trim(), clientSecret: secret.trim(), host: dev.__ADS_HOST ?? region, broker: dev.__ADS_BROKER ?? null });
+      const m = await invoke<Me>('anypoint_connect', { mode, clientId: clientId.trim(), clientSecret: secret.trim(), host: dev.__ADS_HOST ?? region, broker: dev.__ADS_BROKER ?? null, readOnly });
       setMe(m); setSecret(''); await loadProjects();
     } catch (e) { setErr(String(e)); setStep('choose'); }
   };
@@ -108,6 +109,11 @@ export function ConnectDialog({ onClose, onPulled }: { onClose: () => void; onPu
           </select>
           <span className="text-[11.5px] text-content-faint">Where your Anypoint organization lives.</span></label>
         {usOnly && <div className="text-[11.5px] text-warn">Sign in with Anypoint works for organizations in the US region. In another region, use your own Connected App.</div>}
+        <label className="mt-1 flex items-start gap-2 cursor-pointer">
+          <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
+          <span><span className="block text-[12.5px]">Read only</span>
+            <span className="block text-[11.5px] text-content-faint">Pull and look, never change anything in Design Center: saving, deleting, locking and new branches are refused before anything is sent. You can turn it off later in settings.</span></span>
+        </label>
       </div>
     );
     foot = <><span className="flex-1" /><button className={btn} onClick={onClose}>Cancel</button>
@@ -177,9 +183,19 @@ export function AnypointSettings({ onConnect }: { onConnect: () => void }) {
     <div>
       <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Anypoint</div>
       {me && me !== 'error' ? (
-        <div className="flex items-center gap-2 text-[12px]">
-          <span className="min-w-0 flex-1"><span className="block truncate">{me.username}</span><span className="block truncate text-[11px] text-content-faint">{me.org_name}</span></span>
-          <button className={btn} onClick={async () => { await invoke('anypoint_disconnect'); setMe(null); }}>Sign out</button>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-[12px]">
+            <span className="min-w-0 flex-1"><span className="block truncate">{me.username}</span><span className="block truncate text-[11px] text-content-faint">{me.org_name}</span></span>
+            <button className={btn} onClick={async () => { await invoke('anypoint_disconnect'); setMe(null); }}>Sign out</button>
+          </div>
+          <label className="flex items-center gap-2 text-[12px] cursor-pointer" title="Read only refuses every change to Design Center before it's sent">
+            <input type="checkbox" checked={me.read_only} className="accent-[var(--accent)]" onChange={async (e) => {
+              const on = e.target.checked;
+              // Turning writes on is the one that needs a second look.
+              if (!on && !window.confirm(`Let API Designer Studio push changes to Design Center in ${me.org_name || 'this organization'}? Pushing saves files, takes the lock and can delete files there.`)) return;
+              await invoke('anypoint_set_read_only', { on }); setMe({ ...me, read_only: on });
+            }} />Read only
+          </label>
         </div>
       ) : (
         <div className="flex items-center gap-2 text-[12px]">
@@ -202,12 +218,16 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged }
   const [busy, setBusy] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; branches: string[] } | null>(null);
   const [asking, setAsking] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
   const timer = useRef(0);
 
   const refresh = async (remote = true) => {
     const l = await S.readLink(root); setLink(l); if (!l) return;
     setToPush((await S.localChanges(root, l, await listFiles())).count);
-    if (remote) S.remoteState(l).then((r) => setBehind(r.behind), () => {});
+    if (remote) {
+      S.remoteState(l).then((r) => setBehind(r.behind), () => {});
+      invoke<Me | null>('anypoint_status').then((m) => setReadOnly(!!m?.read_only), () => {});
+    }
   };
   // Local changes after every save; Design Center's side every minute and when the window comes back.
   useEffect(() => { refresh(); }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -256,6 +276,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged }
         {busy ? <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />{busy}</span>
           : dirty ? null
           : behind ? <><span>Design Center has changes</span><button onClick={pull} className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Pull</button></>
+          : toPush && readOnly ? <span title="This connection is read only. Turn it off in settings to push.">Saved on this computer · read only, {toPush} {toPush === 1 ? 'change' : 'changes'} not sent</span>
           : toPush ? <><span>Saved on this computer</span><button onClick={push} title="Send your saved changes to Design Center" className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Push {toPush} {toPush === 1 ? 'change' : 'changes'}</button></>
           : <button onClick={() => run('Checking Design Center…', async () => {})} title="Check Design Center now" className="hover:text-content">Up to date with Design Center</button>}
       </span>
@@ -270,7 +291,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged }
               </button>
             ))}
             <div className="my-1 border-t border-line-subtle" />
-            <button onClick={() => { setMenu(null); setAsking(true); }} className="w-full h-7 px-2 rounded text-left text-[12.5px] text-content-secondary hover:bg-surface-3 hover:text-content">New branch…</button>
+            {!readOnly && <button onClick={() => { setMenu(null); setAsking(true); }} className="w-full h-7 px-2 rounded text-left text-[12.5px] text-content-secondary hover:bg-surface-3 hover:text-content">New branch…</button>}
           </div>
         </div>
       )}
