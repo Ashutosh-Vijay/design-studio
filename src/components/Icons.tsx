@@ -248,6 +248,14 @@ export const Icons = {
       <path d="M14 3v5h5" />
     </>,
   ),
+  Branch: mk(
+    <>
+      <circle cx="6" cy="5" r="2" />
+      <circle cx="6" cy="19" r="2" />
+      <circle cx="18" cy="7" r="2" />
+      <path d="M6 7v10M18 9c0 5-6 4-11.5 8" />
+    </>,
+  ),
   Target: mk(
     <>
       <circle cx="12" cy="12" r="8" />

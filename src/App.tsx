@@ -14,12 +14,14 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
+import { ConnectDialog, AnypointSettings, SyncBar } from './SyncUI';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
 // What the Rust side returns for an opened folder (src-tauri/src/lib.rs, open_project).
 type Project = { root: string; name: string; main: string | null; files: { path: string; size: number }[] };
 type Recent = { root: string; name: string; opened: number };
+type SyncHooks = { saveAll: () => Promise<void>; notice: (t: string, err: boolean) => void; reload: () => Promise<void> };
 
 const APP_NAME = 'API Designer Studio';
 
@@ -51,6 +53,9 @@ export default function App() {
   const [settingsAt, setSettingsAt] = useState<DOMRect | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [dirtyCount, setDirtyCount] = useState(0);
+  const [connectOpen, setConnectOpen] = useState(false);
+  // What the project view lends the title bar's sync controls: save everything, show a notice, reload.
+  const syncRef = useRef<SyncHooks | null>(null);
   const openFileRef = useRef<(path: string) => void>(() => {});
 
   useEffect(() => { applyTheme(theme.pref, theme.accent); }, [theme]);
@@ -140,6 +145,14 @@ export default function App() {
         <span data-tauri-drag-region className="text-[13px] font-semibold">{project ? project.name : APP_NAME}</span>
         {project && <span data-tauri-drag-region className="text-[12px] text-content-faint">{dirtyCount ? `${dirtyCount} unsaved` : 'All changes saved'}</span>}
         <div data-tauri-drag-region className="flex-1 h-full" />
+        {project && isTauri && (
+          <SyncBar key={project.root} root={project.root} dirty={dirtyCount}
+            listFiles={async () => (await invoke<Project>('open_project', { root: project.root })).files.map((f) => f.path)}
+            saveAll={async () => { await syncRef.current?.saveAll(); }}
+            onNotice={(t, err) => syncRef.current?.notice(t, err)}
+            onChanged={async () => { await syncRef.current?.reload(); }} />
+        )}
+        <div data-tauri-drag-region className="flex-1 h-full" />
         <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title="Search files and commands (Ctrl K)" onClick={() => setPaletteOpen(true)}>
           <Icons.Search size={15} />
         </button>
@@ -162,17 +175,20 @@ export default function App() {
           initialNotice={pendingNotice}
           onRefresh={async () => { const p = await invoke<Project>('open_project', { root: project.root }); setProject(p); }}
           openFileRef={openFileRef}
+          syncRef={syncRef}
           settingsButton={settingsBtn('relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center text-content-faint hover:text-content-secondary')}
         />
         </Boundary>
       ) : (
-        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onOpenZip={openZip}
+        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onOpenZip={openZip} onPull={() => setConnectOpen(true)}
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
       )}
 
+      {connectOpen && <ConnectDialog onClose={() => setConnectOpen(false)} onPulled={(root) => { setConnectOpen(false); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
       {settingsAt && (
-        <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)} />
+        <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)}
+          onConnect={() => { setSettingsAt(null); setConnectOpen(true); }} />
       )}
       {paletteOpen && (
         <Palette project={project} recent={recent} onClose={() => setPaletteOpen(false)}
@@ -182,9 +198,9 @@ export default function App() {
   );
 }
 
-function StartView({ recent, opening, error, onOpen, onOpenZip, onRemove }: {
+function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onRemove }: {
   recent: Recent[]; opening: string | null; error: string | null;
-  onOpen: (root?: string) => void; onOpenZip: () => void; onRemove: (root: string) => void;
+  onOpen: (root?: string) => void; onOpenZip: () => void; onPull: () => void; onRemove: (root: string) => void;
 }) {
   return (
     <div className="flex-1 min-h-0 overflow-auto flex justify-center">
@@ -206,6 +222,11 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onRemove }: {
             className="mt-2 w-full flex items-center gap-3 p-3 rounded-lg border border-line bg-surface text-left hover:border-accent-border disabled:opacity-50 disabled:cursor-not-allowed">
             <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent bg-accent-dim"><Icons.Package size={17} /></span>
             <span className="flex-1"><span className="block font-semibold">Open Design Center zip</span><span className="block text-[11.5px] text-content-faint">The zip from Download Project or Exchange</span></span>
+          </button>
+          <button disabled={!isTauri || !!opening} onClick={onPull}
+            className="mt-2 w-full flex items-center gap-3 p-3 rounded-lg border border-line bg-surface text-left hover:border-accent-border disabled:opacity-50 disabled:cursor-not-allowed">
+            <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent bg-accent-dim"><Icons.Download size={17} /></span>
+            <span className="flex-1"><span className="block font-semibold">Pull from Design Center</span><span className="block text-[11.5px] text-content-faint">Sign in, pick a project, edit it here</span></span>
           </button>
           {!isTauri && <p className="mt-3 text-[12px] text-warn">Running in a plain browser. Start the app with npm run tauri dev to open folders.</p>}
           {opening && <p className="mt-3 text-[12px] text-content-faint">Opening {opening}…</p>}
@@ -247,8 +268,9 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onRemove }: {
 // One open file: its editor state and the text on disk (with LF line endings, as the editor holds it).
 type OpenFile = { state: EditorState; disk: string };
 
-function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFileRef, settingsButton }: {
-  project: Project; initialNotice: string | null; onDirtyCount: (n: number) => void; onRefresh: () => Promise<void>; openFileRef: MutableRefObject<(path: string) => void>; settingsButton: ReactNode;
+function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFileRef, syncRef, settingsButton }: {
+  project: Project; initialNotice: string | null; onDirtyCount: (n: number) => void; onRefresh: () => Promise<void>; openFileRef: MutableRefObject<(path: string) => void>;
+  syncRef: MutableRefObject<SyncHooks | null>; settingsButton: ReactNode;
 }) {
   const [filter, setFilter] = useState('');
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
@@ -414,6 +436,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     show(path);
   }
   openFileRef.current = openFile;
+  // The title bar's sync controls: save every unsaved file first, show what happened, reload after a pull.
+  syncRef.current = {
+    saveAll: async () => { for (const p of [...dirty]) await save(p); },
+    notice: (text, err) => setNotice({ text, err }),
+    reload: async () => { await onRefresh(); rebuildOutline(); scheduleRef.current(); },
+  };
 
   // ---------- Autocomplete, hover and go to definition (M1 step 5). All local, from the outline. ----------
   const outlineRef = useRef<Outline | null>(null);
@@ -1328,7 +1356,7 @@ function ProblemsPanel({ problems, open, setOpen, engine, onGo }: {
 }
 
 // ---------- Small dialogs: one look for all of them ----------
-function Modal({ title, sub, children, footer, onCancel, width = 460 }: { title: string; sub?: ReactNode; children: ReactNode; footer: ReactNode; onCancel: () => void; width?: number }) {
+export function Modal({ title, sub, children, footer, onCancel, width = 460 }: { title: string; sub?: ReactNode; children: ReactNode; footer: ReactNode; onCancel: () => void; width?: number }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
     window.addEventListener('keydown', k);
@@ -1347,11 +1375,11 @@ function Modal({ title, sub, children, footer, onCancel, width = 460 }: { title:
     </div>
   );
 }
-const btn = 'h-[28px] px-3 rounded-md text-[12.5px] font-medium border border-line bg-surface-2 text-content-secondary hover:text-content hover:border-content-ghost disabled:opacity-45 disabled:cursor-not-allowed';
-const btnPrimary = 'h-[28px] px-3 rounded-md text-[12.5px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-45 disabled:cursor-not-allowed';
+export const btn = 'h-[28px] px-3 rounded-md text-[12.5px] font-medium border border-line bg-surface-2 text-content-secondary hover:text-content hover:border-content-ghost disabled:opacity-45 disabled:cursor-not-allowed';
+export const btnPrimary = 'h-[28px] px-3 rounded-md text-[12.5px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-45 disabled:cursor-not-allowed';
 const inputCls = 'w-full h-[30px] px-2.5 rounded-md border border-line bg-surface-input text-content outline-none text-[12.5px] focus:border-accent';
 
-function TextDialog({ title, label, value, okLabel, hint, onOk, onCancel }: { title: string; label: string; value: string; okLabel: string; hint?: string; onOk: (v: string) => void; onCancel: () => void }) {
+export function TextDialog({ title, label, value, okLabel, hint, onOk, onCancel }: { title: string; label: string; value: string; okLabel: string; hint?: string; onOk: (v: string) => void; onCancel: () => void }) {
   const [v, setV] = useState(value);
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => { const i = ref.current!; i.focus(); const dot = value.lastIndexOf('.'); i.setSelectionRange(0, dot > 0 ? dot : value.length); }, [value]);
@@ -1466,8 +1494,8 @@ function ZipDialog({ zip, dest, onOk, onCancel }: { zip: string; dest: string; o
     </Modal>
   );
 }
-function SettingsPopover({ at, pref, accent, onChange, onClose }: {
-  at: DOMRect; pref: ThemePref; accent: string; onChange: (p: ThemePref, a: string) => void; onClose: () => void;
+function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect }: {
+  at: DOMRect; pref: ThemePref; accent: string; onChange: (p: ThemePref, a: string) => void; onClose: () => void; onConnect: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1498,6 +1526,7 @@ function SettingsPopover({ at, pref, accent, onChange, onClose }: {
             style={{ background: `oklch(${dark ? 72 : 55}% ${a.chroma} ${a.hue})`, outline: accent === a.id ? '2px solid var(--content)' : 'none', outlineOffset: 2 }} />
         ))}
       </div>
+      {isTauri && <AnypointSettings onConnect={onConnect} />}
     </div>
   );
 }
