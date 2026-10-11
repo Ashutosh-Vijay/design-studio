@@ -248,6 +248,18 @@ export const Icons = {
       <path d="M14 3v5h5" />
     </>,
   ),
+  Exchange: mk(
+    <>
+      <path d="M4.5 8.5c2.5 0 3.5 7 7.5 7s5-7 7.5-7" />
+      <path d="M4.5 15.5c2.5 0 3.5-7 7.5-7s5 7 7.5 7" />
+    </>,
+  ),
+  Deps: mk(
+    <>
+      <circle cx="5" cy="5" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="5" cy="19" r="2" /><circle cx="19" cy="19" r="2" /><circle cx="12" cy="12" r="2.5" />
+      <path d="M6.5 6.5l3.7 3.7M17.5 6.5l-3.7 3.7M6.5 17.5l3.7-3.7M17.5 17.5l-3.7-3.7" />
+    </>,
+  ),
   Branch: mk(
     <>
       <circle cx="6" cy="5" r="2" />

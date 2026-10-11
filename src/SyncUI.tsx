@@ -303,9 +303,9 @@ export function AnypointSettings({ onConnect }: { onConnect: () => void }) {
 }
 
 // The title bar for a project linked to Design Center: the branch, and what there is to push or pull.
-export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged }: {
+export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, onPublish }: {
   root: string; dirty: number; listFiles: () => Promise<string[]>; saveAll: () => Promise<void>;
-  onNotice: (text: string, err: boolean, actions?: [string, () => void][]) => void; onChanged: () => Promise<void>;
+  onNotice: (text: string, err: boolean, actions?: [string, () => void][]) => void; onChanged: () => Promise<void>; onPublish: () => void;
 }) {
   const [link, setLink] = useState<S.Link | null>(null);
   const [toPush, setToPush] = useState(0);
@@ -339,8 +339,9 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged }
   useEffect(() => {
     const t = window.setInterval(() => refresh(), 60000);
     const f = () => refresh();
-    window.addEventListener('focus', f);
-    return () => { clearInterval(t); window.removeEventListener('focus', f); };
+    const local = () => refresh(false);
+    window.addEventListener('focus', f); window.addEventListener('ads-files-changed', local);
+    return () => { clearInterval(t); window.removeEventListener('focus', f); window.removeEventListener('ads-files-changed', local); };
   }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
   // Lock while I edit: the first unsaved edit takes the lock; a lock someone else holds is said once a minute at most.
   useEffect(() => {
@@ -398,6 +399,10 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged }
           : toPush ? <><span>Saved on this computer</span><button onClick={push} title="Send your saved changes to Design Center" className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Push {toPush} {toPush === 1 ? 'change' : 'changes'}</button></>
           : <button onClick={() => run('Checking Design Center…', async () => {})} title="Check Design Center now" className="hover:text-content">Up to date with Design Center</button>}
       </span>
+      <button onClick={onPublish} disabled={!!busy} title={readOnly ? 'This connection is read only. Turn it off in settings to publish.' : 'Publish this project to Exchange'}
+        className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[12px] text-accent border border-accent-border hover:bg-accent-dim disabled:opacity-50">
+        <Icons.Exchange size={14} />Publish
+      </button>
       {menu && (
         <div className="fixed inset-0 z-40" onMouseDown={() => setMenu(null)}>
           <div className="fixed w-[260px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" style={{ left: Math.max(8, menu.x), top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>

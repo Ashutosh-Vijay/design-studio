@@ -359,8 +359,11 @@ pub async fn anypoint_api(app: AppHandle, method: String, path: String, body: Op
 
 // An Exchange dependency into exchange_modules/{group}/{asset}/{version}/, where Design Center's own
 // zips put it. The asset's fragment zip comes from a signed download link, so that request has no token.
+// With published: a version of this project as Exchange has it, with its dependencies (the "fat" zip),
+// into .apidesigner/published/{version}/, for the Exchange panel's "what changed".
 #[tauri::command]
-pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: String, asset: String, version: String) -> Result<usize, String> {
+pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: String, asset: String, version: String, published: Option<bool>) -> Result<usize, String> {
+  let published = published.unwrap_or(false);
   tauri::async_runtime::spawn_blocking(move || {
     // These become folder names: nothing that could climb out of exchange_modules.
     let safe = |s: &str| !s.is_empty() && s != "." && s != ".." && s.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c));
@@ -371,12 +374,17 @@ pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: Stri
     // The fragment's own files: not the "fat" zip (which nests its dependencies) and not the original upload.
     let files = r.json["files"].as_array().cloned().unwrap_or_default();
     let class = |f: &Value| f["classifier"].as_str().unwrap_or("").to_string();
-    let zip = files.iter().find(|f| f["packaging"] == "zip" && !class(f).starts_with("fat-") && !class(f).starts_with("original-") && !class(f).is_empty())
+    let format = r.json["originalFormat"].as_str().unwrap_or("raml").to_string();
+    let fat = format!("fat-{format}");
+    let zip = files.iter().find(|f| published && f["packaging"] == "zip" && class(f) == fat)
+      .or_else(|| files.iter().find(|f| published && f["packaging"] == "zip" && class(f) == format))
+      .or_else(|| files.iter().find(|f| f["packaging"] == "zip" && !class(f).starts_with("fat-") && !class(f).starts_with("original-") && !class(f).is_empty()))
       .or_else(|| files.iter().find(|f| f["packaging"] == "zip"))
       .ok_or(format!("{asset} {version} has no files to download in Exchange."))?;
     let link = zip["externalLink"].as_str().ok_or("Exchange gave no download link.")?;
     let bytes = client().get(link).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes()).map_err(|e| format!("Couldn't download {asset} {version}: {e}"))?;
-    let dest = std::path::PathBuf::from(&root).join("exchange_modules").join(&group).join(&asset).join(&version);
+    let dest = if published { std::path::PathBuf::from(&root).join(".apidesigner").join("published").join(&version) }
+      else { std::path::PathBuf::from(&root).join("exchange_modules").join(&group).join(&asset).join(&version) };
     if dest.exists() { std::fs::remove_dir_all(&dest).map_err(|e| e.to_string())?; }
     std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
     crate::unzip_into(std::io::Cursor::new(bytes), &dest).map(|(n, _)| n)

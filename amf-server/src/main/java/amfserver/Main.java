@@ -105,6 +105,14 @@ public class Main {
         send(reply(req));
       }
       case "check" -> send(check(req, "validate".equals(req.path("mode").asText())));
+      // The model of a spec in another folder (a version published to Exchange), for "what changed".
+      // Parsed fresh: no cache, and no overlays apply out there.
+      case "modelOf" -> {
+        if (root == null) throw new IllegalStateException("no project open");
+        AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient()
+          .parse(fileUrl(Path.of(req.path("dir").asText()).resolve(req.path("main").asText()))).get();
+        ObjectNode r = reply(req); r.set("model", model(parsed.baseUnit())); send(r);
+      }
       case "convert" -> send(convert(req));
       case "jsonSchema" -> send(jsonSchema(req));
       default -> send(JSON.createObjectNode().put("id", req.path("id").asLong()).put("ok", false).put("error", "unknown op"));

@@ -15,13 +15,14 @@ import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar } from './SyncUI';
+import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
 // What the Rust side returns for an opened folder (src-tauri/src/lib.rs, open_project).
 type Project = { root: string; name: string; main: string | null; files: { path: string; size: number }[] };
 type Recent = { root: string; name: string; opened: number };
-type SyncHooks = { saveAll: () => Promise<void>; notice: (t: string, err: boolean) => void; reload: () => Promise<void> };
+type SyncHooks = { saveAll: () => Promise<void>; notice: (t: string, err: boolean) => void; reload: () => Promise<void>; publish: () => void };
 
 const APP_NAME = 'API Designer Studio';
 
@@ -150,7 +151,7 @@ export default function App() {
             listFiles={async () => (await invoke<Project>('open_project', { root: project.root })).files.map((f) => f.path)}
             saveAll={async () => { await syncRef.current?.saveAll(); }}
             onNotice={(t, err) => syncRef.current?.notice(t, err)}
-            onChanged={async () => { await syncRef.current?.reload(); }} />
+            onChanged={async () => { await syncRef.current?.reload(); }} onPublish={() => syncRef.current?.publish()} />
         )}
         <div data-tauri-drag-region className="flex-1 h-full" />
         <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title="Search files and commands (Ctrl K)" onClick={() => setPaletteOpen(true)}>
@@ -282,7 +283,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const [notice, setNotice] = useState<{ text: string; err: boolean; actions?: [string, () => void][] } | null>(null);
   const fail = (e: unknown) => setNotice({ text: String(e), err: true });
   useEffect(() => { if (initialNotice) setNotice({ text: initialNotice, err: false }); }, [initialNotice]);
-  const [rail, setRail] = useState<'files' | 'api'>('api');
+  const [rail, setRail] = useState<'files' | 'api' | 'deps' | 'exchange'>('api');
+  // The Publish dialog, open with a suggested version (or '' for Design Center's own rule).
+  const [publishing, setPublishing] = useState<string | null>(null);
+  const [published, setPublished] = useState(0); // remounts the Exchange panel after a publish
   const [outline, setOutline] = useState<Outline | null>(null);
   const [shelf, setShelf] = useState<ShelfCtx | null>(null);
   const [shelfOpen, setShelfOpen] = useState(true);
@@ -440,8 +444,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   syncRef.current = {
     saveAll: async () => { for (const p of [...dirty]) await save(p); },
     notice: (text, err) => setNotice({ text, err }),
-    reload: async () => { await onRefresh(); rebuildOutline(); scheduleRef.current(); },
+    // The title bar's sync state recounts too: files can change on disk without an edit (dependencies, publish).
+    reload: async () => { await onRefresh(); rebuildOutline(); scheduleRef.current(); window.dispatchEvent(new Event('ads-files-changed')); },
+    publish: () => setPublishing(''),
   };
+  const listPaths = async () => (await invoke<Project>('open_project', { root: project.root })).files.map((f) => f.path);
 
   // ---------- Autocomplete, hover and go to definition (M1 step 5). All local, from the outline. ----------
   const outlineRef = useRef<Outline | null>(null);
@@ -1019,7 +1026,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     <>
       <div className="flex-1 min-h-0 flex">
         <nav className="w-12 shrink-0 bg-rail border-r border-line flex flex-col py-2.5">
-          {([['files', 'Files', <Icons.File size={18} />], ['api', 'API', <Icons.ApiSpec size={18} />]] as const).map(([id, title, icon]) => (
+          {([['files', 'Files', <Icons.File size={18} />], ['api', 'API', <Icons.ApiSpec size={18} />], ['deps', 'Dependencies', <Icons.Deps size={18} />], ['exchange', 'Exchange', <Icons.Exchange size={18} />]] as const).map(([id, title, icon]) => (
             <button key={id} title={title} onClick={() => setRail(id)}
               className={`relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center ${rail === id ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
               {rail === id && <span className="absolute -left-2 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
@@ -1031,7 +1038,14 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         </nav>
 
         <aside className="w-[272px] shrink-0 bg-surface border-r border-line flex flex-col min-h-0">
-          <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold">{rail === 'files' ? 'Files' : 'API'}</div>
+          <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold">{{ files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[rail]}</div>
+          {rail === 'deps' ? (
+            <DepsPanel root={project.root} paths={listPaths} onChanged={async () => { await syncRef.current?.reload(); }}
+              onNotice={(text, err) => setNotice({ text, err })} onOpenFile={(p) => openFile(p)} />
+          ) : rail === 'exchange' ? (
+            <ExchangePanel key={published} root={project.root} model={amfModel} onPublish={(v) => setPublishing(v)}
+              modelOf={async (dir, main) => (await amf('modelOf', { dir, main })).model} />
+          ) : <>
           <label className="m-2 mb-1 flex items-center gap-1.5 h-[26px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
             <Icons.Search size={12} />
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={rail === 'files' ? 'Filter' : 'Filter resources and types'} spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
@@ -1066,6 +1080,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             {rows.length === 0 && <div className="p-3 text-[12px] text-content-faint">No files match.</div>}
           </div>
           )}
+          </>}
         </aside>
 
         <main className="flex-1 min-w-0 flex flex-col bg-surface">
@@ -1101,6 +1116,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
               types={(outline?.types ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} traits={(outline?.traits ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} />
           )}
           {checkable && <ProblemsPanel problems={problems} open={problemsOpen} setOpen={setProblemsOpen} engine={engine} onGo={goToProblem} />}
+          {publishing != null && <PublishDialog root={project.root} main={project.main} paths={listPaths} model={amfModel} version={publishing || undefined}
+            errors={problems.filter((x) => x.severity === 'error').length}
+            onClose={() => setPublishing(null)} onShowErrors={() => { setPublishing(null); setProblemsOpen(true); }}
+            onDone={async (text) => { setPublishing(null); await syncRef.current?.reload(); setPublished((n) => n + 1); setNotice({ text, err: false }); }} />}
           {!active && <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">{project.main ? 'Opening…' : 'No root file found. Pick a file on the left.'}</div>}
           {notice && (
             <div className={`shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line bg-surface-2 text-[12px] ${notice.err ? 'text-err' : 'text-content-secondary'}`}>

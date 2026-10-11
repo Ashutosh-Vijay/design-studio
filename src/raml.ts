@@ -139,6 +139,8 @@ export type ShelfCtx =
 const SHELF: Record<string, [string, string[]][]> = {
   // Design Center's own columns at the top level.
   root: [['Template', ['New documentation']], ['Types and Traits', ['annotationTypes', 'resourceTypes', 'traits', 'types']], ['Root', ['baseUri', 'mediaType', 'protocols', 'version']], ['Parameters', ['baseUriParameters']], ['Docs', ['title', 'description', 'documentation']], ['Security', ['securitySchemes', 'securedBy']], ['Others', ['uses']]],
+  // A library has declarations only: no resources, title or baseUri.
+  library: [['Types and Traits', ['types', 'traits', 'resourceTypes', 'annotationTypes']], ['Security', ['securitySchemes']], ['Docs', ['usage']], ['Others', ['uses']]],
   resource: [['Methods', METHODS], ['Docs', ['description', 'displayName']], ['Types and Traits', ['is', 'type']], ['Security', ['securedBy']], ['Parameters', ['uriParameters']]],
   method: [['Docs', ['description', 'displayName']], ['Types and Traits', ['is']], ['Security', ['securedBy']], ['Parameters', ['queryParameters', 'headers', 'queryString']], ['Body', ['body']], ['Responses', ['responses']], ['Protocols', ['protocols']]],
   responses: [['Success', ['200', '201', '202', '204']], ['Client errors', ['400', '401', '403', '404', '409', '422']], ['Server errors', ['500', '502', '503']]],
@@ -147,7 +149,7 @@ const SHELF: Record<string, [string, string[]][]> = {
   media: [['Types and Examples', ['type', 'example', 'examples']]],
 };
 // Keys that take a value on the same line, so the cursor lands after "key: ".
-export const SCALAR_KEYS = ['title', 'version', 'baseUri', 'mediaType', 'description', 'displayName', 'type', 'example', 'securedBy', 'protocols', 'is'];
+export const SCALAR_KEYS = ['title', 'usage', 'version', 'baseUri', 'mediaType', 'description', 'displayName', 'type', 'example', 'securedBy', 'protocols', 'is'];
 
 export function shelfContext(text: string, line: number, col: number): ShelfCtx {
   const E = entries(text), L = text.split('\n');
@@ -166,7 +168,10 @@ export function shelfContext(text: string, line: number, col: number): ShelfCtx 
     for (let j = E.length - 1; j >= 0; j--) if (E[j].line < line && E[j].ind < ind) { ck = j; break; }
   }
   const key = ck >= 0 ? E[ck].key : null;
-  const kind = ck < 0 ? 'root' : key!.startsWith('/') ? 'resource' : METHODS.includes(key!) ? 'method' : key === 'responses' ? 'responses'
+  // Fragments (#%RAML 1.0 Library, DataType, Trait...): a library gets its own keys; the others are a single
+  // declaration, so there's nothing to add at their top level.
+  const frag = /^(\uFEFF)?#%RAML 1\.0 (\w+)/.exec(text)?.[2];
+  const kind = ck < 0 ? (!frag || frag === 'Overlay' || frag === 'Extension' ? 'root' : frag === 'Library' ? 'library' : null) : key!.startsWith('/') ? 'resource' : METHODS.includes(key!) ? 'method' : key === 'responses' ? 'responses'
     : /^\d{3}$/.test(key!) ? 'response'
     // A body that names its type directly (the default media type) takes type and examples, not media types.
     : key === 'body' ? (kids(E, ck).some((j) => ['type', 'example', 'examples', 'properties', 'schema'].includes(E[j].key)) ? 'media' : 'body')

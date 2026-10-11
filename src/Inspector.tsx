@@ -487,7 +487,20 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     const all: number[] = []; const walk = (k: number) => { all.push(k); kids(E, k).filter((j) => E[j].key.startsWith('/')).forEach(walk); };
     E.forEach((e, i) => { if (e.ind === 0 && e.key.startsWith('/')) walk(i); });
     const nMethods = all.reduce((a, k) => a + kids(E, k).filter((j) => METHODS.includes(E[j].key)).length, 0);
-    h = (
+    const frag = /^(\uFEFF)?#%RAML 1\.0 (\w+)/.exec(text)?.[2];
+    const count = (k: string) => { const i = S.find(E, [k]); return i < 0 ? 0 : kids(E, i).length; };
+    const n = (x: number, one: string, many: string) => `${x} ${x === 1 ? one : many}`;
+    if (frag && frag !== 'Overlay' && frag !== 'Extension') h = (
+      <>
+        {title(<span className="text-[13.5px] font-bold">{({ Library: 'Library', DataType: 'Data type', Trait: 'Trait', ResourceType: 'Resource type', NamedExample: 'Example', DocumentationItem: 'Documentation', AnnotationTypeDeclaration: 'Annotation type', SecurityScheme: 'Security scheme' } as Record<string, string>)[frag] ?? frag}</span>)}
+        <div className="mt-1 text-[12.5px] text-content-secondary">{frag === 'Library'
+          ? [n(count('types'), 'type', 'types'), n(count('traits'), 'trait', 'traits'), n(count('resourceTypes'), 'resource type', 'resource types'), n(count('securitySchemes'), 'security scheme', 'security schemes')].join(', ')
+          : `A RAML fragment, used with !include.`}</div>
+        {frag === 'Library' && <div className="mt-3"><Field multiline value={S.scalar(text, ['usage']) ?? ''} placeholder="Usage: what this library is for" onCommit={(v) => onEdit((x) => S.setScalar(x, [], 'usage', v || null))} /></div>}
+        <div className="mt-4 text-[11.5px] text-content-faint">{frag === 'Library' ? 'Put the cursor in a type, trait or resource type, or pick one in the API tree, to edit it here.' : 'Its contents are checked where the API includes it.'}</div>
+      </>
+    );
+    else h = (
       <>
         {title(<span className="text-[13.5px] font-bold">{S.scalar(text, ['title']) || 'Untitled API'}</span>)}
         <div className="mt-1 text-[12.5px] text-content-secondary">{all.length} resources, {nMethods} methods, {outline?.types.length ?? 0} types</div>

@@ -1,0 +1,316 @@
+// M4: Publish to Exchange, and the Dependencies and Exchange panels on the left rail, as in the mockups.
+// Everything Anypoint goes through sync.ts; the panels read exchange.json, which works offline too.
+import { useEffect, useState, type ReactNode } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { Icons } from './components/Icons';
+import { Modal, btn, btnPrimary } from './App';
+import { Badge, type AmfModel } from './Inspector';
+import type { Me } from './SyncUI';
+import * as S from './sync';
+
+const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60000); return !t ? '' : m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+const status = () => invoke<Me | null>('anypoint_status').catch(() => null);
+const exchangeUrl = (me: Me | null, g: string, a: string) => `${me?.host ?? 'https://anypoint.mulesoft.com'}/exchange/${g}/${a}/`;
+const life = (s: string) => (
+  <span className={`text-[10px] font-semibold px-1.5 rounded border whitespace-nowrap ${s === 'published' ? 'border-[color-mix(in_oklch,var(--ok)_40%,transparent)] text-ok' : s === 'development' ? 'border-[color-mix(in_oklch,var(--warn)_40%,transparent)] text-warn' : 'border-line text-content-faint'}`}>
+    {s === 'published' ? 'Stable' : s === 'development' ? 'Development' : s === 'deprecated' ? 'Deprecated' : s}
+  </span>
+);
+const H = ({ children }: { children: ReactNode }) => <div className="mt-4 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">{children}</div>;
+const Note = ({ children }: { children: ReactNode }) => <div className="text-[12px] text-content-faint leading-relaxed">{children}</div>;
+
+// ---------- Publish to Exchange ----------
+export function PublishDialog({ root, main, paths, errors, model, version, onClose, onDone, onShowErrors }: {
+  root: string; main: string | null; paths: () => Promise<string[]>; errors: number; model: AmfModel | null; version?: string;
+  onClose: () => void; onDone: (text: string) => void; onShowErrors: () => void;
+}) {
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [linked, setLinked] = useState<boolean | null>(null);
+  const [d, setD] = useState<S.Descriptor | null>(null);
+  const [versions, setVersions] = useState<S.Version[] | null>(null);
+  const [v, setV] = useState(version ?? '');
+  const [apiVersion, setApiVersion] = useState(model?.version?.v || 'v1');
+  const [dev, setDev] = useState(false);
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
+  const [group, setGroup] = useState(''); const [name, setName] = useState(''); const [assetId, setAssetId] = useState('');
+  const [busy, setBusy] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const m = await status(); setMe(m);
+      setLinked(!!(await S.readLink(root)));
+      const x = await S.readDescriptor(root); if (!x) return;
+      setD(x.d); setGroup(x.d.groupId); setName(x.d.name); setAssetId(x.d.assetId);
+      if (!m) return;
+      // Business groups this user can publish to, from who-am-I.
+      invoke<{ json: { user?: { memberOfOrganizations?: { id: string; name: string }[] } } }>('anypoint_api', { method: 'GET', path: '/accounts/api/me' })
+        .then((r) => setGroups(r.json?.user?.memberOfOrganizations ?? []), () => {});
+      try {
+        const a = await S.assetVersions(x.d.groupId, x.d.assetId);
+        const vs = a?.versions ?? []; setVersions(vs);
+        // Design Center's rule: the last published version plus a patch, or the project's version the first time.
+        if (!version) setV(vs[0] ? S.bump(vs[0].version, 'patch') : x.d.version || '1.0.0');
+      } catch (e) { setErr(String(e)); setVersions([]); if (!version) setV(x.d.version || '1.0.0'); }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const taken = versions?.find((x) => x.version === v.trim());
+  const bad = !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(v.trim()) ? 'Use a version like 1.2.0.' : taken?.status === 'published' ? `${v.trim()} is already in Exchange as Stable. Stable versions can't be published again.` : null;
+  const blocked = me === null ? 'Sign in to Anypoint to publish.' : me?.read_only ? 'This connection is read only. Turn it off in settings to publish.'
+    : linked === false ? 'Publishing goes through Design Center: pull this project from Design Center to publish it.' : !d ? 'This project has no exchange.json, so it has no Exchange asset to publish as.' : null;
+  const go = async () => {
+    setErr(null); setBusy('Publishing…');
+    try {
+      const r = await S.publish(root, await paths(), { name: name.trim(), assetId: assetId.trim(), groupId: group, version: v.trim(), apiVersion: apiVersion.trim() || 'v1', main: main ?? d!.main ?? '', classifier: d!.classifier ?? 'raml', development: dev });
+      onDone(`Published ${v.trim()} to Exchange${dev ? ' as Development' : ''}.${r.pushed ? ` Your ${r.pushed} ${r.pushed === 1 ? 'change was' : 'changes were'} pushed first.` : ''}`);
+    } catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(null); }
+  };
+  const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input text-[12.5px] outline-none focus:border-accent disabled:opacity-60';
+  const last = versions?.[0];
+  return (
+    <Modal title="Publish to Exchange" sub={d ? `${d.name}` : undefined} onCancel={onClose} width={520}
+      footer={<><span className="flex-1 text-[12px] text-content-faint">{busy}</span><button className={btn} onClick={onClose}>Cancel</button>
+        <button className={btnPrimary} disabled={!!blocked || !!errors || !!bad || !!busy || versions == null && !!me || !name.trim() || !assetId.trim()} onClick={go}>Publish to Exchange</button></>}>
+      <div className="flex flex-col gap-3 text-[12.5px]">
+        {!!errors && <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[color-mix(in_oklch,var(--err)_30%,transparent)] bg-[color-mix(in_oklch,var(--err)_8%,transparent)]">
+          <span className="flex-1">{errors} {errors === 1 ? 'error' : 'errors'} to fix first. Exchange won't accept a spec with errors.</span><button className={btn} onClick={onShowErrors}>Show</button></div>}
+        {blocked && <div className="px-3 py-2 rounded-lg border border-line bg-surface-2 text-content-secondary">{blocked}</div>}
+        <div className="flex gap-2.5">
+          <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Asset version</span>
+            <input value={v} onChange={(e) => setV(e.target.value)} spellCheck={false} className={`${field} font-mono`} />
+            <span className={`text-[11.5px] ${bad && v ? 'text-err' : 'text-content-faint'}`}>{bad && v ? bad : last ? `Last published ${last.version}${last.status === 'development' ? ' (Development)' : ''}.` : versions ? 'First version in Exchange.' : ''}</span></label>
+          <label className="w-[120px] flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">API version</span>
+            <input value={apiVersion} onChange={(e) => setApiVersion(e.target.value)} spellCheck={false} className={`${field} font-mono`} /></label>
+        </div>
+        <div className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Lifecycle state</span>
+          <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-line w-fit">
+            {([[false, 'Stable'], [true, 'Development']] as const).map(([x, label]) => (
+              <button key={label} onClick={() => setDev(x)} className={`h-6 px-2.5 rounded text-[11.5px] ${dev === x ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint'}`}>{label}</button>
+            ))}
+          </div>
+          <span className="text-[11.5px] text-content-faint">{dev ? 'A Development version can be published again with changes.' : "A Stable version can't be changed once published."}</span></div>
+        <details>
+          <summary className="cursor-pointer text-[12px] text-content-muted">Advanced</summary>
+          <div className="mt-2.5 flex flex-col gap-2.5">
+            <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Business group</span>
+              <select value={group} onChange={(e) => setGroup(e.target.value)} className={field}>
+                {(groups.some((g) => g.id === group) ? groups : [{ id: group, name: me?.org_name ?? group }, ...groups]).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select></label>
+            <div className="flex gap-2.5">
+              <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Asset name</span><input value={name} onChange={(e) => setName(e.target.value)} className={field} /></label>
+              <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Asset ID</span><input value={assetId} onChange={(e) => setAssetId(e.target.value)} spellCheck={false} className={`${field} font-mono`} /></label>
+            </div>
+          </div>
+        </details>
+        {err && <div className="text-[12px] text-err select-text">{err}</div>}
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- The Exchange panel: versions, and what changed since the last one ----------
+export function ExchangePanel({ root, model, modelOf, onPublish }: {
+  root: string; model: AmfModel | null; modelOf: (dir: string, main: string) => Promise<AmfModel>; onPublish: (version: string) => void;
+}) {
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [d, setD] = useState<S.Descriptor | null | undefined>(undefined);
+  const [a, setA] = useState<{ name: string; versions: S.Version[] } | null | undefined>(undefined);
+  const [diff, setDiff] = useState<{ base: string; changes: S.Change[]; part: 'major' | 'minor' | 'patch' } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const m = await status(); setMe(m);
+      const x = await S.readDescriptor(root); setD(x?.d ?? null);
+      if (!m || !x) return;
+      try { setA(await S.assetVersions(x.d.groupId, x.d.assetId)); } catch (e) { setErr(String(e)); }
+    })();
+  }, [root]);
+  // Compare with the newest version: its files (with dependencies) are fetched once into .apidesigner/published/.
+  useEffect(() => {
+    const base = a?.versions[0]?.version;
+    if (!base || !d || !model || diff?.base === base) return;
+    (async () => {
+      setBusy(`Comparing with ${base}…`); setErr(null);
+      try {
+        const dir = `.apidesigner/published/${base}/`;
+        const have = await invoke<{ files: unknown[] }>('open_project', { root: `${root}/${dir}` }).then((p) => p.files.length > 0, () => false);
+        if (!have) await invoke('anypoint_fetch_dependency', { root, group: d.groupId, asset: d.assetId, version: base, published: true });
+        const pd = await S.readDescriptor(`${root}/${dir}`);
+        const old = await modelOf(`${root}/${dir}`, pd?.d.main ?? d.main ?? '');
+        setDiff({ base, ...S.compareModels(old, model, dir) });
+      } catch (e) { setErr(`Couldn't compare with ${base}: ${String(e).replace(/^Error: /, '')}`); }
+      setBusy(null);
+    })();
+  }, [a, d, model]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (me === undefined || d === undefined) return <div className="p-3"><Note>Loading…</Note></div>;
+  if (!d) return <div className="p-3"><Note>This project has no exchange.json, so it isn't an Exchange asset yet. Projects pulled from Design Center have one.</Note></div>;
+  if (!me) return <div className="p-3"><Note>Sign in to Anypoint to see {d.name} in Exchange: its versions and what changed since the last one.</Note></div>;
+  const last = a?.versions[0];
+  const stable = a?.versions.find((v) => v.status === 'published');
+  const next = diff && last ? S.bump(stable && S.cmpVersion(stable.version, last.version) >= 0 ? stable.version : last.version, diff.part) : null;
+  return (
+    <div className="flex-1 overflow-auto px-3 pb-4 text-[12.5px]">
+      {a === undefined && !err && <div className="mt-3"><Note>Reading Exchange…</Note></div>}
+      {a === null && <div className="mt-3"><Note>{d.name} isn't in Exchange yet. Publish it to make the first version.</Note><button className={`${btn} mt-2.5`} onClick={() => onPublish(d.version || '1.0.0')}>Publish…</button></div>}
+      {a && last && <>
+        <div className="mt-3">Last published <b>{last.version}</b> {ago(last.created)}{last.by ? ` by ${last.by === me.username ? 'you' : last.by}` : ''}.</div>
+        <button className="mt-1 text-[12px] text-accent hover:underline" onClick={() => openUrl(exchangeUrl(me, d.groupId, d.assetId))}>Open in Exchange</button>
+        <H>Changed since {last.version}</H>
+        {busy && <Note>{busy}</Note>}
+        {!model && !busy && <Note>Shown after the spec is checked.</Note>}
+        {diff && diff.base === last.version && <>
+          {diff.changes.length === 0 && <Note>No changes to resources, methods or types.</Note>}
+          {diff.changes.slice(0, 80).map((c, i) => (
+            <div key={i} className="flex items-start gap-2 py-1">
+              <span className={`w-3 shrink-0 font-mono font-bold ${c.kind === '+' ? 'text-ok' : c.kind === '-' ? 'text-err' : 'text-warn'}`}>{c.kind === '~' ? '~' : c.kind}</span>
+              {c.method ? <Badge m={c.method.toLowerCase()} /> : <span className="font-mono text-[9.5px] font-bold w-4 h-4 shrink-0 rounded-[3px] inline-flex items-center justify-center text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]">T</span>}
+              <span className="min-w-0"><span className="font-mono text-[11.5px] break-all">{c.name}</span>{c.detail && <span className={`block text-[11px] ${c.breaking ? 'text-warn' : 'text-content-faint'}`}>{c.detail}</span>}</span>
+            </div>
+          ))}
+          {diff.changes.length > 80 && <Note>And {diff.changes.length - 80} more.</Note>}
+          {diff.changes.length === 0 && <button className={`${btn} mt-2.5`} onClick={() => onPublish('')}>Publish…</button>}
+          {next && diff.changes.length > 0 && <div className="mt-2.5 flex flex-col gap-2">
+            <Note>{diff.part === 'major' ? 'Something was removed or changed in a way that can break callers' : diff.part === 'minor' ? 'Only additions' : 'Nothing that changes the API itself'}. Suggested next version: <b className="text-content">{next}</b></Note>
+            <button className={`${btn} w-fit`} onClick={() => onPublish(next)}>Publish {next}…</button>
+          </div>}
+        </>}
+        <H>Versions</H>
+        {a.versions.map((v) => (
+          <div key={v.version} className="flex items-center gap-2 py-1">
+            <span className="font-mono text-[12px]">{v.version}</span>{life(v.status)}
+            <span className="ml-auto text-[11.5px] text-content-faint whitespace-nowrap">{ago(v.created)}</span>
+          </div>
+        ))}
+      </>}
+      {err && <div className="mt-3 text-[12px] text-err select-text">{err}</div>}
+    </div>
+  );
+}
+
+// ---------- The Dependencies panel: exchange.json's dependencies, with updates from Exchange ----------
+export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
+  root: string; paths: () => Promise<string[]>; onChanged: () => Promise<void>; onNotice: (text: string, err: boolean) => void; onOpenFile: (path: string) => void;
+}) {
+  const [me, setMe] = useState<Me | null>(null);
+  const [deps, setDeps] = useState<S.Descriptor['dependencies'] | null>(null);
+  const [info, setInfo] = useState<Record<string, { name: string; type: string; latest?: string; versions: S.Version[] } | null>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [menu, setMenu] = useState<string | null>(null);
+
+  const load = async () => {
+    const x = await S.readDescriptor(root); setDeps(x ? x.d.dependencies ?? [] : null);
+    const m = await status(); setMe(m);
+    if (!m || !x) return;
+    for (const d of x.d.dependencies ?? []) {
+      S.assetVersions(d.groupId, d.assetId).then((a) => setInfo((i) => ({ ...i, [`${d.groupId}/${d.assetId}`]: a && { name: a.name, type: a.type, versions: a.versions, latest: a.versions.find((v) => v.status === 'published')?.version ?? a.versions[0]?.version } })), () => {});
+    }
+  };
+  useEffect(() => { load(); }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
+  const run = async (label: string, fn: () => Promise<string>) => {
+    setBusy(label); setMenu(null);
+    try { const t = await fn(); await onChanged(); await load(); onNotice(t, false); } catch (e) { onNotice(String(e).replace(/^Error: /, ''), true); }
+    setBusy(null);
+  };
+  const mainOf = async (d: { groupId: string; assetId: string; version: string }) => {
+    const dir = `exchange_modules/${d.groupId}/${d.assetId}/${d.version}/`;
+    return dir + ((await S.readDescriptor(`${root}/${dir}`))?.d.main ?? '');
+  };
+  if (deps === null) return <div className="p-3"><Note>This project has no exchange.json, so it can't have Exchange dependencies. Projects pulled from Design Center have one.</Note></div>;
+  return (
+    <div className="flex-1 overflow-auto pb-4 text-[12.5px]">
+      <div className="flex items-center gap-1 px-3 h-8">
+        <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">Fragments <span className="font-normal">({deps?.length ?? 0})</span></span>
+        <button title={me ? 'Add a dependency from Exchange' : 'Sign in to Anypoint to add dependencies'} disabled={!me || !!busy} onClick={() => setAdding(true)}
+          className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content disabled:opacity-40"><Icons.Plus size={14} /></button>
+      </div>
+      {busy && <div className="px-3 pb-2"><Note>{busy}</Note></div>}
+      {deps?.length === 0 && <div className="px-3"><Note>None yet. Fragments from Exchange, like shared libraries and traits, go here.</Note></div>}
+      {deps?.map((d) => {
+        const k = `${d.groupId}/${d.assetId}`, i = info[k];
+        const newer = i?.latest && S.cmpVersion(i.latest, d.version) > 0 ? i.latest : null;
+        return (
+          <div key={k} className="relative flex items-start gap-2 px-3 py-2 border-b border-line-subtle">
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold truncate">{i?.name ?? d.assetId} <span className="font-mono font-normal text-[11px] text-content-muted">{d.version}</span></span>
+              <span className="block text-[11px] text-content-faint truncate">{d.groupId === me?.org_id ? me.org_name : d.groupId}{i?.type ? ` · ${i.type === 'raml-fragment' ? 'RAML fragment' : i.type}` : ''}</span>
+              {newer && <button className={`${btn} mt-1.5 !h-[22px] !text-[11px]`} disabled={!!busy}
+                onClick={() => run(`Updating ${d.assetId} to ${newer}…`, async () => { const ch = await S.changeDependency(root, await paths(), d, newer); return `${d.assetId} is now ${newer}.${ch.length ? ` References updated in ${ch.join(', ')}.` : ''}`; })}>Update to {newer}</button>}
+            </span>
+            <button title="More actions" onClick={() => setMenu(menu === k ? null : k)} className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.More size={13} /></button>
+            {menu === k && (
+              <div className="absolute right-3 top-9 z-30 w-[200px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" onMouseLeave={() => setMenu(null)}>
+                {[
+                  ['Show in Files', async () => { setMenu(null); onOpenFile(await mainOf(d)); }],
+                  ...(me ? [['Open in Exchange', () => { setMenu(null); openUrl(exchangeUrl(me, d.groupId, d.assetId)); }]] : []),
+                  ...((i?.versions.length ?? 0) > 1 ? i!.versions.filter((v) => v.version !== d.version).slice(0, 6).map((v) => [`Change to ${v.version}`, () => run(`Changing ${d.assetId} to ${v.version}…`, async () => { const ch = await S.changeDependency(root, await paths(), d, v.version); return `${d.assetId} is now ${v.version}.${ch.length ? ` References updated in ${ch.join(', ')}.` : ''}`; })]) : []),
+                  ['Remove', () => run(`Removing ${d.assetId}…`, async () => { await S.removeDependency(root, await paths(), d); return `Removed ${d.assetId}.`; })],
+                ].map(([label, f]) => (
+                  <button key={label as string} onClick={f as () => void} className="w-full h-7 px-2 rounded text-left text-[12.5px] text-content-secondary hover:bg-surface-3 hover:text-content">{label as string}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {adding && <AddDependency onClose={() => setAdding(false)} onAdd={(dep) => { setAdding(false); run(`Adding ${dep.assetId}…`, async () => {
+        const r = await S.addDependency(root, dep);
+        if (r.failed.length) throw new Error(`Added to exchange.json, but the files couldn't be fetched: ${r.failed.join('; ')}`);
+        return `Added ${dep.assetId} ${dep.version}. Use it with ${r.path}`;
+      }); }} />}
+    </div>
+  );
+}
+
+function AddDependency({ onClose, onAdd }: { onClose: () => void; onAdd: (d: { groupId: string; assetId: string; version: string }) => void }) {
+  const [q, setQ] = useState('');
+  const [dev, setDev] = useState(false);
+  const [list, setList] = useState<Awaited<ReturnType<typeof S.searchAssets>> | null>(null);
+  const [pick, setPick] = useState<{ groupId: string; assetId: string; name: string } | null>(null);
+  const [versions, setVersions] = useState<S.Version[]>([]); const [version, setVersion] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
+  useEffect(() => { status().then(setMe); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => { setErr(null); S.searchAssets(q.trim(), ['raml-fragment']).then(setList, (e) => setErr(String(e))); }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  useEffect(() => {
+    if (!pick) return;
+    setVersions([]); setVersion('');
+    S.assetVersions(pick.groupId, pick.assetId).then((a) => setVersions(a?.versions ?? []), (e) => setErr(String(e)));
+  }, [pick]);
+  const shown = versions.filter((v) => dev || v.status === 'published');
+  useEffect(() => { if (shown[0] && !shown.some((v) => v.version === version)) setVersion(shown[0].version); }, [versions, dev]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Modal title="Add dependency" sub="Fragments from Exchange" onCancel={onClose} width={560}
+      footer={<><label className="flex-1 flex items-center gap-2 text-[12px] text-content-secondary cursor-pointer"><input type="checkbox" checked={dev} onChange={(e) => setDev(e.target.checked)} className="accent-[var(--accent)]" />Include versions in Development</label>
+        <button className={btn} onClick={onClose}>Cancel</button>
+        <button className={btnPrimary} disabled={!pick || !version} onClick={() => pick && onAdd({ groupId: pick.groupId, assetId: pick.assetId, version })}>Add dependency</button></>}>
+      <div className="flex flex-col gap-3 text-[12.5px]">
+        <label className="flex items-center gap-1.5 h-[28px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
+          <Icons.Search size={12} /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Exchange by name" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12.5px] text-content" /></label>
+        <div className="h-[240px] overflow-auto rounded-md border border-line">
+          {list == null && !err && <div className="p-4 text-content-faint">Searching…</div>}
+          {list?.length === 0 && <div className="p-4 text-content-faint">No fragments match.</div>}
+          {list?.filter((a) => dev || a.status !== 'development').map((a) => (
+            <div key={a.groupId + a.assetId} onClick={() => setPick(a)} className={`flex items-center gap-2 px-3 py-2 border-b border-line-secondary last:border-b-0 cursor-pointer ${pick?.assetId === a.assetId && pick.groupId === a.groupId ? 'bg-accent-dim' : 'hover:bg-[var(--hover-overlay)]'}`}>
+              <span className="text-[9.5px] font-semibold px-1.5 rounded border border-line text-content-faint">RAML</span>
+              <span className="min-w-0 flex-1"><span className="block font-semibold truncate">{a.name}</span><span className="block text-[11px] text-content-faint truncate">{a.org || (a.groupId === me?.org_id ? me.org_name : a.groupId)}</span></span>
+              <span className="font-mono text-[11px] text-content-muted">{a.version}</span>{a.status !== 'published' && life(a.status)}
+            </div>
+          ))}
+        </div>
+        {pick && <label className="flex items-center gap-2.5"><span className="text-[11.5px] text-content-faint">Version</span>
+          <select value={version} onChange={(e) => setVersion(e.target.value)} className="h-[26px] px-1.5 rounded-md border border-line bg-surface-input text-[12px]">
+            {shown.map((v) => <option key={v.version} value={v.version}>{v.version}{v.status !== 'published' ? ` (${v.status === 'development' ? 'Development' : v.status})` : ''}</option>)}
+          </select>
+          {!shown.length && versions.length > 0 && <span className="text-[11.5px] text-content-faint">Only Development versions: tick the box below to see them.</span>}</label>}
+        {err && <div className="text-[12px] text-err select-text">{err}</div>}
+      </div>
+    </Modal>
+  );
+}

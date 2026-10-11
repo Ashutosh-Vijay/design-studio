@@ -75,7 +75,8 @@ export async function localChanges(root: string, l: Link, paths: string[]) {
     const t = await readLocal(root, p); if (t == null) continue;
     if (!(p in l.files)) added.push(p); else if ((await sha(t)) !== l.files[p]) modified.push(p);
   }
-  for (const p of Object.keys(l.files)) if (!now.has(p)) deleted.push(p);
+  // Dependencies are Design Center's to manage (from exchange.json): never sent, never deleted there.
+  for (const p of Object.keys(l.files)) if (!p.startsWith('exchange_modules/') && !now.has(p)) deleted.push(p);
   return { added, modified, deleted, count: added.length + modified.length + deleted.length };
 }
 // Design Center's side: has the branch moved since the last sync, and who holds its lock.
@@ -96,6 +97,7 @@ export async function pull(root: string, l: Link) {
   const theirs = await remoteFiles(l);
   const updated: string[] = [], removed: string[] = [], conflicts: Conflict[] = [];
   for (const p of new Set([...theirs.keys(), ...Object.keys(l.files)])) {
+    if (p.startsWith('exchange_modules/')) continue; // fetched from exchange.json below, not merged
     const base = p in l.files ? await readLocal(root, BASE + p) : null;
     const mine = await readLocal(root, p);
     const th = theirs.get(p) ?? null;
@@ -114,7 +116,7 @@ export async function pull(root: string, l: Link) {
   }
   // In step with Design Center's commit now: what's left different here is yours to push.
   await writeBase(root, { ...l, baseCommit: h }, theirs);
-  return { updated, removed, conflicts, upToDate: false, deps: updated.includes('exchange.json') ? await fetchDependencies(root) : { fetched: [] as string[], failed: [] as string[] } };
+  return { updated, removed, conflicts, upToDate: false, deps: await fetchDependencies(root) };
 }
 
 // ---------- Push: send your changes, holding the branch's lock ----------
@@ -226,4 +228,166 @@ export function merge3(base: string, mine: string, theirs: string): { clean: boo
   }
   flush(O.length, A.length, B.length);
   return { clean, text: out.join('\n') };
+}
+
+// ---------- Exchange (M4) ----------
+// The project's own exchange.json says what it publishes as (groupId, assetId, name, classifier, main)
+// and what it depends on. Design Center keeps it, and publishing rewrites it there (main, apiVersion).
+export type Descriptor = { groupId: string; assetId: string; name: string; version?: string; classifier?: string; main?: string; dependencies?: { groupId: string; assetId: string; version: string }[] };
+export type Version = { version: string; status: string; created: number; by: string };
+export async function readDescriptor(root: string): Promise<{ d: Descriptor; text: string } | null> {
+  try { const text = await invoke<string>('read_text_file', { root, path: 'exchange.json' }); return { d: JSON.parse(text), text }; } catch { return null; }
+}
+// Rewrite exchange.json in its own style (indent, line endings, final newline), changing only what's asked.
+export async function writeDescriptor(root: string, text: string, change: (d: Descriptor) => void) {
+  const d = JSON.parse(text) as Descriptor;
+  change(d);
+  const indent = text.match(/\n([ \t]+)"/)?.[1] ?? '  ';
+  let out = JSON.stringify(d, null, indent);
+  if (/\r\n/.test(text)) out = out.replace(/\n/g, '\r\n');
+  if (/\r?\n$/.test(text)) out += /\r\n/.test(text) ? '\r\n' : '\n';
+  await invoke('write_file_exact', { root, path: 'exchange.json', text: out });
+}
+
+// An asset's versions, newest first, or null when Exchange doesn't have it (never published).
+export async function assetVersions(groupId: string, assetId: string): Promise<{ name: string; type: string; versions: Version[] } | null> {
+  const r = await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}`);
+  if (r.status === 404) return null;
+  must(r, `Reading ${assetId} from Exchange`);
+  // Read pinned to a version, an asset lists Development versions too (the bare read leaves them out).
+  // "versions" holds that minor line (1.1.x); "otherVersions" the newest of each other line, whose own
+  // "versions" hold the rest.
+  type V = { version: string; status: string; createdDate?: string; createdAt?: string; createdBy?: { userName?: string } };
+  const pinned = await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}/${r.json.version}`);
+  const j = pinned.status === 200 ? pinned.json : r.json;
+  const all: V[] = [...(j.versions ?? [])];
+  for (const o of ((j.otherVersions ?? []) as V[]).filter((o) => !all.some((v) => v.version === o.version))) {
+    const x = await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}/${o.version}`);
+    all.push(...(x.status === 200 ? x.json.versions ?? [o] : [o]));
+  }
+  const vs = [...new Map(all.map((v) => [v.version, { version: v.version, status: v.status, created: Date.parse(v.createdDate ?? v.createdAt ?? '') || 0, by: v.createdBy?.userName ?? '' }])).values()];
+  return { name: r.json.name, type: r.json.type, versions: vs.sort((a, b) => cmpVersion(b.version, a.version)) };
+}
+export function cmpVersion(a: string, b: string) {
+  const p = (v: string) => v.split(/[.-]/).map((x) => (/^\d+$/.test(x) ? +x : x));
+  const A = p(a), B = p(b);
+  for (let i = 0; i < Math.max(A.length, B.length); i++) {
+    const x = A[i] ?? 0, y = B[i] ?? 0;
+    if (x === y) continue;
+    if (typeof x === 'number' && typeof y === 'number') return x - y;
+    return String(x) < String(y) ? -1 : 1;
+  }
+  return 0;
+}
+export const bump = (v: string, part: 'major' | 'minor' | 'patch') => {
+  const [M, m, p] = v.split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  return part === 'major' ? `${M + 1}.0.0` : part === 'minor' ? `${M}.${m + 1}.0` : `${M}.${m}.${p + 1}`;
+};
+export async function searchAssets(q: string, types: string[]) {
+  const r = must(await api('GET', `/exchange/api/v2/assets/search?search=${encodeURIComponent(q)}&${types.map((t) => 'types=' + t).join('&')}&limit=40`), 'Searching Exchange');
+  return (r.json as { groupId: string; assetId: string; name: string; version: string; type: string; status: string; organization?: { name?: string } }[])
+    .map((a) => ({ groupId: a.groupId, assetId: a.assetId, name: a.name, version: a.version, type: a.type, status: a.status, org: a.organization?.name ?? '' }));
+}
+
+// Publish: what Design Center has must be what's here, so unsent changes are pushed first (push refuses
+// when Design Center moved on). Publishing needs the lock, and rewrites exchange.json there, so a pull follows.
+export async function publish(root: string, paths: string[], o: { name: string; assetId: string; groupId: string; version: string; apiVersion: string; main: string; classifier: string; development: boolean }) {
+  let l = (await readLink(root))!;
+  const pushed = (await localChanges(root, l, paths)).count ? (await push(root, l, paths)).sent : 0;
+  l = (await readLink(root))!;
+  await invoke('anypoint_hold_lock', { project: l.projectId, branch: l.branch });
+  try {
+    const r = await api('POST', `${branchPath(l)}/publish/exchange`, { name: o.name, apiVersion: o.apiVersion, version: o.version, main: o.main, assetId: o.assetId, groupId: o.groupId, classifier: o.classifier, ...(o.development ? { status: 'development' } : {}) });
+    if (r.status === 409) throw new Error(`Version ${o.version} is already in Exchange as Stable, and a Stable version can't be published again. Pick a new version.`);
+    must(r, 'Publishing');
+  } finally { await invoke('anypoint_release_lock'); }
+  // Exchange lists a new version a few seconds after publishing.
+  for (let i = 0; i < 15 && (await api('GET', `/exchange/api/v2/assets/${o.groupId}/${o.assetId}/${o.version}`)).status !== 200; i++) await new Promise((r) => setTimeout(r, 2000));
+  const after = await pull(root, (await readLink(root))!);
+  return { pushed, pulled: after };
+}
+
+// ---------- What changed between two AMF models (the Exchange panel) ----------
+// Endpoints and methods by "METHOD /path", types by file and name. Removing something, a new required
+// parameter, or a changed type is breaking (major); only additions is minor; anything else is a patch.
+type M = { endpoints: { path: string; operations: { method: string; parameters: { name: string; in: string; required: boolean; type: string }[]; body: { media: string; type: string }[]; responses: { code: string; body: { media: string; type: string }[] }[] }[] }[];
+  types: { name: string; type: string; at?: { file: string }; properties?: { name: string; type: string; required: boolean }[] }[] };
+export type Change = { kind: '+' | '-' | '~'; what: 'method' | 'type'; method?: string; name: string; detail?: string; breaking: boolean };
+export function compareModels(old: M, now: M, oldPrefix: string): { changes: Change[]; part: 'major' | 'minor' | 'patch' } {
+  const ops = (m: M) => new Map((m.endpoints ?? []).flatMap((e) => e.operations.map((o) => [`${o.method.toUpperCase()} ${e.path}`, o] as const)));
+  const strip = (f = '') => f.replace(/\\/g, '/').replace(new RegExp('^' + oldPrefix.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), '');
+  const types = (m: M, pre = '') => new Map((m.types ?? []).filter((t) => t.name).map((t) => [`${pre ? strip(t.at?.file) : (t.at?.file ?? '')}::${t.name}`, t] as const));
+  const out: Change[] = [];
+  const O = ops(old), N = ops(now);
+  for (const [k, o] of N) {
+    const [method, ...p] = k.split(' '), name = p.join(' ');
+    const was = O.get(k);
+    if (!was) { out.push({ kind: '+', what: 'method', method, name, breaking: false }); continue; }
+    const notes: string[] = []; let breaking = false;
+    const pk = (x: { name: string; in: string }) => `${x.in} ${x.name}`;
+    const oldP = new Map(was.parameters.map((x) => [pk(x), x])), newP = new Map(o.parameters.map((x) => [pk(x), x]));
+    for (const [n, x] of newP) { const y = oldP.get(n); if (!y) { notes.push(`new ${x.required ? 'required ' : ''}parameter ${x.name}`); breaking ||= x.required; } else if (x.required && !y.required) { notes.push(`${x.name} now required`); breaking = true; } else if (x.type !== y.type) { notes.push(`${x.name} type`); breaking = true; } }
+    for (const [n, y] of oldP) if (!newP.has(n)) { notes.push(`parameter ${y.name} removed`); breaking = true; }
+    const bodies = (b: { media: string; type: string }[]) => b.map((x) => `${x.media}:${x.type}`).sort().join(',');
+    if (bodies(was.body) !== bodies(o.body)) { notes.push('request body'); breaking = true; }
+    const oldR = new Map(was.responses.map((r) => [r.code, r])), newR = new Map(o.responses.map((r) => [r.code, r]));
+    for (const [c, r] of newR) { const y = oldR.get(c); if (!y) notes.push(`new response ${c}`); else if (bodies(r.body) !== bodies(y.body)) { notes.push(`response ${c} body`); breaking = true; } }
+    for (const c of oldR.keys()) if (!newR.has(c)) { notes.push(`response ${c} removed`); breaking = true; }
+    if (notes.length) out.push({ kind: '~', what: 'method', method, name, detail: notes.join(', '), breaking });
+  }
+  for (const k of O.keys()) if (!N.has(k)) { const [method, ...p] = k.split(' '); out.push({ kind: '-', what: 'method', method, name: p.join(' '), breaking: true }); }
+  const OT = types(old, oldPrefix), NT = types(now);
+  for (const [k, t] of NT) {
+    const was = OT.get(k);
+    if (!was) { out.push({ kind: '+', what: 'type', name: t.name, breaking: false }); continue; }
+    const notes: string[] = []; let breaking = false;
+    if (was.type !== t.type) { notes.push(`now ${t.type}`); breaking = true; }
+    const oldP = new Map((was.properties ?? []).map((x) => [x.name, x])), newP = new Map((t.properties ?? []).map((x) => [x.name, x]));
+    for (const [n, x] of newP) { const y = oldP.get(n); if (!y) { notes.push(`new ${x.required ? 'required ' : ''}property ${n}`); breaking ||= x.required; } else if (x.type !== y.type) { notes.push(`${n} type`); breaking = true; } else if (x.required !== y.required) { notes.push(`${n} now ${x.required ? 'required' : 'optional'}`); breaking ||= x.required; } }
+    for (const n of oldP.keys()) if (!newP.has(n)) { notes.push(`property ${n} removed`); breaking = true; }
+    if (notes.length) out.push({ kind: '~', what: 'type', name: t.name, detail: notes.join(', '), breaking });
+  }
+  for (const [k, t] of OT) if (!NT.has(k)) out.push({ kind: '-', what: 'type', name: t.name, breaking: true });
+  const part = out.some((c) => c.breaking) ? 'major' : out.some((c) => c.kind === '+') ? 'minor' : 'patch';
+  return { changes: out, part };
+}
+
+// ---------- Dependencies: edits to exchange.json, then the files into exchange_modules ----------
+const depDir = (d: { groupId: string; assetId: string; version: string }) => `exchange_modules/${d.groupId}/${d.assetId}/${d.version}/`;
+// Project files (not dependencies' own) that mention a dependency's folder.
+async function filesUsing(root: string, paths: string[], dir: string) {
+  const out: string[] = [];
+  for (const p of paths.filter((x) => !x.startsWith('exchange_modules/') && /\.(raml|ya?ml|json)$/i.test(x) && x !== 'exchange.json')) {
+    const t = await readLocal(root, p); if (t?.includes(dir)) out.push(p);
+  }
+  return out;
+}
+// The whole version folder, to the Recycle Bin or Trash in one piece.
+const deleteDir = (root: string, dir: string) => invoke('delete_file', { root, path: dir.replace(/\/$/, '') }).catch(() => {});
+export async function addDependency(root: string, dep: { groupId: string; assetId: string; version: string }) {
+  const x = await readDescriptor(root); if (!x) throw new Error('This project has no exchange.json.');
+  if ((x.d.dependencies ?? []).some((d) => d.groupId === dep.groupId && d.assetId === dep.assetId)) throw new Error(`${dep.assetId} is already a dependency. Change its version instead.`);
+  await writeDescriptor(root, x.text, (d) => { d.dependencies = [...(d.dependencies ?? []), dep]; });
+  const r = await fetchDependencies(root);
+  const main = (await readDescriptor(`${root}/${depDir(dep)}`))?.d.main;
+  return { ...r, path: '/' + depDir(dep) + (main ?? '') };
+}
+// A new version: exchange.json, the files, and every reference to the old folder in the project's files.
+export async function changeDependency(root: string, paths: string[], dep: { groupId: string; assetId: string; version: string }, version: string) {
+  const x = await readDescriptor(root); if (!x) throw new Error('This project has no exchange.json.');
+  await writeDescriptor(root, x.text, (d) => { d.dependencies = (d.dependencies ?? []).map((y) => y.groupId === dep.groupId && y.assetId === dep.assetId ? { ...y, version } : y); });
+  const r = await fetchDependencies(root);
+  if (r.failed.length) throw new Error(`Couldn't fetch ${dep.assetId} ${version}: ${r.failed.join('; ')}`);
+  const from = depDir(dep), to = depDir({ ...dep, version });
+  const changed = await filesUsing(root, paths, from);
+  for (const p of changed) await invoke('write_file_exact', { root, path: p, text: (await readLocal(root, p))!.split(from).join(to) });
+  await deleteDir(root, from);
+  return changed;
+}
+export async function removeDependency(root: string, paths: string[], dep: { groupId: string; assetId: string; version: string }) {
+  const using = await filesUsing(root, paths, depDir(dep));
+  if (using.length) throw new Error(`${using.join(', ')} still ${using.length === 1 ? 'uses' : 'use'} ${dep.assetId}. Remove those references first.`);
+  const x = await readDescriptor(root); if (!x) return;
+  await writeDescriptor(root, x.text, (d) => { d.dependencies = (d.dependencies ?? []).filter((y) => !(y.groupId === dep.groupId && y.assetId === dep.assetId)); });
+  await deleteDir(root, depDir(dep));
 }
