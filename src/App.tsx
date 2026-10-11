@@ -1095,13 +1095,15 @@ function Shelf({ ctx, open, setOpen, onPick, types, traits }: {
       {open && (cols.length ? (
         <div className="flex-1 overflow-auto flex gap-6 px-3.5 pb-2.5 items-start">
           {cols.map((c) => (
-            <div key={c.title} className="min-w-[96px]">
+            // Columns never shrink below their longest name, so long type names can't run into the next column.
+            <div key={c.title} className="min-w-[96px] shrink-0">
               <div className="text-[11.5px] font-semibold text-content-secondary mb-1">{c.title}</div>
               {c.items.map((it) => (
-                <button key={it} onMouseDown={(e) => { e.preventDefault(); onPick(it); }}
+                <button key={it} onMouseDown={(e) => { e.preventDefault(); onPick(it); }} title={it}
                   style={{ borderLeftColor: SHELF_BAR[c.title] ?? 'var(--syn-number)' }}
                   className="block text-left h-[22px] px-2 mb-px font-mono text-[12px] text-content-secondary border-l-2 rounded-r hover:bg-surface-2 hover:text-content whitespace-nowrap">
-                  {it}
+                  {/* Under a library's own column the alias is already the heading: show Name, insert alias.Name. */}
+                  {it.startsWith(c.title + '.') ? it.slice(c.title.length + 1) : it}
                 </button>
               ))}
             </div>
