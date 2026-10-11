@@ -90,15 +90,19 @@ export function AddSelect({ label, options, onPick }: { label: string; options: 
 // The API as AMF reads it (amf-server's check with model:true). Positions: [line from 1, column from 0, end line, end column].
 export type At = { file: string; r: [number, number, number, number] };
 type AmfField = { v: string; at?: At };
-type AmfPayload = { media: string; type: string; at?: At };
+type AmfPayload = { media: string; type: string; at?: At; example?: string };
 export type AmfModel = {
-  title?: AmfField; version?: AmfField; description?: AmfField;
-  endpoints: { path: string; at?: At; summary?: AmfField; description?: AmfField; operations: {
-    method: string; at?: At; summary?: AmfField; description?: AmfField; operationId?: AmfField; tags: string[];
-    parameters: { name: string; in: string; required: boolean; type: string; at?: At }[]; body: AmfPayload[];
+  title?: AmfField; version?: AmfField; description?: AmfField; baseUri?: AmfField;
+  docs?: { title: string; content: string }[];
+  endpoints: { path: string; at?: At; summary?: AmfField; description?: AmfField; resourceType?: string; operations: {
+    method: string; at?: At; summary?: AmfField; description?: AmfField; operationId?: AmfField; tags: string[]; is?: string[]; securedBy?: string[];
+    parameters: { name: string; in: string; required: boolean; type: string; at?: At; description?: string; example?: string }[]; body: AmfPayload[];
     responses: { code: string; at?: AmfField['at']; description?: AmfField; body: AmfPayload[] }[];
   }[] }[];
-  types: { id: string; name: string; type: string; at?: At; properties?: { name: string; type: string; required: boolean; at?: At }[]; usedBy: { where: string; at?: At }[] }[];
+  types: { id: string; name: string; type: string; at?: At; description?: string; enum?: string[]; example?: string;
+    properties?: { name: string; type: string; required: boolean; at?: At; description?: string }[]; usedBy: { where: string; at?: At }[] }[];
+  // Every file the spec is built from (RAML Library, DataType, NamedExample... as AMF's unit kinds) and what it references.
+  files?: { file: string; kind: string; refs: string[] }[];
 };
 
 // Where a type is used, as AMF links say: "GET /orders 200", "Customer.address", "resource type item".

@@ -93,6 +93,7 @@ public class Main {
         main = req.path("main").asText();
         overlays.clear();
         unitCache.clear();
+        Mock.stale = true;
         send(reply(req));
       }
       case "overlay" -> {
@@ -102,9 +103,17 @@ public class Main {
           String key = abs(e.getKey());
           if (e.getValue().isNull()) overlays.remove(key); else overlays.put(key, e.getValue().asText());
         }
+        Mock.stale = true;
         send(reply(req));
       }
-      case "check" -> send(check(req, "validate".equals(req.path("mode").asText())));
+      case "check" -> { Mock.stale = true; send(check(req, "validate".equals(req.path("mode").asText()))); }
+      // The API as the docs show it: traits, resource types and inheritance applied (the mock's own copy).
+      case "resolvedModel" -> { Mock.load(); ObjectNode r = reply(req); r.set("model", model(Mock.resolvedUnit)); send(r); }
+      // The local mock: on starts it (or says where it runs), off stops it.
+      case "mock" -> {
+        if (req.path("on").asBoolean(true)) { ObjectNode r = reply(req); r.setAll(Mock.start(req.path("port").asInt(0))); send(r); }
+        else { Mock.stop(); send(reply(req)); }
+      }
       // The model of a spec in another folder (a version published to Exchange), for "what changed".
       // Parsed fresh: no cache, and no overlays apply out there.
       case "modelOf" -> {
@@ -196,7 +205,9 @@ public class Main {
     long t2 = t1;
     if (validate && parsed.sourceSpec() != null) {
       // The auto-detect configuration refuses to validate (M0.1): use the detected spec's own.
-      AMFValidationReport report = APIConfiguration.fromSpec(parsed.sourceSpec()).withResourceLoaders(loaders()).baseUnitClient().validate(parsed.baseUnit()).get();
+      // Validation resolves the unit in place (links become copies), and the parsed libraries are the ones the
+      // cache keeps: so it gets a copy, or the next check's model would lose type-to-type links.
+      AMFValidationReport report = APIConfiguration.fromSpec(parsed.sourceSpec()).withResourceLoaders(loaders()).baseUnitClient().validate(parsed.baseUnit().cloneUnit()).get();
       t2 = System.nanoTime();
       Set<String> seen = new HashSet<>();
       for (ObjectNode p : problems) seen.add(key(p));
@@ -280,9 +291,40 @@ public class Main {
     for (var p : ps) {
       ObjectNode b = into.addObject().put("media", p.mediaType().isNullOrEmpty() ? "" : p.mediaType().value()).put("type", typeName(p.schema(), 0));
       ObjectNode a = at(p.annotations()); if (a != null) b.set("at", a);
+      String ex = exampleText(p.schema()); if (ex != null) b.put("example", ex);
       links(p.schema(), where, refs, new HashSet<>(), 0);
     }
     return null;
+  }
+
+  // A shape's first example as the spec writes it (YAML or JSON text), following links; null if none.
+  static String exampleText(amf.core.client.platform.model.domain.Shape s) {
+    for (int i = 0; s != null && i < 6; i++) {
+      if (s instanceof amf.shapes.client.platform.model.domain.AnyShape a && !a.examples().isEmpty()) {
+        var e = a.examples().get(0);
+        if (!e.value().isNullOrEmpty()) return e.value().value();
+        if (e.structuredValue() != null) return dataJson(e.structuredValue(), 0).toPrettyString();
+      }
+      s = s.isLink() && s.linkTarget().isPresent() && s.linkTarget().get() instanceof amf.core.client.platform.model.domain.Shape t ? t : null;
+    }
+    return null;
+  }
+  // AMF's parsed data (examples, defaults) as JSON, typed by the scalar's data type.
+  static JsonNode dataJson(amf.core.client.platform.model.domain.DataNode n, int depth) {
+    if (n == null || depth > 30) return JSON.nullNode();
+    if (n instanceof amf.core.client.platform.model.domain.ScalarNode sc) {
+      String v = sc.value().isNullOrEmpty() ? null : sc.value().value(), t = sc.dataType().isNullOrEmpty() ? "" : sc.dataType().value();
+      if (v == null || t.endsWith("#nil")) return JSON.nullNode();
+      try {
+        if (t.endsWith("#integer") || t.endsWith("#long")) return JSON.getNodeFactory().numberNode(Long.parseLong(v));
+        if (t.endsWith("#float") || t.endsWith("#double") || t.endsWith("#number") || t.endsWith("#decimal")) return JSON.getNodeFactory().numberNode(new java.math.BigDecimal(v));
+        if (t.endsWith("#boolean")) return JSON.getNodeFactory().booleanNode(Boolean.parseBoolean(v));
+      } catch (NumberFormatException e) { /* keep it as text */ }
+      return JSON.getNodeFactory().textNode(v);
+    }
+    if (n instanceof amf.core.client.platform.model.domain.ArrayNode a) { ArrayNode r = JSON.createArrayNode(); for (var x : a.members()) r.add(dataJson(x, depth + 1)); return r; }
+    if (n instanceof amf.core.client.platform.model.domain.ObjectNode o) { ObjectNode r = JSON.createObjectNode(); for (var e : o.properties().entrySet()) r.set(e.getKey(), dataJson(e.getValue(), depth + 1)); return r; }
+    return JSON.nullNode();
   }
 
   static ObjectNode model(BaseUnit unit) {
@@ -290,11 +332,15 @@ public class Main {
     List<Object[]> refs = new ArrayList<>();
     if (unit instanceof amf.core.client.platform.model.document.Document doc && doc.encodes() instanceof amf.apicontract.client.platform.model.domain.api.Api<?> api) {
       put(m, "title", api.name()); put(m, "version", api.version()); put(m, "description", api.description());
+      if (!api.servers().isEmpty()) put(m, "baseUri", api.servers().get(0).url());
+      ArrayNode docs = m.putArray("docs");
+      for (var d : api.documentations()) docs.addObject().put("title", d.title().isNullOrEmpty() ? "" : d.title().value()).put("content", d.description().isNullOrEmpty() ? "" : d.description().value());
       ArrayNode eps = m.putArray("endpoints");
       for (var ep : api.endPoints()) {
         ObjectNode e = eps.addObject().put("path", ep.path().value());
         ObjectNode ea = at(ep.annotations()); if (ea != null) e.set("at", ea);
         put(e, "summary", ep.summary()); put(e, "description", ep.description());
+        for (var x : ep.extendsNode()) if (x instanceof amf.core.client.platform.model.domain.ParametrizedDeclaration pd) e.put("resourceType", pd.name().value());
         ArrayNode ops = e.putArray("operations");
         for (var op : ep.operations()) {
           String where = op.method().value().toUpperCase() + " " + ep.path().value();
@@ -302,14 +348,20 @@ public class Main {
           ObjectNode oa = at(op.annotations()); if (oa != null) o.set("at", oa);
           put(o, "summary", op.summary()); put(o, "description", op.description()); put(o, "operationId", op.operationId());
           ArrayNode tags = o.putArray("tags"); for (var t : op.tags()) tags.add(t.name().value());
+          ArrayNode is = o.putArray("is"); for (var x : op.extendsNode()) if (x instanceof amf.core.client.platform.model.domain.ParametrizedDeclaration pd) is.add(pd.name().value());
+          ArrayNode sec = o.putArray("securedBy"); for (var rq : op.security()) for (var sc : rq.schemes()) if (!sc.name().isNullOrEmpty()) sec.add(sc.name().value());
           ArrayNode params = o.putArray("parameters"), body = o.putArray("body");
           for (var rq : op.requests()) {
             for (var group : List.of(rq.queryParameters(), rq.headers(), rq.uriParameters(), rq.cookieParameters())) for (var p : group) {
               ObjectNode pn = params.addObject().put("name", p.parameterName().isNullOrEmpty() ? p.name().value() : p.parameterName().value())
                 .put("in", p.binding().isNullOrEmpty() ? "" : p.binding().value()).put("required", p.required().value()).put("type", typeName(p.schema(), 0));
+              if (!p.description().isNullOrEmpty()) pn.put("description", p.description().value());
+              String pex = exampleText(p.schema()); if (pex != null) pn.put("example", pex);
               ObjectNode pa = at(p.annotations()); if (pa != null) pn.set("at", pa);
               links(p.schema(), where + " " + pn.path("name").asText(), refs, new HashSet<>(), 0);
             }
+            // A queryString type (RAML) uses its types too, unions included.
+            if (rq.queryString() != null) links(rq.queryString(), where + " queryString", refs, new HashSet<>(), 0);
             payloads(rq.payloads(), where + " body", refs, body);
           }
           ArrayNode rs = o.putArray("responses");
@@ -327,10 +379,15 @@ public class Main {
     List<ObjectNode> typeNodes = new ArrayList<>();
     List<Object[]> templateRefs = new ArrayList<>();
     Deque<BaseUnit> units = new ArrayDeque<>(List.of(unit)); Set<String> seenUnits = new HashSet<>();
+    ArrayNode files = m.putArray("files");
     while (!units.isEmpty()) {
       BaseUnit u = units.pop();
       if (!seenUnits.add(u.id())) continue;
       units.addAll(u.references());
+      if (u.location() != null) {
+        ObjectNode f = files.addObject().put("file", rel(u.location())).put("kind", u.getClass().getSimpleName());
+        ArrayNode fr = f.putArray("refs"); for (BaseUnit r : u.references()) if (r.location() != null) fr.add(rel(r.location()));
+      }
       if (!(u instanceof amf.core.client.platform.model.document.DeclaresModel dm)) continue;
       for (var d : dm.declares()) {
         // Traits and resource types are templates: AMF keeps their bodies as data nodes, so type names
@@ -342,11 +399,15 @@ public class Main {
         }
         if (!(d instanceof amf.core.client.platform.model.domain.Shape s)) continue;
         ObjectNode t = types.addObject().put("id", s.id()).put("name", s.name().value()).put("type", typeName(s, 0));
+        if (!s.description().isNullOrEmpty()) t.put("description", s.description().value());
+        if (!s.values().isEmpty()) { ArrayNode en = t.putArray("enum"); for (var v : s.values()) if (v instanceof amf.core.client.platform.model.domain.ScalarNode sn) en.add(sn.value().value()); }
+        String tex = exampleText(s); if (tex != null) t.put("example", tex);
         ObjectNode ta = at(s.annotations()); if (ta != null) t.set("at", ta);
         if (s instanceof amf.shapes.client.platform.model.domain.NodeShape n) {
           ArrayNode props = t.putArray("properties");
           for (var p : n.properties()) {
             ObjectNode pn = props.addObject().put("name", p.name().value()).put("type", typeName(p.range(), 0)).put("required", p.minCount().value() > 0);
+            if (!p.range().description().isNullOrEmpty()) pn.put("description", p.range().description().value());
             ObjectNode pa = at(p.annotations()); if (pa != null) pn.set("at", pa);
           }
         }

@@ -16,6 +16,8 @@ import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar } from './SyncUI';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
+import { DocsPanel } from './Docs';
+import { ApiMap } from './ApiMap';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
@@ -283,14 +285,17 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const [notice, setNotice] = useState<{ text: string; err: boolean; actions?: [string, () => void][] } | null>(null);
   const fail = (e: unknown) => setNotice({ text: String(e), err: true });
   useEffect(() => { if (initialNotice) setNotice({ text: initialNotice, err: false }); }, [initialNotice]);
-  const [rail, setRail] = useState<'files' | 'api' | 'deps' | 'exchange'>('api');
+  const [rail, setRail] = useState<'files' | 'api' | 'deps' | 'exchange' | 'map'>('api');
   // The Publish dialog, open with a suggested version (or '' for Design Center's own rule).
   const [publishing, setPublishing] = useState<string | null>(null);
   const [published, setPublished] = useState(0); // remounts the Exchange panel after a publish
+  // The root file's text for the API map (its !include lines place example files): open, or from disk.
+  const [mapRoot, setMapRoot] = useState('');
   const [outline, setOutline] = useState<Outline | null>(null);
   const [shelf, setShelf] = useState<ShelfCtx | null>(null);
   const [shelfOpen, setShelfOpen] = useState(true);
   const [inspOpen, setInspOpen] = useState(() => { try { return localStorage.getItem('ads.inspector') !== '0'; } catch { return true; } });
+  const [rpanel, setRpanel] = useState<'insp' | 'docs'>('insp');
   useEffect(() => { try { localStorage.setItem('ads.inspector', inspOpen ? '1' : '0'); } catch { /* ignore */ } }, [inspOpen]);
   // What the Inspector shows: the active file's text and the cursor's line.
   const [doc, setDoc] = useState<{ path: string; text: string; line: number } | null>(null);
@@ -449,6 +454,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     publish: () => setPublishing(''),
   };
   const listPaths = async () => (await invoke<Project>('open_project', { root: project.root })).files.map((f) => f.path);
+  useEffect(() => {
+    if (rail !== 'map' || !project.main) return;
+    const t = textOf(project.main);
+    if (t != null) setMapRoot(t); else invoke<string>('read_text_file', { root: project.root, path: project.main }).then((x) => setMapRoot(x.replace(/\r\n/g, '\n')), () => {});
+  }, [rail, amfModel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- Autocomplete, hover and go to definition (M1 step 5). All local, from the outline. ----------
   const outlineRef = useRef<Outline | null>(null);
@@ -1026,7 +1036,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     <>
       <div className="flex-1 min-h-0 flex">
         <nav className="w-12 shrink-0 bg-rail border-r border-line flex flex-col py-2.5">
-          {([['files', 'Files', <Icons.File size={18} />], ['api', 'API', <Icons.ApiSpec size={18} />], ['deps', 'Dependencies', <Icons.Deps size={18} />], ['exchange', 'Exchange', <Icons.Exchange size={18} />]] as const).map(([id, title, icon]) => (
+          {([['files', 'Files', <Icons.File size={18} />], ['api', 'API', <Icons.ApiSpec size={18} />], ['deps', 'Dependencies', <Icons.Deps size={18} />], ['exchange', 'Exchange', <Icons.Exchange size={18} />], ['map', 'API map', <Icons.Map size={18} />]] as const).map(([id, title, icon]) => (
             <button key={id} title={title} onClick={() => setRail(id)}
               className={`relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center ${rail === id ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
               {rail === id && <span className="absolute -left-2 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
@@ -1037,7 +1047,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           {settingsButton}
         </nav>
 
-        <aside className="w-[272px] shrink-0 bg-surface border-r border-line flex flex-col min-h-0">
+        {rail !== 'map' && <aside className="w-[272px] shrink-0 bg-surface border-r border-line flex flex-col min-h-0">
           <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold">{{ files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[rail]}</div>
           {rail === 'deps' ? (
             <DepsPanel root={project.root} paths={listPaths} onChanged={async () => { await syncRef.current?.reload(); }}
@@ -1081,9 +1091,16 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           </div>
           )}
           </>}
-        </aside>
+        </aside>}
 
-        <main className="flex-1 min-w-0 flex flex-col bg-surface">
+        <main className="relative flex-1 min-w-0 flex flex-col bg-surface">
+          {/* The map covers the editor, which stays as it was underneath. */}
+          {rail === 'map' && <div className="absolute inset-0 z-20 flex flex-col bg-surface">
+            <Boundary resetKey={project.root} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The map hit a problem: {e}.</div>}>
+              <ApiMap model={amfModel} outline={outline} rootFile={project.main ?? ''} rootText={mapRoot}
+                onOpenAt={(at) => { setRail('api'); revealAt(at); }} onReveal={(f, from) => { setRail('api'); reveal(f, from); }} />
+            </Boundary>
+          </div>}
           <div className="h-9 shrink-0 flex items-stretch bg-bg border-b border-line overflow-x-auto">
             {tabs.map((p) => (
               <div key={p} onClick={() => show(p)} onAuxClick={(e) => { if (e.button === 1) closeTab(p); }} title={p}
@@ -1132,7 +1149,15 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             </div>
           )}
         </main>
-        {inspOpen && (
+        {inspOpen && rpanel === 'docs' && (
+          <aside className="w-[380px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
+            <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Documentation</div>
+            <Boundary resetKey={project.root} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The documentation hit a problem: {e}.</div>}>
+              <DocsPanel model={amfModel} resolve={async () => (await amf('resolvedModel', {})).model} onOpenAt={revealAt} startMock={async () => ({ port: (await amf('mock', { on: true })).port })} />
+            </Boundary>
+          </aside>
+        )}
+        {inspOpen && rpanel === 'insp' && (
           <aside className="w-[330px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
             <Boundary resetKey={doc ? doc.path + ":" + doc.line : ""} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {e}. The code editor still works; move the cursor to try again.</div>}>
@@ -1152,11 +1177,16 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           </aside>
         )}
         <nav className="w-10 shrink-0 bg-rail border-l border-line flex flex-col items-center py-2.5">
-          <button title="Inspector (Ctrl Alt B)" onClick={() => setInspOpen((o) => !o)}
-            className={`relative w-8 h-9 rounded-md flex items-center justify-center ${inspOpen ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
-            {inspOpen && <span className="absolute -right-1 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
-            <Icons.Target size={17} />
-          </button>
+          {([['insp', 'Inspector (Ctrl Alt B)', <Icons.Target size={17} />], ['docs', 'Documentation', <Icons.Book size={17} />]] as const).map(([id, title, icon]) => {
+            const on = inspOpen && rpanel === id;
+            return (
+              <button key={id} title={title} onClick={() => { if (on) setInspOpen(false); else { setRpanel(id); setInspOpen(true); } }}
+                className={`relative w-8 h-9 my-0.5 rounded-md flex items-center justify-center ${on ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
+                {on && <span className="absolute -right-1 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
+                {icon}
+              </button>
+            );
+          })}
         </nav>
       </div>
       {menu && (

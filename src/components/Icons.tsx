@@ -248,6 +248,12 @@ export const Icons = {
       <path d="M14 3v5h5" />
     </>,
   ),
+  Map: mk(
+    <>
+      <rect x="2.5" y="4" width="6" height="4.5" rx="1" /><rect x="15.5" y="3" width="6" height="4.5" rx="1" /><rect x="15.5" y="16.5" width="6" height="4.5" rx="1" /><rect x="9" y="12" width="6" height="4.5" rx="1" />
+      <path d="M8.5 6.2c3 0 4 -1 7 -1M8.5 6.2c2 0 1 8 3.5 8M15 14.2h0.5c1.5 0 1 4.5 0 4.5" />
+    </>,
+  ),
   Exchange: mk(
     <>
       <path d="M4.5 8.5c2.5 0 3.5 7 7.5 7s5-7 7.5-7" />
