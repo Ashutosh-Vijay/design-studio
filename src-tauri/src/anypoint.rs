@@ -397,6 +397,8 @@ pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: Stri
     let fat = format!("fat-{format}");
     let zip = files.iter().find(|f| published && f["packaging"] == "zip" && class(f) == fat)
       .or_else(|| files.iter().find(|f| published && f["packaging"] == "zip" && class(f) == format))
+      // The zip named after the asset's own type: raml-fragment for a fragment, ruleset for a ruleset (not its docs).
+      .or_else(|| files.iter().find(|f| f["packaging"] == "zip" && r.json["type"].as_str().is_some_and(|t| class(f) == t)))
       .or_else(|| files.iter().find(|f| f["packaging"] == "zip" && !class(f).starts_with("fat-") && !class(f).starts_with("original-") && !class(f).is_empty()))
       .or_else(|| files.iter().find(|f| f["packaging"] == "zip"))
       .ok_or(format!("{asset} {version} has no files to download in Exchange."))?;
