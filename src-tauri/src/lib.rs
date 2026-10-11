@@ -187,6 +187,22 @@ fn import_zip(zip_path: String, dest: String) -> Result<ZipImport, String> {
   Ok(ZipImport { root: dest, files: count, duplicates })
 }
 
+// Writes text exactly as given (no line-ending changes): files pulled from Design Center, and the
+// sync metadata in .apidesigner/. Parent folders are made; never outside the project.
+#[tauri::command]
+fn write_file_exact(root: String, path: String, text: String) -> Result<(), String> {
+  let root_path = PathBuf::from(&root);
+  fs::create_dir_all(&root_path).map_err(|e| format!("Couldn't create {}: {}", root, e))?;
+  let root_path = root_path.canonicalize().map_err(|e| e.to_string())?;
+  let full = root_path.join(&path);
+  let parent = full.parent().ok_or("Bad path")?;
+  fs::create_dir_all(parent).map_err(|e| format!("Couldn't create the folder for {}: {}", path, e))?;
+  if !parent.canonicalize().map_err(|e| e.to_string())?.starts_with(&root_path) {
+    return Err(format!("{} is outside the project.", path));
+  }
+  fs::write(&full, text).map_err(|e| format!("Couldn't write {}: {}", path, e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -199,7 +215,7 @@ pub fn run() {
       amf::start_in_background(app.handle());
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, rename_file, delete_file, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
+    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, import_zip, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
       anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock,
       anypoint::anypoint_dev_session])
     .build(tauri::generate_context!())
