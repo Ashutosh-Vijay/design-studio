@@ -1,10 +1,10 @@
 // CodeMirror 6 setup: theme from our CSS variables, RAML-aware highlighting, and the cursor's YAML path.
-import { EditorState, type Extension, type Range } from '@codemirror/state';
+import { EditorState, EditorSelection, StateEffect, StateField, type Extension, type Range } from '@codemirror/state';
 import {
   EditorView, Decoration, WidgetType, MatchDecorator, ViewPlugin, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
   drawSelection, highlightSpecialChars, rectangularSelection, crosshairCursor, dropCursor, type DecorationSet, type ViewUpdate,
 } from '@codemirror/view';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab, selectParentSyntax } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, foldGutter, foldKeymap, syntaxTree, indentUnit } from '@codemirror/language';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { findWidget, openReplace } from './find';
@@ -55,6 +55,7 @@ const theme = EditorView.theme({
   '.ads-type, .ads-type *': { color: 'var(--syn-type)' },
   '.ads-include, .ads-include *': { color: 'var(--syn-fn)', fontStyle: 'italic' },
   '.ads-path': { textDecoration: 'underline dotted', textUnderlineOffset: '3px' },
+  '.ads-use': { backgroundColor: 'color-mix(in oklch, var(--accent) 16%, transparent)', borderRadius: '2px', outline: '1px solid var(--accent-border)' },
   '.ads-conflict-mark': { backgroundColor: 'color-mix(in oklch, var(--warn) 22%, transparent)', color: 'var(--content-muted)' },
   '.ads-conflict-mine': { backgroundColor: 'color-mix(in oklch, var(--accent) 12%, transparent)' },
   '.ads-conflict-theirs': { backgroundColor: 'color-mix(in oklch, var(--cyan) 12%, transparent)' },
@@ -142,11 +143,44 @@ const conflictPlugin = ViewPlugin.fromClass(class {
   update(u: ViewUpdate) { if (u.docChanged) this.decorations = conflictDeco(u.view); }
 }, { decorations: (v) => v.decorations });
 
+// Highlight uses (Design Center's): the app sends the declaration and its uses in this file for the name under
+// the cursor; edits move the marks until the next update.
+export const setUses = StateEffect.define<[number, number][]>();
+const useMark = Decoration.mark({ class: 'ads-use' });
+const usesField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(v, tr) {
+    v = v.map(tr.changes);
+    for (const e of tr.effects) if (e.is(setUses)) v = Decoration.set(e.value.filter(([a, b]) => b > a && b <= tr.state.doc.length).map(([a, b]) => useMark.range(a, b)), true);
+    return v;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 export function languageFor(path: string): Extension {
   if (/\.json$/i.test(path)) return json();
   if (/\.(raml|ya?ml)$/i.test(path)) return [yaml(), ramlPlugin];
   return [];
 }
+
+// Grow and shrink the selection by syntax (Design Center's Ctrl Shift Right and Left). Shrinking walks back
+// through the grows; any other selection change starts over.
+const grown = new WeakMap<EditorView, { stack: EditorSelection[]; last: EditorSelection }>();
+export const growSelection = (v: EditorView) => {
+  const before = v.state.selection, g = grown.get(v);
+  if (!selectParentSyntax(v)) return false;
+  const stack = g && g.last.eq(before) ? g.stack : [];
+  grown.set(v, { stack: [...stack, before], last: v.state.selection });
+  return true;
+};
+export const shrinkSelection = (v: EditorView) => {
+  const g = grown.get(v);
+  if (!g || !g.last.eq(v.state.selection) || !g.stack.length) return false;
+  const prev = g.stack[g.stack.length - 1];
+  grown.set(v, { stack: g.stack.slice(0, -1), last: prev });
+  v.dispatch({ selection: prev, scrollIntoView: true });
+  return true;
+};
 
 // Everything except the per-file language and the app's own listeners.
 export function baseExtensions(): Extension[] {
@@ -155,8 +189,8 @@ export function baseExtensions(): Extension[] {
     EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
     rectangularSelection(), crosshairCursor(), highlightActiveLine(), highlightSelectionMatches(),
     indentUnit.of('  '), EditorState.tabSize.of(2),
-    syntaxHighlighting(highlight), theme, findWidget, conflictPlugin,
-    keymap.of([{ key: 'Mod-h', run: openReplace }, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
+    syntaxHighlighting(highlight), theme, findWidget, conflictPlugin, usesField,
+    keymap.of([{ key: 'Mod-h', run: openReplace }, { key: 'Mod-Shift-ArrowRight', run: growSelection }, { key: 'Mod-Shift-ArrowLeft', run: shrinkSelection }, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
   ];
 }
 

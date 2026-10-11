@@ -27,6 +27,11 @@ pub struct Connection {
   // request is made. Missing in an old file means read only, the safe side.
   #[serde(default = "yes")]
   read_only: bool,
+  // The business group picked in the project list (Design Center's org picker); empty is the user's own.
+  #[serde(default)]
+  org_id: String,
+  #[serde(default)]
+  org_name: String,
 }
 fn yes() -> bool { true }
 
@@ -137,6 +142,7 @@ fn start_session(app: &AppHandle, conn: Connection, tokens: &Value) -> Result<Me
   let access = tokens["access_token"].as_str().ok_or("Anypoint sent no access token.")?.to_string();
   let mut me = fetch_me(&conn.host, &access, &conn.mode)?;
   me.read_only = conn.read_only;
+  if !conn.org_id.is_empty() { me.org_id = conn.org_id.clone(); me.org_name = conn.org_name.clone(); }
   if let Some(r) = tokens["refresh_token"].as_str() { keychain("refresh-token")?.set_password(r).map_err(|e| e.to_string())?; }
   let secs = tokens["expires_in"].as_u64().unwrap_or(3600);
   let state = app.state::<Arc<Anypoint>>();
@@ -276,7 +282,7 @@ pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, c
     } else {
       browser_sign_in(&host, &client_id, &client_secret)?
     };
-    let conn = Connection { broker: if mode == "anypoint" { broker } else { String::new() }, mode, client_id, host, read_only: read_only.unwrap_or(true) };
+    let conn = Connection { broker: if mode == "anypoint" { broker } else { String::new() }, mode, client_id, host, read_only: read_only.unwrap_or(true), ..Default::default() };
     let me = start_session(&app, conn.clone(), &tokens)?;
     if conn.mode != "anypoint" { keychain("client-secret")?.set_password(&client_secret).map_err(|e| e.to_string())?; }
     let f = conn_file(&app)?;
@@ -302,6 +308,19 @@ pub async fn anypoint_disconnect(app: AppHandle) -> Result<(), String> {
   let _ = std::fs::remove_file(conn_file(&app)?);
   *app.state::<Arc<Anypoint>>().session.lock().unwrap() = None;
   Ok(())
+}
+
+// Work in another business group (the project list's picker): the Design Center headers name it from now on.
+#[tauri::command]
+pub async fn anypoint_set_org(app: AppHandle, org_id: String, org_name: String) -> Result<(), String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    let f = conn_file(&app)?;
+    let mut conn: Connection = std::fs::read_to_string(&f).ok().and_then(|t| serde_json::from_str(&t).ok()).ok_or("Not signed in to Anypoint.")?;
+    conn.org_id = org_id.clone(); conn.org_name = org_name.clone();
+    std::fs::write(&f, serde_json::to_string(&conn).unwrap()).map_err(|e| e.to_string())?;
+    if let Some(s) = app.state::<Arc<Anypoint>>().session.lock().unwrap().as_mut() { s.conn.org_id = org_id.clone(); s.conn.org_name = org_name.clone(); s.me.org_id = org_id; s.me.org_name = org_name; }
+    Ok(())
+  }).await.map_err(|e| e.to_string())?
 }
 
 // Turn read only on or off for the current connection (Settings). Kept with the connection.
@@ -448,7 +467,7 @@ pub async fn anypoint_dev_session(app: AppHandle, client_id: String, client_secr
   if !cfg!(debug_assertions) { return Err("Not available.".into()); }
   tauri::async_runtime::spawn_blocking(move || {
     let tokens = token_request(&host, json!({ "grant_type": "refresh_token", "client_id": client_id, "client_secret": client_secret, "refresh_token": refresh_token }))?;
-    let conn = Connection { mode: "code".into(), client_id, host, broker: String::new(), read_only: false };
+    let conn = Connection { mode: "code".into(), client_id, host, broker: String::new(), read_only: false, ..Default::default() };
     let me = start_session(&app, conn.clone(), &tokens)?;
     keychain("client-secret")?.set_password(&client_secret).map_err(|e| e.to_string())?;
     let f = conn_file(&app)?;

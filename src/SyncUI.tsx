@@ -41,6 +41,13 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
   // Where each project lives on this computer: its own folder under Documents, found again by its link.
   const [where, setWhere] = useState<Record<string, { root: string; here: boolean }>>({});
   const [report, setReport] = useState<string | null>(null);
+  // Business groups (Design Center's org picker), from who-am-I; shown when there's more than one.
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!me) return;
+    invoke<{ json: { user?: { memberOfOrganizations?: { id: string; name: string }[] } } }>('anypoint_api', { method: 'GET', path: '/accounts/api/me' })
+      .then((r) => setGroups(r.json?.user?.memberOfOrganizations ?? []), () => {});
+  }, [me?.user_id]); // eslint-disable-line react-hooks/exhaustive-deps
   // The picked project's details and actions, as in Design Center's list.
   const [info, setInfo] = useState<{ created: number; owner: string; type: string; perms: S.Perms } | null>(null);
   const [dlg, setDlg] = useState<ReactNode>(null);
@@ -204,7 +211,15 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
       <div className="flex flex-col gap-3 text-[12.5px]">
         <div className="flex items-center gap-2.5">
           <span className="text-[12px] text-content-secondary">{me?.username}</span>
-          <span className="text-[11.5px] text-content-faint">{me?.org_name}</span>
+          {groups.length > 1 && me ? (
+            <select value={me.org_id} title="Business group" onChange={async (e) => {
+              const g = groups.find((x) => x.id === e.target.value)!;
+              await invoke('anypoint_set_org', { orgId: g.id, orgName: g.name });
+              const m = { ...me, org_id: g.id, org_name: g.name }; setMe(m); setPick(null); loadProjects(m);
+            }} className="h-[24px] px-1 rounded-md border border-line bg-surface-input text-[11.5px]">
+              {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          ) : <span className="text-[11.5px] text-content-faint">{me?.org_name}</span>}
           <span className="flex-1" />
           <label className="flex items-center gap-1.5 h-[26px] w-[200px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
             <Icons.Search size={12} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter projects" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" /></label>

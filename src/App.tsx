@@ -4,7 +4,7 @@ import { autocompletion, type CompletionContext, type CompletionResult } from '@
 import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import { listen } from '@tauri-apps/api/event';
-import { METHODS, baseExtensions, languageFor, yamlPathAt } from './editor';
+import { METHODS, baseExtensions, languageFor, yamlPathAt, setUses, growSelection, shrinkSelection } from './editor';
 import { BUILTIN_TYPES, SCALAR_KEYS, entries, kids, normalizePath, buildOutline, buildOasOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -55,7 +55,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState(savedTheme);
   const [settingsAt, setSettingsAt] = useState<DOMRect | null>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
+  // The palette: '' everything (Ctrl K), '@' symbols (Ctrl Shift O), '>' commands (F1).
+  const [paletteOpen, setPaletteOpen] = useState<false | '' | '@' | '>'>(false);
+  const paletteRef = useRef<{ symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
   const [connectOpen, setConnectOpen] = useState(false);
   const [creating, setCreating] = useState<'api' | 'fragment' | null>(null);
@@ -125,7 +127,9 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (import.meta.env.PROD && (e.key === 'F5' || (mod && e.key.toLowerCase() === 'r'))) { e.preventDefault(); return; }
-      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(true); }
+      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(''); }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); setPaletteOpen('@'); }
+      else if (e.key === 'F1') { e.preventDefault(); setPaletteOpen('>'); }
       else if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); if (isTauri) openFolder(); }
       else if (e.key === 'Escape') { setSettingsAt(null); setPaletteOpen(false); }
     };
@@ -160,7 +164,7 @@ export default function App() {
             onChanged={async () => { await syncRef.current?.reload(); }} onPublish={() => syncRef.current?.publish()} />
         )}
         <div data-tauri-drag-region className="flex-1 h-full" />
-        <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title="Search files and commands (Ctrl K)" onClick={() => setPaletteOpen(true)}>
+        <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title="Search files and commands (Ctrl K)" onClick={() => setPaletteOpen('')}>
           <Icons.Search size={15} />
         </button>
         {!project && settingsBtn('w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content')}
@@ -182,6 +186,7 @@ export default function App() {
           initialNotice={pendingNotice}
           onRefresh={async () => { const p = await invoke<Project>('open_project', { root: project.root }); setProject(p); }}
           openFileRef={openFileRef}
+          paletteRef={paletteRef}
           syncRef={syncRef}
           settingsButton={settingsBtn('relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center text-content-faint hover:text-content-secondary')}
         />
@@ -198,8 +203,8 @@ export default function App() {
         <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)}
           onConnect={() => { setSettingsAt(null); setConnectOpen(true); }} />
       )}
-      {paletteOpen && (
-        <Palette project={project} recent={recent} onClose={() => setPaletteOpen(false)}
+      {paletteOpen !== false && (
+        <Palette project={project} recent={recent} start={paletteOpen} lent={project ? paletteRef.current : null} onClose={() => setPaletteOpen(false)}
           onOpenFile={(p) => openFileRef.current(p)} onOpenFolder={(root) => openFolder(root)} onTheme={(pref) => setTheme((t) => ({ ...t, pref }))} />
       )}
     </div>
@@ -295,8 +300,10 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate
 // One open file: its editor state and the text on disk (with LF line endings, as the editor holds it).
 type OpenFile = { state: EditorState; disk: string };
 
-function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFileRef, syncRef, settingsButton }: {
+type PaletteItem = { group: string; label: string; detail?: string; run: () => void };
+function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFileRef, paletteRef, syncRef, settingsButton }: {
   project: Project; initialNotice: string | null; onDirtyCount: (n: number) => void; onRefresh: () => Promise<void>; openFileRef: MutableRefObject<(path: string) => void>;
+  paletteRef: MutableRefObject<{ symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null>;
   syncRef: MutableRefObject<SyncHooks | null>; settingsButton: ReactNode;
 }) {
   const [filter, setFilter] = useState('');
@@ -358,12 +365,27 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       setDoc({ path, text: u.state.doc.toString(), line: line.number - 1 });
     }
     if (u.docChanged) scheduleRef.current();
+    if (u.docChanged || u.selectionSet) { clearTimeout(usesTimer.current); usesTimer.current = window.setTimeout(() => highlightRef.current(), 150); }
     if (u.docChanged && (path === project.main || libraryFiles.current.has(path))) {
       clearTimeout(outlineTimer.current);
       outlineTimer.current = window.setTimeout(rebuildOutline, 120);
     }
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
   const libraryFiles = useRef(new Set<string>());
+  const usesTimer = useRef(0);
+  // The name under the cursor: if it's a declaration, mark it and its uses in this file (Highlight uses).
+  const highlightRef = useRef(() => {});
+  highlightRef.current = () => {
+    const v = view.current, path = activeRef.current; if (!v || !path || !/\.(raml|ya?ml)$/i.test(path)) return;
+    const w = wordAt(v.state, v.state.selection.main.head);
+    const d = w.text ? findDecl(path, w.text) : null;
+    const text = v.state.doc.toString();
+    const ranges: [number, number][] = d ? usesInText(path, text, d) : [];
+    if (d && d.file === path) { const m = text.slice(d.from).match(/^\s*/); const at = d.from + (m ? m[0].length : 0); if (text.startsWith(d.name, at)) ranges.push([at, at + d.name.length]); }
+    // Only when it's the declaration or one of its uses that's under the cursor.
+    const head = v.state.selection.main.head;
+    v.dispatch({ effects: setUses.of(ranges.some(([a, b]) => head >= a && head <= b) ? ranges : []) });
+  };
 
   // The text of a file as the user sees it: the editor's when it's open, else what we read from disk.
   const textOf = (path: string): string | undefined => {
@@ -469,6 +491,33 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     show(path);
   }
   openFileRef.current = openFile;
+  // What the palette can reach in this project: every declaration and resource, and the project's commands.
+  paletteRef.current = {
+    symbols: () => {
+      const o = outlineRef.current; if (!o) return [];
+      const res: PaletteItem[] = [];
+      const walk = (r: Resource) => { res.push({ group: 'Symbols', label: r.path, detail: r.methods.map((m) => m.m.toUpperCase()).join(' '), run: () => reveal(project.main!, r.from) }); r.children.forEach(walk); };
+      o.resources.forEach(walk);
+      const decl = (d: Decl, kind: string) => ({ group: 'Symbols', label: d.alias ? `${d.alias}.${d.name}` : d.name, detail: `${kind} · ${d.file}`, run: () => reveal(d.file, d.from) });
+      return [...res, ...o.types.map((d) => decl(d, 'type')), ...o.traits.map((d) => decl(d, 'trait')), ...o.resourceTypes.map((d) => decl(d, 'resource type')), ...o.securitySchemes.map((d) => decl(d, 'security scheme'))];
+    },
+    commands: () => {
+      const at = (fn: (path: string, state: EditorState, pos: number) => unknown) => () => { const v = view.current, p = activeRef.current; if (v && p) fn(p, v.state, v.state.selection.main.head); };
+      const c = (label: string, detail: string, run: () => void): PaletteItem => ({ group: 'Commands', label, detail, run });
+      return [
+        c('Go to definition', 'F12', at(goToDefinition)), c('Find references', 'Shift F12', at(findReferences)), c('Rename symbol', 'F2', at(renameSymbol)),
+        c('Save all', 'Ctrl S saves one', () => { for (const p of [...dirty]) save(p); }), c('Check the spec now', 'full AMF check', () => runCheck('validate')),
+        c('New file…', 'Files +', () => fileMenuItems('')[0][1]?.()), c('New folder…', 'Files +', () => fileMenuItems('')[1][1]?.()),
+        c('Show Files', 'left rail', () => setRail('files')), c('Show API', 'left rail', () => setRail('api')), c('Show Dependencies', 'left rail', () => setRail('deps')),
+        c('Show Exchange', 'left rail', () => setRail('exchange')), c('Show API map', 'left rail', () => setRail('map')),
+        c('Show Inspector', 'right rail, Ctrl Alt B', () => { setRpanel('insp'); setInspOpen(true); }), c('Show Documentation', 'right rail', () => { setRpanel('docs'); setInspOpen(true); }),
+        c('Show Project errors', 'bottom', () => setProblemsOpen(true)), c('Publish to Exchange…', 'title bar', () => setPublishing('')),
+        c('Grow selection', 'Ctrl Shift Right', () => { if (view.current) { growSelection(view.current); view.current.focus(); } }),
+        c('Shrink selection', 'Ctrl Shift Left', () => { if (view.current) { shrinkSelection(view.current); view.current.focus(); } }),
+        c('Go to symbol', 'Ctrl Shift O', () => setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'O', ctrlKey: true, shiftKey: true })), 0)),
+      ];
+    },
+  };
   // The title bar's sync controls: save every unsaved file first, show what happened, reload after a pull.
   syncRef.current = {
     saveAll: async () => { for (const p of [...dirty]) await save(p); },
@@ -575,6 +624,49 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     } };
   });
 
+  // Where a declaration is used in one file's text, as [from, to) of the name: alias.Name through this file's
+  // own aliases for the declaring library, and in the declaring file bare names in value positions (type: X,
+  // X[], X | Y, [X, Y], "- X" items), never plain mentions in descriptions. Rename, Find references and the
+  // highlight of uses all go by it.
+  function usesInText(f: string, text: string, d: Decl): [number, number][] {
+    const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const out: [number, number][] = [];
+    const dir = f.includes('/') ? f.slice(0, f.lastIndexOf('/') + 1) : '';
+    const E = entries(text), u = E.findIndex((e) => e.ind === 0 && e.key === 'uses');
+    const aliases = u < 0 ? [] : kids(E, u).filter((j) => (E[j].val.startsWith('/') ? E[j].val.slice(1) : normalizePath(dir + E[j].val)) === d.file).map((j) => E[j].key);
+    for (const a of aliases) { const re = new RegExp(`\\b${esc(a)}\\.${esc(d.name)}\\b`, 'g'); let m; while ((m = re.exec(text))) out.push([m.index + a.length + 1, m.index + m[0].length]); }
+    if (f === d.file) {
+      let pos = 0;
+      for (const line of text.split('\n')) {
+        const item = line.match(/^(\s*-\s+)([^\s#:]+)(\s*(#.*)?)$/);
+        if (item) { if (item[2].replace(/\[\]$/, '') === d.name) out.push([pos + item[1].length, pos + item[1].length + d.name.length]); }
+        else {
+          const m = line.match(/^(\s*(?:- )?[^:#]+?\s*:\s*)(.+)$/);
+          if (m && !/^\s*(description|displayName|usage|title|example)\s*:/.test(line)) {
+            const re = new RegExp(`(^|[\\s|(\\[,])${esc(d.name)}(?=(\\[\\])?($|[\\s|),\\]]))`, 'g'); let x;
+            while ((x = re.exec(m[2]))) { const at = pos + m[1].length + x.index + x[1].length; out.push([at, at + d.name.length]); }
+          }
+        }
+        pos += line.length + 1;
+      }
+    }
+    return out.sort((x, y) => x[0] - y[0]);
+  }
+
+  // Find references (Shift F12), Design Center's Go to References: the declaration, then every use, in every file.
+  async function findReferences(path: string, state: EditorState, pos: number) {
+    const w = wordAt(state, pos); const d = w.text ? findDecl(path, w.text) : null;
+    if (!d) { fail('Put the cursor on a type, trait, resource type or security scheme name to find where it is used.'); return; }
+    const refs: { file: string; from: number; line: number; text: string; decl?: boolean }[] = [];
+    const at = (file: string, text: string, from: number, decl?: boolean) => { const before = text.slice(0, from); const line = before.split('\n').length; refs.push({ file, from, line, text: text.split('\n')[line - 1].trim(), decl }); };
+    const declText = await readAny(d.file); at(d.file, declText, d.from, true);
+    for (const f of project.files.map((x) => x.path).filter((p) => /\.(raml|ya?ml)$/i.test(p))) {
+      const text = f === d.file ? declText : await readAny(f);
+      for (const [from] of usesInText(f, text, d)) at(f, text, from);
+    }
+    setDialog(<RefsDialog name={`${d.alias ? d.alias + '.' : ''}${d.name}`} refs={refs} onClose={() => setDialog(null)} onGo={(r) => { setDialog(null); reveal(r.file, r.from); }} />);
+  }
+
   // Rename Symbol (F2), as Design Center's: the declaration and every use, never plain mentions in descriptions.
   async function renameSymbol(path: string, state: EditorState, pos: number) {
     const w = wordAt(state, pos); const d = w.text ? findDecl(path, w.text) : null;
@@ -587,24 +679,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         let uses = 0;
         for (const f of project.files.map((x) => x.path).filter((p) => /\.(raml|ya?ml)$/i.test(p))) {
-          let text = await readAny(f);
-          const before = text;
-          // Qualified uses through this file's own aliases for the declaring library.
-          const dir = f.includes('/') ? f.slice(0, f.lastIndexOf('/') + 1) : '';
-          const E = entries(text), u = E.findIndex((e) => e.ind === 0 && e.key === 'uses');
-          const aliases = u < 0 ? [] : kids(E, u).filter((j) => (E[j].val.startsWith('/') ? E[j].val.slice(1) : normalizePath(dir + E[j].val)) === d.file).map((j) => E[j].key);
-          for (const a of aliases) text = text.replace(new RegExp(`\\b${esc(a)}\\.${esc(d.name)}\\b`, 'g'), () => { uses++; return `${a}.${nu}`; });
+          const before = await readAny(f);
+          let text = before;
+          for (const [from, to] of usesInText(f, before, d).reverse()) { text = text.slice(0, from) + nu + text.slice(to); uses++; }
           if (f === d.file) {
-            // Bare uses inside the declaring file, in value positions only (type: X, X[], X | Y, [X, Y]).
-            text = text.split('\n').map((line) => {
-              // A "- Name" item of a block list (is:, a union written as a list) is a use too.
-              const item = line.match(/^(\s*-\s+)([^\s#:]+)(\s*(#.*)?)$/);
-              if (item) return item[2].replace(/\[\]$/, '') === d.name ? (uses++, item[1] + item[2].replace(d.name, nu) + item[3]) : line;
-              const m = line.match(/^(\s*(?:- )?[^:#]+?\s*:\s*)(.+)$/);
-              if (!m || /^\s*(description|displayName|usage|title|example)\s*:/.test(line)) return line;
-              const v = m[2].replace(new RegExp(`(^|[\\s|(\\[,])${esc(d.name)}(?=(\\[\\])?($|[\\s|),\\]]))`, 'g'), (_x, pre) => { uses++; return pre + nu; });
-              return m[1] + v;
-            }).join('\n');
             // The declaration itself.
             const L = text.split('\n'), at = before.slice(0, d.from).split('\n').length - 1;
             L[at] = L[at].replace(new RegExp(`^(\\s*)${esc(d.name)}(\\s*:)`), `$1${nu}$2`);
@@ -681,7 +759,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     autocompletion({ override: [completions(path)], icons: false }),
     hover(path),
     keymap.of([{ key: 'F12', run: (v) => { goToDefinition(path, v.state, v.state.selection.main.head); return true; } },
-      { key: 'F2', run: (v) => { renameSymbol(path, v.state, v.state.selection.main.head); return true; } }]),
+      { key: 'F2', run: (v) => { renameSymbol(path, v.state, v.state.selection.main.head); return true; } },
+      { key: 'Shift-F12', run: (v) => { findReferences(path, v.state, v.state.selection.main.head); return true; } }]),
     EditorView.domEventHandlers({ mousedown: (e, v) => {
       if (!(e.ctrlKey || e.metaKey)) return false;
       const pos = v.posAtCoords({ x: e.clientX, y: e.clientY }); if (pos == null) return false;
@@ -1022,12 +1101,29 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     }
   }
 
-  // Ctrl S saves this file, Ctrl Shift S saves them all. Ctrl W closes the tab.
+  // Several tabs at once (the tab menu): one question for the unsaved ones among them.
+  function closeTabs(paths: string[]) {
+    const unsaved = paths.filter((p) => dirty.has(p));
+    if (unsaved.length && !window.confirm(`${unsaved.length === 1 ? base(unsaved[0]) + ' has' : unsaved.length + ' of them have'} unsaved changes. Close anyway?`)) return;
+    const gone = new Set(paths), rest = tabs.filter((t) => !gone.has(t));
+    for (const p of paths) files.current.delete(p);
+    setDirty((d) => { const n = new Set(d); paths.forEach((p) => n.delete(p)); return n; });
+    setTabs(rest);
+    if (activeRef.current && gone.has(activeRef.current)) {
+      activeRef.current = null;
+      if (rest[0]) show(rest[0]); else { setActive(null); view.current!.setState(EditorState.create({ doc: '' })); }
+    }
+  }
+  const [tabMenu, setTabMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+
+  // Ctrl S saves this file, Ctrl Shift S saves them all. Ctrl W closes the tab. Ctrl Tab and Ctrl Shift Tab
+  // go to the next and previous tab (Design Center's Alt Tab, which Windows keeps for itself).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
       if (mod && k === 's') { e.preventDefault(); if (e.shiftKey) [...dirty].forEach(save); else if (activeRef.current) save(activeRef.current); }
       else if (mod && k === 'w' && activeRef.current) { e.preventDefault(); closeTab(activeRef.current); }
+      else if (e.ctrlKey && e.key === 'Tab' && tabs.length > 1) { e.preventDefault(); const i = tabs.indexOf(activeRef.current ?? ''); show(tabs[(i + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length]); }
       else if (mod && k === 'j') { e.preventDefault(); setProblemsOpen((o) => !o); }
       else if (mod && e.altKey && k === 'b') { e.preventDefault(); setInspOpen((o) => !o); }
     };
@@ -1156,6 +1252,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           <div className="h-9 shrink-0 flex items-stretch bg-bg border-b border-line overflow-x-auto">
             {tabs.map((p) => (
               <div key={p} onClick={() => show(p)} onAuxClick={(e) => { if (e.button === 1) closeTab(p); }} title={p}
+                onContextMenu={(e) => { e.preventDefault(); setTabMenu({ path: p, x: e.clientX, y: e.clientY }); }}
                 className={`group relative flex items-center gap-2 pl-3 pr-2 text-[12.5px] border-r border-line-secondary cursor-pointer shrink-0 ${p === active ? 'bg-surface text-content' : 'text-content-faint hover:text-content-secondary'}`}>
                 {p === active && <span className="absolute left-0 right-0 top-0 h-0.5 bg-accent" />}
                 <span>{base(p)}</span>
@@ -1241,6 +1338,25 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           })}
         </nav>
       </div>
+      {tabMenu && (
+        <div className="fixed inset-0 z-40" onMouseDown={() => setTabMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTabMenu(null); }}>
+          <div className="fixed min-w-[190px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" style={{ left: Math.min(tabMenu.x, window.innerWidth - 210), top: tabMenu.y }} onMouseDown={(e) => e.stopPropagation()}>
+            {([
+              ['Close', 'Ctrl W', () => closeTab(tabMenu.path)],
+              ['Close others', '', tabs.length > 1 ? () => closeTabs(tabs.filter((t) => t !== tabMenu.path)) : null],
+              ['Close saved', '', tabs.some((t) => !dirty.has(t)) ? () => closeTabs(tabs.filter((t) => !dirty.has(t))) : null],
+              ['Close all', '', () => closeTabs(tabs)],
+              null,
+              ['Copy path', '', () => navigator.clipboard.writeText(tabMenu.path)],
+              ['Reveal in Files', '', () => { setRail('files'); setOpenDirs((o) => { const n = new Set(o); const parts = tabMenu.path.split('/'); for (let i = 1; i < parts.length; i++) n.add(parts.slice(0, i).join('/')); return n; }); }],
+            ] as ([string, string, (() => void) | null] | null)[]).map((it, i) => it === null ? <div key={i} className="my-1 border-t border-line-subtle" /> : (
+              <button key={it[0]} disabled={!it[2]} onClick={() => { setTabMenu(null); it[2]?.(); }}
+                className="w-full h-7 px-2 rounded flex items-center text-left text-[12.5px] text-content-secondary hover:bg-surface-3 hover:text-content disabled:text-content-ghost disabled:hover:bg-transparent">
+                {it[0]}<span className="ml-auto text-[11px] text-content-faint">{it[1]}</span></button>
+            ))}
+          </div>
+        </div>
+      )}
       {menu && (
         <div className="fixed inset-0 z-40" onMouseDown={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}>
           <div className="fixed min-w-[190px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" style={{ left: Math.min(menu.x, window.innerWidth - 210), top: Math.min(menu.y, window.innerHeight - 200) }} onMouseDown={(e) => e.stopPropagation()}>
@@ -1257,6 +1373,15 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         {active && <span>{cursor.line}:{cursor.col}</span>}
         {active && active === project.main && <span>Root file</span>}
         <span className="flex-1" />
+        {/* As Design Center's status bar: the file's language, and the kind of project. */}
+        {active && doc?.path === active && <span>{(() => {
+          const t = doc.text, f = /^(\uFEFF)?#%RAML (\d\.\d)[ \t]*(\w*)/.exec(t);
+          if (f) return f[3] ? `RAML ${f[2]} ${f[3]}` : `RAML ${f[2]}`;
+          const o = /^\s*["']?(openapi|swagger)["']?\s*:\s*["']?(\d(\.\d)?)/m.exec(t);
+          if (o) return `OAS ${o[2].startsWith('2') ? '2.0' : o[2]}`;
+          return /\.json$/i.test(active) ? 'JSON' : /\.ya?ml$/i.test(active) ? 'YAML' : /\.md$/i.test(active) ? 'Markdown' : 'Text';
+        })()}</span>}
+        {project.main && <span>{/^(\uFEFF)?#%RAML 1\.0 \w/.test(textOf(project.main) ?? '') ? 'API fragment' : 'API specification'}</span>}
         <span>{project.files.length} files</span>
       </footer>
     </>
@@ -1442,10 +1567,12 @@ function ProblemsPanel({ problems, open, setOpen, engine, onGo }: {
             <div key={f}>
               <div className="h-6 flex items-center px-3 text-[12px] font-medium text-content-secondary">{base(f)} <span className="ml-2 text-[11px] font-normal text-content-faint">{f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : ''}</span></div>
               {problems.filter((p) => p.file === f).map((p, i) => (
-                <div key={i} onClick={() => onGo(p)} className="flex items-center gap-2 min-h-[26px] pl-7 pr-3 text-[12.5px] cursor-pointer hover:bg-[var(--hover-overlay)]">
+                <div key={i} onClick={() => onGo(p)} className="group/p flex items-center gap-2 min-h-[26px] pl-7 pr-3 text-[12.5px] cursor-pointer hover:bg-[var(--hover-overlay)]">
                   <span className={`w-2 h-2 shrink-0 ${p.severity === 'error' ? 'rounded-full bg-err' : 'rotate-45 bg-warn'}`} />
-                  <span className="text-content">{p.message}</span>
-                  <span className="ml-auto font-mono text-[11px] text-content-faint whitespace-nowrap">{p.line}:{p.col + 1}</span>
+                  <span className="text-content select-text">{p.message}</span>
+                  <button title="Copy the error" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${p.file}:${p.line}:${p.col + 1} ${p.severity}: ${p.message}`); }}
+                    className="ml-auto opacity-0 group-hover/p:opacity-100 w-5 h-5 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.Copy size={12} /></button>
+                  <span className="font-mono text-[11px] text-content-faint whitespace-nowrap">{p.line}:{p.col + 1}</span>
                 </div>
               ))}
             </div>
@@ -1479,6 +1606,28 @@ export function Modal({ title, sub, children, footer, onCancel, width = 460 }: {
 export const btn = 'h-[28px] px-3 rounded-md text-[12.5px] font-medium border border-line bg-surface-2 text-content-secondary hover:text-content hover:border-content-ghost disabled:opacity-45 disabled:cursor-not-allowed';
 export const btnPrimary = 'h-[28px] px-3 rounded-md text-[12.5px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-45 disabled:cursor-not-allowed';
 const inputCls = 'w-full h-[30px] px-2.5 rounded-md border border-line bg-surface-input text-content outline-none text-[12.5px] focus:border-accent';
+
+function RefsDialog({ name, refs, onClose, onGo }: { name: string; refs: { file: string; from: number; line: number; text: string; decl?: boolean }[]; onClose: () => void; onGo: (r: { file: string; from: number }) => void }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'ArrowDown') { e.preventDefault(); setI((x) => Math.min(x + 1, refs.length - 1)); } else if (e.key === 'ArrowUp') { e.preventDefault(); setI((x) => Math.max(x - 1, 0)); } else if (e.key === 'Enter') onGo(refs[i]); };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+  });
+  return (
+    <Modal title={`References to ${name}`} sub={`${refs.length - 1} ${refs.length === 2 ? 'use' : 'uses'}`} onCancel={onClose} width={640} footer={<button className={btn} onClick={onClose}>Close</button>}>
+      <div className="max-h-[360px] overflow-auto -mx-1">
+        {refs.map((r, j) => (
+          <button key={j} onClick={() => onGo(r)} onMouseEnter={() => setI(j)} className={`w-full flex items-baseline gap-2 px-2 py-1 rounded text-left ${i === j ? 'bg-accent-dim' : ''}`}>
+            <span className="shrink-0 w-[190px] truncate font-mono text-[11px] text-content-faint" title={r.file}>{r.file}:{r.line}</span>
+            <span className="min-w-0 truncate font-mono text-[12px]">{r.text}</span>
+            {r.decl && <span className="ml-auto shrink-0 text-[10.5px] text-content-faint">declaration</span>}
+          </button>
+        ))}
+        {refs.length === 1 && <div className="px-2 py-2 text-[12px] text-content-faint">Nothing uses it.</div>}
+      </div>
+    </Modal>
+  );
+}
 
 export function TextDialog({ title, label, value, okLabel, hint, slashes, onOk, onCancel }: { title: string; label: string; value: string; okLabel: string; hint?: string; slashes?: boolean; onOk: (v: string) => void; onCancel: () => void }) {
   const [v, setV] = useState(value);
@@ -1633,11 +1782,11 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect }: {
   );
 }
 
-function Palette({ project, recent, onClose, onOpenFile, onOpenFolder, onTheme }: {
-  project: Project | null; recent: Recent[]; onClose: () => void;
+function Palette({ project, recent, start, lent, onClose, onOpenFile, onOpenFolder, onTheme }: {
+  project: Project | null; recent: Recent[]; start: '' | '@' | '>'; lent: { symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null; onClose: () => void;
   onOpenFile: (p: string) => void; onOpenFolder: (root?: string) => void; onTheme: (p: ThemePref) => void;
 }) {
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState<string>(start);
   const [idx, setIdx] = useState(0);
   const items = useMemo(() => {
     const all: { group: string; label: string; detail?: string; run: () => void }[] = [
@@ -1646,10 +1795,14 @@ function Palette({ project, recent, onClose, onOpenFile, onOpenFolder, onTheme }
       ...(isTauri ? [{ group: 'Commands', label: 'Open folder…', detail: 'Ctrl O', run: () => onOpenFolder() }] : []),
       { group: 'Commands', label: 'Switch to Dusk', detail: 'theme', run: () => onTheme('dark') },
       { group: 'Commands', label: 'Switch to Paper', detail: 'theme', run: () => onTheme('light') },
+      ...(lent ? lent.commands() : []),
+      ...(lent ? lent.symbols() : []),
     ];
-    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-    return all.filter((it) => words.every((w) => (it.label + ' ' + (it.detail || '') + ' ' + it.group).toLowerCase().includes(w))).slice(0, 40);
-  }, [q, project, recent, onOpenFile, onOpenFolder, onTheme]);
+    // @ for symbols only, > for commands only, as in Design Center's Go to Symbol and command list.
+    const only = q.startsWith('@') ? 'Symbols' : q.startsWith('>') ? 'Commands' : null;
+    const words = q.replace(/^[@>]/, '').toLowerCase().split(/\s+/).filter(Boolean);
+    return all.filter((it) => !only || it.group === only).filter((it) => words.every((w) => (it.label + ' ' + (it.detail || '') + ' ' + it.group).toLowerCase().includes(w))).slice(0, 40);
+  }, [q, project, recent, lent, onOpenFile, onOpenFolder, onTheme]);
   const go = (i: number) => { const it = items[i]; onClose(); if (it) it.run(); };
   let lastGroup = '';
   return (
@@ -1657,7 +1810,7 @@ function Palette({ project, recent, onClose, onOpenFile, onOpenFolder, onTheme }
       <div className="w-[600px] max-w-[calc(100vw-32px)] rounded-[10px] bg-surface border border-line shadow-[var(--shadow)] overflow-hidden">
         <div className="flex items-center gap-2.5 h-11 px-3.5 border-b border-line text-content-faint">
           <Icons.Search size={16} />
-          <input autoFocus value={q} placeholder="Type a file, a project or a command" spellCheck={false}
+          <input autoFocus value={q} placeholder="Type a file, a project or a command. @ for symbols, > for commands" spellCheck={false}
             onChange={(e) => { setQ(e.target.value); setIdx(0); }}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') { e.preventDefault(); setIdx((i) => Math.min(i + 1, items.length - 1)); }
