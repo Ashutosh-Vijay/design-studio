@@ -47,6 +47,7 @@ public class Main {
   static PrintStream out;
   static Path root;
   static String main;
+  static final Map<String, amf.core.client.platform.model.domain.DomainElement> govIndex = new HashMap<>(); // the last governance graph's elements, for govLocate
   static final Map<String, String> overlays = new ConcurrentHashMap<>(); // key: absolute path, forward slashes
 
   public static void main(String[] args) throws Exception {
@@ -108,6 +109,35 @@ public class Main {
       }
       case "check" -> { Mock.stale = true; send(check(req, "validate".equals(req.path("mode").asText()))); }
       // The API as the docs show it: traits, resource types and inheritance applied (the mock's own copy).
+      // Governance (PLAN 10.15): the API as AMF's graph for amf-custom-validator, which runs in the webview.
+      // The Editing pipeline gives every element a short id (amf://id#N); the validator reports those ids, and
+      // govLocate turns them back into files and lines from this same unit. Parsed fresh: the cached units
+      // must not be transformed.
+      case "governanceGraph" -> {
+        AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient().parse(fileUrl(root.resolve(main))).get();
+        AMFConfiguration cfg = APIConfiguration.fromSpec(parsed.sourceSpec()).withResourceLoaders(loaders())
+          .withRenderOptions(new amf.core.client.platform.config.RenderOptions().withGovernanceMode().withCompactUris());
+        BaseUnit unit = cfg.baseUnitClient().transform(parsed.baseUnit(), PipelineId.Editing()).baseUnit();
+        // Every element by id, taken before rendering (governance mode flattens the unit as it renders): each
+        // unit's own elements (findById stays inside one unit and skips a library's declarations, so those are walked).
+        govIndex.clear();
+        Deque<BaseUnit> todo = new ArrayDeque<>(List.of(unit)); Set<String> seen = new HashSet<>();
+        while (!todo.isEmpty()) {
+          BaseUnit u = todo.pop(); if (!seen.add(u.id())) continue; todo.addAll(u.references());
+          if (u instanceof amf.core.client.platform.model.document.DeclaresModel dm) for (var d : dm.declares()) collect(d, govIndex, 0);
+          if (u instanceof amf.core.client.platform.model.document.EncodesModel em && em.encodes() != null) walkAll(em.encodes(), govIndex, 0);
+        }
+        send(reply(req).put("graph", cfg.baseUnitClient().render(unit, "application/ld+json")));
+      }
+      case "govLocate" -> {
+        ObjectNode r = reply(req), at = r.putObject("at");
+        for (JsonNode id : req.path("ids")) {
+          var e = govIndex.get(id.asText());
+          ObjectNode a = e == null ? null : at(e.annotations());
+          if (a != null) at.set(id.asText(), a);
+        }
+        send(r);
+      }
       case "resolvedModel" -> { Mock.load(); ObjectNode r = reply(req); r.set("model", model(Mock.resolvedUnit)); send(r); }
       // The local mock: on starts it (or says where it runs), off stops it.
       case "mock" -> {
@@ -295,6 +325,27 @@ public class Main {
       links(p.schema(), where, refs, new HashSet<>(), 0);
     }
     return null;
+  }
+
+  // The API's own elements, for govLocate: endpoints, operations, requests, responses, payloads, parameters, their shapes.
+  static void walkAll(amf.core.client.platform.model.domain.DomainElement e, Map<String, amf.core.client.platform.model.domain.DomainElement> into, int depth) {
+    if (e == null || depth > 14) return;
+    into.putIfAbsent(e.id(), e);
+    if (e instanceof amf.apicontract.client.platform.model.domain.api.Api<?> api) { for (var x : api.endPoints()) walkAll(x, into, depth + 1); for (var x : api.servers()) into.putIfAbsent(x.id(), x); }
+    if (e instanceof amf.apicontract.client.platform.model.domain.EndPoint ep) { for (var x : ep.operations()) walkAll(x, into, depth + 1); for (var x : ep.parameters()) walkAll(x, into, depth + 1); }
+    if (e instanceof amf.apicontract.client.platform.model.domain.Operation op) { for (var x : op.requests()) walkAll(x, into, depth + 1); for (var x : op.responses()) walkAll(x, into, depth + 1); }
+    if (e instanceof amf.apicontract.client.platform.model.domain.Request rq) { for (var x : rq.payloads()) walkAll(x, into, depth + 1); for (var g : List.of(rq.queryParameters(), rq.headers(), rq.uriParameters(), rq.cookieParameters())) for (var x : g) walkAll(x, into, depth + 1); }
+    if (e instanceof amf.apicontract.client.platform.model.domain.Response rs) { for (var x : rs.payloads()) walkAll(x, into, depth + 1); for (var x : rs.headers()) walkAll(x, into, depth + 1); }
+    if (e instanceof amf.apicontract.client.platform.model.domain.Payload pl) collect(pl.schema(), into, depth + 1);
+    if (e instanceof amf.apicontract.client.platform.model.domain.Parameter pa) collect(pa.schema(), into, depth + 1);
+  }
+
+  // A declaration and what's inside it (properties, their ranges, items, union members), by id, for govLocate.
+  static void collect(amf.core.client.platform.model.domain.DomainElement e, Map<String, amf.core.client.platform.model.domain.DomainElement> into, int depth) {
+    if (e == null || depth > 12 || into.putIfAbsent(e.id(), e) != null) return;
+    if (e instanceof amf.shapes.client.platform.model.domain.NodeShape n) for (var p : n.properties()) { collect(p, into, depth + 1); collect(p.range(), into, depth + 1); }
+    if (e instanceof amf.shapes.client.platform.model.domain.ArrayShape arr) collect(arr.items(), into, depth + 1);
+    if (e instanceof amf.shapes.client.platform.model.domain.UnionShape u) for (var x : u.anyOf()) collect(x, into, depth + 1);
   }
 
   // A shape's first example as the spec writes it (YAML or JSON text), following links; null if none.

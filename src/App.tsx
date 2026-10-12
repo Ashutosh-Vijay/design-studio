@@ -19,6 +19,7 @@ import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
 import { DocsPanel } from './Docs';
 import { ApiMap } from './ApiMap';
 import { CreateDialog, NewFileDialog } from './Create';
+import { rulesets as projectRulesets, readSettings as readGovSettings, writeSettings as writeGovSettings, profileFor, type Finding, type Settings as GovSettings } from './governance';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
@@ -992,6 +993,47 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     }
     if (Object.keys(changed).length) await amf('overlay', { files: changed });
   }
+  // ---------- Governance (the Governance tab): rulesets from Exchange, run in a worker after full checks ----------
+  type Gov = { state: 'idle' | 'running' | 'done' | 'none' | 'failed'; progress?: number; detail?: string; seconds?: number; rulesets?: number; results: Finding[] };
+  const [gov, setGov] = useState<Gov>({ state: 'idle', results: [] });
+  const [govSettings, setGovSettings] = useState<GovSettings>({ off: {}, auto: true });
+  const govWorker = useRef<Worker | null>(null), govBusy = useRef(false), govAgain = useRef(false);
+  async function runGovernance() {
+    if (!checkable) return;
+    if (govBusy.current) { govAgain.current = true; return; }
+    govBusy.current = true;
+    try {
+      const [rs, st] = await Promise.all([projectRulesets(project.root), readGovSettings(project.root)]);
+      setGovSettings(st);
+      if (!rs.length) { setGov({ state: 'none', results: [] }); return; }
+      const t0 = performance.now();
+      setGov((g) => ({ ...g, state: 'running', progress: 0, rulesets: rs.length }));
+      await syncOverlays();
+      const { graph } = await amf('governanceGraph', {});
+      const w = govWorker.current ??= new Worker(new URL('./governance.worker.ts', import.meta.url), { type: 'module' });
+      const found = await new Promise<Finding[]>((res, rej) => {
+        w.onmessage = (e) => { if (e.data.progress != null) setGov((g) => ({ ...g, progress: e.data.progress })); else if (e.data.error) rej(new Error(e.data.error)); else res(e.data.results); };
+        w.postMessage({ profiles: rs.map((r) => ({ name: r.name, text: profileFor(r, st.off[r.key] ?? []) })), graph });
+      });
+      const at = (await amf('govLocate', { ids: [...new Set(found.map((f) => f.focus))] })).at as Record<string, At>;
+      setGov({ state: 'done', rulesets: rs.length, seconds: Math.round((performance.now() - t0) / 1000), results: found.map((f) => ({ ...f, file: at[f.focus]?.file, r: at[f.focus]?.r })) });
+    } catch (e) {
+      setGov((g) => ({ ...g, state: 'failed', detail: String(e).replace(/^Error: /, '') }));
+    } finally {
+      govBusy.current = false;
+      if (govAgain.current) { govAgain.current = false; runGovernance(); }
+    }
+  }
+  const govRef = useRef(runGovernance); govRef.current = runGovernance;
+  const govSettingsRef = useRef(govSettings); govSettingsRef.current = govSettings;
+  // The Dependencies panel says when rulesets or their rules change.
+  useEffect(() => {
+    const f = () => { readGovSettings(project.root).then(setGovSettings); govRef.current(); };
+    window.addEventListener('ads-governance-changed', f);
+    return () => window.removeEventListener('ads-governance-changed', f);
+  }, [project.root]);
+  useEffect(() => () => { govWorker.current?.terminate(); }, []);
+
   async function runCheck(mode: 'parse' | 'validate') {
     if (!checkable) return;
     const g = ++gen.current;
@@ -1004,6 +1046,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       setProblems((prev) => (mode === 'validate' ? r.problems : [...r.problems, ...prev.filter((x) => x.phase === 'validate')]));
       if (r.model) setAmfModel(r.model);
       setEngine({ state: 'ready', detail: '', ms: mode === 'validate' ? `Checked in ${((r.parseMs + r.validateMs) / 1000).toFixed(1)} s` : `Read in ${(r.parseMs / 1000).toFixed(2)} s` });
+      // Auto-validation (Design Center's governance setting): after each full check, when on.
+      if (mode === 'validate' && govSettingsRef.current.auto) govRef.current();
     } catch (e) {
       // The checker answered but couldn't read the spec: that's a problem with the spec, not a dead
       // checker. (A dead or blocked checker is reported through the amf-status event instead.)
@@ -1281,7 +1325,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             <Shelf ctx={shelf} open={shelfOpen} setOpen={setShelfOpen} onPick={shelfInsert}
               types={(outline?.types ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} traits={(outline?.traits ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} />
           )}
-          {checkable && <ProblemsPanel problems={problems} open={problemsOpen} setOpen={setProblemsOpen} engine={engine} onGo={goToProblem} />}
+          {checkable && <ProblemsPanel problems={problems} open={problemsOpen} setOpen={setProblemsOpen} engine={engine} onGo={goToProblem}
+            gov={gov} govAuto={govSettings.auto} onGovRun={() => runGovernance()} onGovGo={(f) => f.file && f.r && revealAt({ file: f.file, r: f.r })}
+            onGovAuto={async (auto) => { const st = { ...govSettings, auto }; setGovSettings(st); await writeGovSettings(project.root, st); if (auto) runGovernance(); }}
+            onAddRuleset={() => setRail('deps')} />}
           {publishing != null && <PublishDialog root={project.root} main={project.main} paths={listPaths} model={amfModel} version={publishing || undefined}
             errors={problems.filter((x) => x.severity === 'error').length}
             onClose={() => setPublishing(null)} onShowErrors={() => { setPublishing(null); setProblemsOpen(true); }}
@@ -1528,9 +1575,13 @@ function Shelf({ ctx, open, setOpen, onPick, types, traits }: {
 type Problem = { severity: 'error' | 'warning' | 'info'; message: string; file: string; line: number; col: number; endLine: number; endCol: number; phase: string; code: string };
 
 // Design Center's Project Errors: a bar with counts that opens into the list. Click a row to go there.
-function ProblemsPanel({ problems, open, setOpen, engine, onGo }: {
+function ProblemsPanel({ problems, open, setOpen, engine, onGo, gov, govAuto, onGovRun, onGovGo, onGovAuto, onAddRuleset }: {
   problems: Problem[]; open: boolean; setOpen: (b: boolean) => void; engine: { state: string; detail: string; ms?: string }; onGo: (p: Problem) => void;
+  gov: { state: string; progress?: number; detail?: string; seconds?: number; rulesets?: number; results: Finding[] }; govAuto: boolean;
+  onGovRun: () => void; onGovGo: (f: Finding) => void; onGovAuto: (on: boolean) => void; onAddRuleset: () => void;
 }) {
+  const [tab, setTab] = useState<'problems' | 'gov'>('problems');
+  const [levels, setLevels] = useState({ violation: true, warning: true, info: true });
   const nE = problems.filter((p) => p.severity === 'error').length, nW = problems.length - nE;
   const files = [...new Set(problems.map((p) => p.file))];
   const counts = (
@@ -1542,8 +1593,13 @@ function ProblemsPanel({ problems, open, setOpen, engine, onGo }: {
   return (
     <section className="shrink-0 flex flex-col bg-surface border-t border-line" style={{ height: open ? 190 : 28 }}>
       <div className="h-7 shrink-0 flex items-center gap-3 px-3 border-b border-line-subtle">
-        <button onClick={() => setOpen(!open)} className="flex items-center gap-2.5 text-[12px] font-semibold text-content-secondary hover:text-content">
+        <button onClick={() => { setTab('problems'); setOpen(tab === 'problems' ? !open : true); }} className={`flex items-center gap-2.5 text-[12px] font-semibold hover:text-content ${tab === 'problems' ? 'text-content' : 'text-content-faint'}`}>
           Project errors {counts}
+        </button>
+        <button onClick={() => { setTab('gov'); setOpen(tab === 'gov' ? !open : true); }} className={`flex items-center gap-1.5 text-[12px] font-semibold hover:text-content ${tab === 'gov' ? 'text-content' : 'text-content-faint'}`}>
+          Governance
+          {gov.state === 'running' ? <span className="w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+            : gov.state === 'done' ? <span className={`text-[11px] font-normal ${gov.results.some((f) => f.level === 'violation') ? 'text-err' : 'text-content-faint'}`}>{gov.results.length}</span> : null}
         </button>
         <span className="flex-1" />
         <span className="text-[11px] text-content-faint flex items-center gap-1.5">
@@ -1554,7 +1610,54 @@ function ProblemsPanel({ problems, open, setOpen, engine, onGo }: {
           {open ? <Icons.ChevronDown size={12} /> : <span className="rotate-180 flex"><Icons.ChevronDown size={12} /></span>}
         </button>
       </div>
-      {open && (
+      {open && tab === 'gov' && (() => {
+        const shown = gov.results.filter((f) => levels[f.level]);
+        const files = [...new Set(shown.map((f) => f.file ?? ''))];
+        const n = (l: string) => gov.results.filter((f) => f.level === l).length;
+        let left = 600;
+        return (
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="h-8 shrink-0 flex items-center gap-2 px-3 text-[12px] text-content-faint border-b border-line-subtle">
+              <button disabled={gov.state === 'running' || gov.state === 'none'} onClick={onGovRun} className="h-[22px] px-2.5 rounded-md border border-line bg-surface-2 text-content-secondary hover:text-content disabled:opacity-50">Validate</button>
+              <label className="flex items-center gap-1.5 cursor-pointer" title="Validate against the rulesets after each full check"><input type="checkbox" checked={govAuto} onChange={(e) => onGovAuto(e.target.checked)} className="accent-[var(--accent)]" />Auto</label>
+              {gov.state === 'done' && (['violation', 'warning', 'info'] as const).map((l) => (
+                <button key={l} onClick={() => setLevels({ ...levels, [l]: !levels[l] })} className={`h-[22px] px-2 rounded-md border ${levels[l] ? 'border-line bg-surface-2 text-content-secondary' : 'border-transparent opacity-50'}`}>
+                  {n(l)} {l === 'violation' ? 'violations' : l === 'warning' ? 'warnings' : 'info'}</button>
+              ))}
+              <span className="flex-1" />
+              <span>{gov.state === 'running' ? `Validating${gov.progress ? ` ${Math.round(gov.progress * 100)}%` : ''}…` : gov.state === 'done' ? `${gov.rulesets} ${gov.rulesets === 1 ? 'ruleset' : 'rulesets'} in ${gov.seconds} s` : ''}</span>
+            </div>
+            <div className="flex-1 overflow-auto py-1 select-text">
+              {gov.state === 'none' && <div className="px-3 py-3 text-[12.5px] text-content-faint">No rulesets yet. <button className="underline hover:text-content" onClick={onAddRuleset}>Add one under Dependencies</button> to check this API against your organization's rules.</div>}
+              {gov.state === 'idle' && <div className="px-3 py-3 text-[12.5px] text-content-faint">Press Validate to check the API against its rulesets.</div>}
+              {gov.state === 'failed' && <div className="px-3 py-3 text-[12.5px] text-err">Governance couldn't run: {gov.detail}</div>}
+              {gov.state === 'done' && gov.results.length === 0 && <div className="px-3 py-3 text-[12.5px] text-content-faint">The API meets every rule in its rulesets.</div>}
+              {files.map((file) => {
+                const rows = shown.filter((f) => (f.file ?? '') === file).sort((a, b) => (a.r?.[0] ?? 0) - (b.r?.[0] ?? 0));
+                if (left <= 0) return null;
+                const take = rows.slice(0, left); left -= take.length;
+                return (
+                  <div key={file}>
+                    <div className="h-6 flex items-center px-3 text-[12px] font-medium text-content-secondary">{file ? base(file) : 'The API'} <span className="ml-2 text-[11px] font-normal text-content-faint">{file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''}</span></div>
+                    {take.map((f, i) => (
+                      <div key={i} onClick={() => onGovGo(f)} className="group/p flex items-center gap-2 min-h-[26px] pl-7 pr-3 text-[12.5px] cursor-pointer hover:bg-[var(--hover-overlay)]">
+                        <span className={`w-2 h-2 shrink-0 ${f.level === 'violation' ? 'rounded-full bg-err' : f.level === 'warning' ? 'rotate-45 bg-warn' : 'rounded-full bg-content-faint'}`} />
+                        <span className="text-content">{f.message}</span>
+                        <span className="text-[11px] text-content-faint whitespace-nowrap" title={f.ruleset}>{f.rule}</span>
+                        <button title="Copy" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${f.file ?? ''}:${f.r?.[0] ?? ''} ${f.level}: ${f.message} (${f.rule}, ${f.ruleset})`); }}
+                          className="ml-auto opacity-0 group-hover/p:opacity-100 w-5 h-5 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.Copy size={12} /></button>
+                        <span className="font-mono text-[11px] text-content-faint whitespace-nowrap">{f.r ? f.r[0] : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              {left <= 0 && <div className="px-3 py-2 text-[11.5px] text-content-faint">Showing the first 600. Turn a severity off above to see the rest.</div>}
+            </div>
+          </div>
+        );
+      })()}
+      {open && tab === 'problems' && (
         <div className="flex-1 overflow-auto py-1 select-text">
           {(engine.state === 'failed' || engine.state === 'stopped') && (
             <div className="mx-3 my-1.5 p-2.5 rounded-md border border-err-border bg-err-tint text-[12px]">

@@ -8,6 +8,7 @@ import { Modal, btn, btnPrimary } from './App';
 import { Badge, type AmfModel } from './Inspector';
 import type { Me } from './SyncUI';
 import * as S from './sync';
+import * as G from './governance';
 
 const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60000); return !t ? '' : m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
 const status = () => invoke<Me | null>('anypoint_status').catch(() => null);
@@ -198,11 +199,16 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
   const [deps, setDeps] = useState<S.Descriptor['dependencies'] | null>(null);
   const [info, setInfo] = useState<Record<string, { name: string; type: string; latest?: string; versions: S.Version[] } | null>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<'fragment' | 'ruleset' | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
+  // Rulesets (Design Center's governance dependencies) and which of their rules are on here.
+  const [sets, setSets] = useState<G.Ruleset[]>([]);
+  const [gs, setGs] = useState<G.Settings>({ off: {}, auto: true });
+  const [open, setOpen] = useState<string | null>(null);
 
   const load = async () => {
     const x = await S.readDescriptor(root); setDeps(x ? x.d.dependencies ?? [] : null);
+    setSets(await G.rulesets(root)); setGs(await G.readSettings(root));
     const m = await status(); setMe(m);
     if (!m || !x) return;
     for (const d of x.d.dependencies ?? []) {
@@ -212,54 +218,98 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
   useEffect(() => { load(); }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
   const run = async (label: string, fn: () => Promise<string>) => {
     setBusy(label); setMenu(null);
-    try { const t = await fn(); await onChanged(); await load(); onNotice(t, false); } catch (e) { onNotice(String(e).replace(/^Error: /, ''), true); }
+    try { const t = await fn(); await onChanged(); await load(); onNotice(t, false); window.dispatchEvent(new Event('ads-governance-changed')); } catch (e) { onNotice(String(e).replace(/^Error: /, ''), true); }
     setBusy(null);
   };
   const mainOf = async (d: { groupId: string; assetId: string; version: string }) => {
     const dir = `exchange_modules/${d.groupId}/${d.assetId}/${d.version}/`;
-    return dir + ((await S.readDescriptor(`${root}/${dir}`))?.d.main ?? '');
+    return dir + ((await S.readDescriptor(`${root}/${dir}`))?.d.main ?? 'ruleset.yaml');
+  };
+  const setOff = async (key: string, off: string[]) => {
+    const next = { ...gs, off: { ...gs.off, [key]: off } };
+    if (!off.length) delete next.off[key];
+    setGs(next); await G.writeSettings(root, next);
+    window.dispatchEvent(new Event('ads-governance-changed'));
   };
   if (deps === null) return <div className="p-3"><Note>This project has no exchange.json, so it can't have Exchange dependencies. Projects pulled from Design Center have one.</Note></div>;
+  const isSet = (d: { groupId: string; assetId: string }) => sets.some((r) => r.key === `${d.groupId}/${d.assetId}`);
+  const header = (title: string, n: number, kind: 'fragment' | 'ruleset') => (
+    <div className="flex items-center gap-1 px-3 h-8 mt-1">
+      <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">{title} <span className="font-normal">({n})</span></span>
+      <button title={me ? (kind === 'ruleset' ? 'Add a ruleset from Exchange' : 'Add a dependency from Exchange') : 'Sign in to Anypoint to add dependencies'} disabled={!me || !!busy} onClick={() => setAdding(kind)}
+        className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content disabled:opacity-40"><Icons.Plus size={14} /></button>
+    </div>
+  );
+  const row = (d: { groupId: string; assetId: string; version: string }) => {
+    const k = `${d.groupId}/${d.assetId}`, i = info[k], rs = sets.find((r) => r.key === k);
+    const newer = i?.latest && S.cmpVersion(i.latest, d.version) > 0 ? i.latest : null;
+    const off = gs.off[k] ?? [];
+    return (
+      <div key={k} className="border-b border-line-subtle">
+        <div className="relative flex items-start gap-2 px-3 py-2">
+          {rs && <button onClick={() => setOpen(open === k ? null : k)} title="Rules" className="mt-0.5 w-4 h-4 flex items-center justify-center text-content-faint hover:text-content">{open === k ? <Icons.ChevronDown size={11} /> : <Icons.ChevronRight size={11} />}</button>}
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold truncate">{rs?.name ?? i?.name ?? d.assetId} <span className="font-mono font-normal text-[11px] text-content-muted">{d.version}</span></span>
+            <span className="block text-[11px] text-content-faint truncate">{rs ? `${rs.rules.length - off.length} of ${rs.rules.length} rules on` : `${d.groupId === me?.org_id ? me.org_name : d.groupId}${i?.type ? ` · ${i.type === 'raml-fragment' ? 'RAML fragment' : i.type}` : ''}`}</span>
+            {newer && <button className={`${btn} mt-1.5 !h-[22px] !text-[11px]`} disabled={!!busy}
+              onClick={() => run(`Updating ${d.assetId} to ${newer}…`, async () => { const ch = await S.changeDependency(root, await paths(), d, newer); return `${d.assetId} is now ${newer}.${ch.length ? ` References updated in ${ch.join(', ')}.` : ''}`; })}>Update to {newer}</button>}
+          </span>
+          <button title="More actions" onClick={() => setMenu(menu === k ? null : k)} className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.More size={13} /></button>
+          {menu === k && (
+            <div className="absolute right-3 top-9 z-30 w-[200px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" onMouseLeave={() => setMenu(null)}>
+              {[
+                ['Show in Files', async () => { setMenu(null); onOpenFile(await mainOf(d)); }],
+                ...(me ? [['Open in Exchange', () => { setMenu(null); openUrl(exchangeUrl(me, d.groupId, d.assetId)); }]] : []),
+                ...((i?.versions.length ?? 0) > 1 ? i!.versions.filter((v) => v.version !== d.version).slice(0, 6).map((v) => [`Change to ${v.version}`, () => run(`Changing ${d.assetId} to ${v.version}…`, async () => { const ch = await S.changeDependency(root, await paths(), d, v.version); return `${d.assetId} is now ${v.version}.${ch.length ? ` References updated in ${ch.join(', ')}.` : ''}`; })]) : []),
+                ['Remove', () => run(`Removing ${d.assetId}…`, async () => { await S.removeDependency(root, await paths(), d); if (rs) await setOff(k, []); return `Removed ${d.assetId}.`; })],
+              ].map(([label, f]) => (
+                <button key={label as string} onClick={f as () => void} className="w-full h-7 px-2 rounded text-left text-[12.5px] text-content-secondary hover:bg-surface-3 hover:text-content">{label as string}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        {rs && open === k && (
+          <div className="pl-9 pr-3 pb-2">
+            {rs.description && <div className="mb-1.5 text-[11.5px] text-content-faint">{rs.description}</div>}
+            <div className="flex gap-3 mb-1 text-[11px]">
+              <button className="text-accent hover:underline" onClick={() => setOff(k, [])}>All on</button>
+              <button className="text-accent hover:underline" onClick={() => setOff(k, rs.rules.map((r) => r.name))}>All off</button>
+            </div>
+            {(['violation', 'warning', 'info'] as const).map((lv) => {
+              const list = rs.rules.filter((r) => r.level === lv);
+              return list.length ? (
+                <div key={lv} className="mt-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">{lv === 'violation' ? 'Violations' : lv === 'warning' ? 'Warnings' : 'Info'} ({list.length})</div>
+                  {list.map((r) => (
+                    <label key={r.name} className="flex items-start gap-2 py-0.5 cursor-pointer" title={r.message}>
+                      <input type="checkbox" className="mt-0.5 accent-[var(--accent)]" checked={!off.includes(r.name)}
+                        onChange={(e) => setOff(k, e.target.checked ? off.filter((x) => x !== r.name) : [...off, r.name])} />
+                      <span className="min-w-0"><span className="block font-mono text-[11.5px] truncate">{r.name}</span>{r.message && <span className="block text-[11px] text-content-faint">{r.message}</span>}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : null;
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+  const frags = (deps ?? []).filter((d) => !isSet(d)), rsDeps = (deps ?? []).filter(isSet);
   return (
     <div className="flex-1 overflow-auto pb-4 text-[12.5px]">
-      <div className="flex items-center gap-1 px-3 h-8">
-        <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">Fragments <span className="font-normal">({deps?.length ?? 0})</span></span>
-        <button title={me ? 'Add a dependency from Exchange' : 'Sign in to Anypoint to add dependencies'} disabled={!me || !!busy} onClick={() => setAdding(true)}
-          className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content disabled:opacity-40"><Icons.Plus size={14} /></button>
-      </div>
-      {busy && <div className="px-3 pb-2"><Note>{busy}</Note></div>}
-      {deps?.length === 0 && <div className="px-3"><Note>None yet. Fragments from Exchange, like shared libraries and traits, go here.</Note></div>}
-      {deps?.map((d) => {
-        const k = `${d.groupId}/${d.assetId}`, i = info[k];
-        const newer = i?.latest && S.cmpVersion(i.latest, d.version) > 0 ? i.latest : null;
-        return (
-          <div key={k} className="relative flex items-start gap-2 px-3 py-2 border-b border-line-subtle">
-            <span className="min-w-0 flex-1">
-              <span className="block font-semibold truncate">{i?.name ?? d.assetId} <span className="font-mono font-normal text-[11px] text-content-muted">{d.version}</span></span>
-              <span className="block text-[11px] text-content-faint truncate">{d.groupId === me?.org_id ? me.org_name : d.groupId}{i?.type ? ` · ${i.type === 'raml-fragment' ? 'RAML fragment' : i.type}` : ''}</span>
-              {newer && <button className={`${btn} mt-1.5 !h-[22px] !text-[11px]`} disabled={!!busy}
-                onClick={() => run(`Updating ${d.assetId} to ${newer}…`, async () => { const ch = await S.changeDependency(root, await paths(), d, newer); return `${d.assetId} is now ${newer}.${ch.length ? ` References updated in ${ch.join(', ')}.` : ''}`; })}>Update to {newer}</button>}
-            </span>
-            <button title="More actions" onClick={() => setMenu(menu === k ? null : k)} className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.More size={13} /></button>
-            {menu === k && (
-              <div className="absolute right-3 top-9 z-30 w-[200px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" onMouseLeave={() => setMenu(null)}>
-                {[
-                  ['Show in Files', async () => { setMenu(null); onOpenFile(await mainOf(d)); }],
-                  ...(me ? [['Open in Exchange', () => { setMenu(null); openUrl(exchangeUrl(me, d.groupId, d.assetId)); }]] : []),
-                  ...((i?.versions.length ?? 0) > 1 ? i!.versions.filter((v) => v.version !== d.version).slice(0, 6).map((v) => [`Change to ${v.version}`, () => run(`Changing ${d.assetId} to ${v.version}…`, async () => { const ch = await S.changeDependency(root, await paths(), d, v.version); return `${d.assetId} is now ${v.version}.${ch.length ? ` References updated in ${ch.join(', ')}.` : ''}`; })]) : []),
-                  ['Remove', () => run(`Removing ${d.assetId}…`, async () => { await S.removeDependency(root, await paths(), d); return `Removed ${d.assetId}.`; })],
-                ].map(([label, f]) => (
-                  <button key={label as string} onClick={f as () => void} className="w-full h-7 px-2 rounded text-left text-[12.5px] text-content-secondary hover:bg-surface-3 hover:text-content">{label as string}</button>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {adding && <AddDependency onClose={() => setAdding(false)} onAdd={(dep) => { setAdding(false); run(`Adding ${dep.assetId}…`, async () => {
+      {busy && <div className="px-3 pt-2"><Note>{busy}</Note></div>}
+      {header('Fragments', frags.length, 'fragment')}
+      {frags.length === 0 && <div className="px-3"><Note>None yet. Fragments from Exchange, like shared libraries and traits, go here.</Note></div>}
+      {frags.map(row)}
+      {header('Rulesets', rsDeps.length, 'ruleset')}
+      {rsDeps.length === 0 && <div className="px-3"><Note>Add a ruleset to check this API against your organization's rules, or Anypoint's own: Best Practices, OWASP and more. Results show under Governance in Project errors.</Note></div>}
+      {rsDeps.map(row)}
+      {rsDeps.length > 0 && <div className="px-3 pt-2"><Note>Switching rules off is kept on this computer. Design Center and Exchange apply each ruleset whole.</Note></div>}
+      {adding && <AddDependency rulesets={adding === 'ruleset'} onClose={() => setAdding(null)} onAdd={(dep) => { const kind = adding; setAdding(null); run(`Adding ${dep.assetId}…`, async () => {
         const r = await S.addDependency(root, dep);
         if (r.failed.length) throw new Error(`Added to exchange.json, but the files couldn't be fetched: ${r.failed.join('; ')}`);
-        return `Added ${dep.assetId} ${dep.version}. Use it with ${r.path}`;
+        return kind === 'ruleset' ? `Added ${dep.assetId} ${dep.version}. Governance checks the API against it.` : `Added ${dep.assetId} ${dep.version}. Use it with ${r.path}`;
       }); }} />}
     </div>
   );
@@ -267,7 +317,7 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
 
 // Add dependency (fragments, into exchange_modules) and Import from Exchange (fragments and API specs, their
 // files into a folder of the project): the same search and version picker.
-export function AddDependency({ onClose, onAdd, importing }: { onClose: () => void; onAdd: (d: { groupId: string; assetId: string; version: string }) => void; importing?: boolean }) {
+export function AddDependency({ onClose, onAdd, importing, rulesets }: { onClose: () => void; onAdd: (d: { groupId: string; assetId: string; version: string }) => void; importing?: boolean; rulesets?: boolean }) {
   const [q, setQ] = useState('');
   const [dev, setDev] = useState(false);
   const [list, setList] = useState<Awaited<ReturnType<typeof S.searchAssets>> | null>(null);
@@ -277,7 +327,7 @@ export function AddDependency({ onClose, onAdd, importing }: { onClose: () => vo
   const [me, setMe] = useState<Me | null>(null);
   useEffect(() => { status().then(setMe); }, []);
   useEffect(() => {
-    const t = setTimeout(() => { setErr(null); S.searchAssets(q.trim(), importing ? ['raml-fragment', 'rest-api'] : ['raml-fragment']).then(setList, (e) => setErr(String(e))); }, 250);
+    const t = setTimeout(() => { setErr(null); S.searchAssets(q.trim(), rulesets ? ['ruleset'] : importing ? ['raml-fragment', 'rest-api'] : ['raml-fragment']).then(setList, (e) => setErr(String(e))); }, 250);
     return () => clearTimeout(t);
   }, [q]);
   useEffect(() => {
@@ -288,10 +338,10 @@ export function AddDependency({ onClose, onAdd, importing }: { onClose: () => vo
   const shown = versions.filter((v) => dev || v.status === 'published');
   useEffect(() => { if (shown[0] && !shown.some((v) => v.version === version)) setVersion(shown[0].version); }, [versions, dev]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Modal title={importing ? 'Import from Exchange' : 'Add dependency'} sub={importing ? 'Its files go into a folder of this project' : 'Fragments from Exchange'} onCancel={onClose} width={560}
+    <Modal title={rulesets ? 'Add ruleset' : importing ? 'Import from Exchange' : 'Add dependency'} sub={rulesets ? 'Governance rulesets from Exchange' : importing ? 'Its files go into a folder of this project' : 'Fragments from Exchange'} onCancel={onClose} width={560}
       footer={<><label className="flex-1 flex items-center gap-2 text-[12px] text-content-secondary cursor-pointer"><input type="checkbox" checked={dev} onChange={(e) => setDev(e.target.checked)} className="accent-[var(--accent)]" />Include versions in Development</label>
         <button className={btn} onClick={onClose}>Cancel</button>
-        <button className={btnPrimary} disabled={!pick || !version} onClick={() => pick && onAdd({ groupId: pick.groupId, assetId: pick.assetId, version })}>{importing ? 'Import' : 'Add dependency'}</button></>}>
+        <button className={btnPrimary} disabled={!pick || !version} onClick={() => pick && onAdd({ groupId: pick.groupId, assetId: pick.assetId, version })}>{importing ? 'Import' : rulesets ? 'Add ruleset' : 'Add dependency'}</button></>}>
       <div className="flex flex-col gap-3 text-[12.5px]">
         <label className="flex items-center gap-1.5 h-[28px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
           <Icons.Search size={12} /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Exchange by name" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12.5px] text-content" /></label>
@@ -300,7 +350,7 @@ export function AddDependency({ onClose, onAdd, importing }: { onClose: () => vo
           {list?.length === 0 && <div className="p-4 text-content-faint">{importing ? 'Nothing matches.' : 'No fragments match.'}</div>}
           {list?.filter((a) => dev || a.status !== 'development').map((a) => (
             <div key={a.groupId + a.assetId} onClick={() => setPick(a)} className={`flex items-center gap-2 px-3 py-2 border-b border-line-secondary last:border-b-0 cursor-pointer ${pick?.assetId === a.assetId && pick.groupId === a.groupId ? 'bg-accent-dim' : 'hover:bg-[var(--hover-overlay)]'}`}>
-              <span className="text-[9.5px] font-semibold px-1.5 rounded border border-line text-content-faint">{a.type === 'rest-api' ? 'API' : 'RAML'}</span>
+              <span className="text-[9.5px] font-semibold px-1.5 rounded border border-line text-content-faint">{a.type === 'rest-api' ? 'API' : a.type === 'ruleset' ? 'Rules' : 'RAML'}</span>
               <span className="min-w-0 flex-1"><span className="block font-semibold truncate">{a.name}</span><span className="block text-[11px] text-content-faint truncate">{a.org || (a.groupId === me?.org_id ? me.org_name : a.groupId)}</span></span>
               <span className="font-mono text-[11px] text-content-muted">{a.version}</span>{a.status !== 'published' && life(a.status)}
             </div>
