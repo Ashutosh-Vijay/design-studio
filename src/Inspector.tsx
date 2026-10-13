@@ -60,8 +60,8 @@ export function Field({ value, onCommit, placeholder, mono, multiline, options, 
     ? <textarea value={v} placeholder={placeholder} spellCheck={false} rows={Math.min(8, Math.max(2, v.split('\n').length))} onChange={(e) => setV(e.target.value)} onBlur={onBlur}
         onKeyDown={(e) => { esc(e); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.blur(); }} className={cls + ' py-1 resize-y leading-snug'} />
     : <>
-        <input ref={ref} value={v} placeholder={placeholder} spellCheck={false} onChange={(e) => { setV(e.target.value); setOpen(true); setActive(-1); }}
-          onBlur={(e) => { setOpen(false); onBlur(e); }} onMouseDown={() => options && setOpen(true)}
+        <input ref={ref} value={v} placeholder={placeholder} spellCheck={false} onChange={(e) => { setV(e.target.value); setOpen(true); setActive(0); }}
+          onBlur={(e) => { setOpen(false); onBlur(e); }} onMouseDown={() => { if (options) { setOpen(true); setActive(-1); } }}
           onKeyDown={(e) => {
             if (shown.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setActive(e.key === 'ArrowDown' ? (active + 1) % shown.length : active <= 0 ? shown.length - 1 : active - 1); return; }
             if (e.key === 'ArrowDown' && options) { setOpen(true); return; }
