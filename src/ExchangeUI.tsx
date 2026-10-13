@@ -40,6 +40,8 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
   const [step, setStep] = useState<number | null>(null); const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<{ text: string; pushed: number } | null>(null);
   const busy = step != null && !done;
+  const [secs, setSecs] = useState(0);
+  useEffect(() => { if (!busy) return; const t0 = Date.now(); setSecs(0); const t = setInterval(() => setSecs(Math.round((Date.now() - t0) / 1000)), 1000); return () => clearInterval(t); }, [busy]);
 
   useEffect(() => {
     (async () => {
@@ -97,8 +99,8 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
         </div>
       ) : busy ? (
         <div className="flex flex-col gap-2.5 py-2 text-[12.5px]">
-          <div className="text-content-secondary mb-1">Publishing {v.trim()}{dev ? ' as Development' : ''}. This can take a minute, so keep this window open.</div>
-          {['Saving your changes to Design Center', 'Publishing to Exchange', 'Waiting for Exchange to list the new version', "Pulling Design Center's updated exchange.json"].map((t, i) => (
+          <div className="text-content-secondary mb-1">Publishing {v.trim()}{dev ? ' as Development' : ''}. This can take a minute, so keep this window open. <span className="tabular-nums text-content-faint">{secs} s</span></div>
+          {['Saving your changes to Design Center', 'Publishing to Exchange', "Pulling the updated exchange.json while Exchange lists the version"].map((t, i) => (
             <div key={t} className={`flex items-center gap-2.5 ${i > step! ? 'text-content-faint' : i === step ? 'text-content font-medium' : 'text-content-secondary'}`}>
               {i < step! ? <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center text-ok"><Icons.Check size={14} /></span> : i === step ? spin : <span className="w-3.5 h-3.5 shrink-0 rounded-full border-2 border-line" />}{t}
             </div>

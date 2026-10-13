@@ -63,9 +63,11 @@ async function head(l: { projectId: string; branch: string }) {
 // The branch's files, path to text, byte for byte (files/v2, M0.3).
 async function remoteFiles(l: { projectId: string; branch: string }) {
   const list = must(await api('GET', `${branchPath(l)}/files`), 'Listing the files').json as { path: string; type: string }[];
-  const out = new Map<string, string>();
-  for (const f of list.filter((x) => x.type === 'FILE')) out.set(f.path, must(await api('GET', `${branchPath(l)}/files/v2/${filePath(f.path)}`), `Reading ${f.path}`).text);
-  return out;
+  // Eight at a time: one by one, a 40-file project took 15 s or more.
+  const files = list.filter((x) => x.type === 'FILE'), got: string[] = [];
+  for (let i = 0; i < files.length; i += 8)
+    got.push(...await Promise.all(files.slice(i, i + 8).map(async (f) => must(await api('GET', `${branchPath(l)}/files/v2/${filePath(f.path)}`), `Reading ${f.path}`).text)));
+  return new Map(files.map((f, i) => [f.path, got[i]]));
 }
 
 export async function readLink(root: string): Promise<Link | null> {
@@ -335,11 +337,13 @@ export async function publish(root: string, paths: string[], o: { name: string; 
     if (r.status === 409) throw new Error(`Version ${o.version} is already in Exchange as Stable, and a Stable version can't be published again. Pick a new version.`);
     must(r, 'Publishing');
   } finally { await invoke('anypoint_release_lock'); }
-  // Exchange lists a new version a few seconds after publishing.
+  // Exchange lists a new version a few seconds after publishing; meanwhile the pull brings back the
+  // exchange.json Design Center rewrote. Both at once.
   step(2);
-  for (let i = 0; i < 15 && (await api('GET', `/exchange/api/v2/assets/${o.groupId}/${o.assetId}/${o.version}`)).status !== 200; i++) await new Promise((r) => setTimeout(r, 2000));
-  step(3);
-  const after = await pull(root, (await readLink(root))!);
+  const [, after] = await Promise.all([
+    (async () => { for (let i = 0; i < 15 && (await api('GET', `/exchange/api/v2/assets/${o.groupId}/${o.assetId}/${o.version}`)).status !== 200; i++) await new Promise((r) => setTimeout(r, 2000)); })(),
+    pull(root, (await readLink(root))!),
+  ]);
   return { pushed, pulled: after };
 }
 
