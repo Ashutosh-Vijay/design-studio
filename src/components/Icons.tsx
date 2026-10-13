@@ -256,8 +256,11 @@ export const Icons = {
   ),
   Exchange: mk(
     <>
-      <path d="M4.5 8.5c2.5 0 3.5 7 7.5 7s5-7 7.5-7" />
-      <path d="M4.5 15.5c2.5 0 3.5-7 7.5-7s5 7 7.5 7" />
+      {/* Our own: two arrows passing each other, the usual sign for an exchange (not MuleSoft's artwork). */}
+      <path d="M4 8h15" />
+      <path d="M15.5 4.5 19 8l-3.5 3.5" />
+      <path d="M20 16H5" />
+      <path d="M8.5 12.5 5 16l3.5 3.5" />
     </>,
   ),
   Deps: mk(
