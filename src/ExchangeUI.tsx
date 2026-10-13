@@ -19,6 +19,7 @@ const life = (s: string) => (
   </span>
 );
 const H = ({ children }: { children: ReactNode }) => <div className="mt-4 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">{children}</div>;
+const MULESOFT = '68ef9520-24e9-4cf2-b2f5-620025690913'; // MuleSoft's own organization, where its public assets live
 const Note = ({ children }: { children: ReactNode }) => <div className="text-[12px] text-content-faint leading-relaxed">{children}</div>;
 
 // ---------- Publish to Exchange ----------
@@ -361,44 +362,65 @@ export function AddDependency({ onClose, onAdd, importing, rulesets }: { onClose
   const [list, setList] = useState<Awaited<ReturnType<typeof S.searchAssets>> | null>(null);
   const [pick, setPick] = useState<{ groupId: string; assetId: string; name: string } | null>(null);
   const [versions, setVersions] = useState<S.Version[]>([]); const [version, setVersion] = useState('');
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [owner, setOwner] = useState('');
+  const [again, setAgain] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   useEffect(() => { status().then(setMe); }, []);
+  // Exchange's search covers everything this user can see: MuleSoft's public assets and their own organization's.
   useEffect(() => {
-    const t = setTimeout(() => { setErr(null); S.searchAssets(q.trim(), rulesets ? ['ruleset'] : importing ? ['raml-fragment', 'rest-api'] : ['raml-fragment']).then(setList, (e) => setErr(String(e))); }, 250);
+    const t = setTimeout(() => { setErr(null); setList(null); S.searchAssets(q.trim(), rulesets ? ['ruleset'] : importing ? ['raml-fragment', 'rest-api'] : ['raml-fragment']).then(setList, (e) => setErr(String(e))); }, 250);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, again]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!pick) return;
-    setVersions([]); setVersion('');
-    S.assetVersions(pick.groupId, pick.assetId).then((a) => setVersions(a?.versions ?? []), (e) => setErr(String(e)));
+    let gone = false;
+    setVersions([]); setVersion(''); setLoadingVersions(true);
+    S.assetVersions(pick.groupId, pick.assetId).then((a) => { if (!gone) setVersions(a?.versions ?? []); }, (e) => setErr(String(e))).finally(() => { if (!gone) setLoadingVersions(false); });
+    return () => { gone = true; };
   }, [pick]);
   const shown = versions.filter((v) => dev || v.status === 'published');
   useEffect(() => { if (shown[0] && !shown.some((v) => v.version === version)) setVersion(shown[0].version); }, [versions, dev]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Who owns an asset: the search names other organizations; MuleSoft's public assets come without a name.
+  const ownerOf = (a: { groupId: string; org: string }) => a.groupId === me?.org_id ? me.org_name : a.org || (a.groupId === MULESOFT ? 'MuleSoft' : a.groupId);
+  const visible = (list ?? []).filter((a) => (dev || a.status !== 'development') && (!owner || ownerOf(a) === owner));
+  const owners = [...new Set((list ?? []).map(ownerOf))];
+  const why = !pick ? `Pick ${rulesets ? 'a ruleset' : 'an asset'} first.` : loadingVersions ? 'Reading its versions from Exchange…' : !version ? (versions.length ? 'Only Development versions: tick the box to see them.' : 'No versions found.') : null;
   return (
     <Modal title={rulesets ? 'Add ruleset' : importing ? 'Import from Exchange' : 'Add dependency'} sub={rulesets ? 'Governance rulesets from Exchange' : importing ? 'Its files go into a folder of this project' : 'Fragments from Exchange'} onCancel={onClose} width={560}
       footer={<><label className="flex-1 flex items-center gap-2 text-[12px] text-content-secondary cursor-pointer"><input type="checkbox" checked={dev} onChange={(e) => setDev(e.target.checked)} className="accent-[var(--accent)]" />Include versions in Development</label>
         <button className={btn} onClick={onClose}>Cancel</button>
-        <button className={btnPrimary} disabled={!pick || !version} onClick={() => pick && onAdd({ groupId: pick.groupId, assetId: pick.assetId, version })}>{importing ? 'Import' : rulesets ? 'Add ruleset' : 'Add dependency'}</button></>}>
+        <button className={btnPrimary} title={why ?? undefined} disabled={!!why} onClick={() => pick && onAdd({ groupId: pick.groupId, assetId: pick.assetId, version })}>{importing ? 'Import' : rulesets ? 'Add ruleset' : 'Add dependency'}</button></>}>
       <div className="flex flex-col gap-3 text-[12.5px]">
-        <label className="flex items-center gap-1.5 h-[28px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
-          <Icons.Search size={12} /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Exchange by name" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12.5px] text-content" /></label>
+        <div className="flex gap-2">
+          <label className="flex-1 flex items-center gap-1.5 h-[28px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
+            <Icons.Search size={12} /><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Exchange by name" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12.5px] text-content" /></label>
+          <button className={btn} title="Search Exchange again, for anything published since" disabled={list == null && !err} onClick={() => setAgain((n) => n + 1)}>Refresh</button>
+        </div>
+        {owners.length > 1 && <div className="flex items-center gap-1.5 flex-wrap text-[11.5px]">
+          <span className="text-content-faint">From</span>
+          {['', ...owners].map((o) => (
+            <button key={o} onClick={() => setOwner(o)} className={`h-6 px-2 rounded-md border ${owner === o ? 'border-accent-border bg-accent-dim text-content' : 'border-line text-content-muted hover:text-content'}`}>{o || 'Everyone'}</button>
+          ))}
+        </div>}
         <div className="h-[240px] overflow-auto rounded-md border border-line">
-          {list == null && !err && <div className="p-4 text-content-faint">Searching…</div>}
-          {list?.length === 0 && <div className="p-4 text-content-faint">{importing ? 'Nothing matches.' : 'No fragments match.'}</div>}
-          {list?.filter((a) => dev || a.status !== 'development').map((a) => (
-            <div key={a.groupId + a.assetId} onClick={() => setPick(a)} className={`flex items-center gap-2 px-3 py-2 border-b border-line-secondary last:border-b-0 cursor-pointer ${pick?.assetId === a.assetId && pick.groupId === a.groupId ? 'bg-accent-dim' : 'hover:bg-[var(--hover-overlay)]'}`}>
+          {list == null && !err && <div className="p-4 flex items-center gap-2 text-content-faint"><span className="w-3 h-3 rounded-full border-2 border-accent border-t-transparent animate-spin" />Searching Exchange…</div>}
+          {list != null && !visible.length && <div className="p-4 text-content-faint">{q.trim() ? 'Nothing matches.' : rulesets ? "No rulesets found. Rulesets your organization publishes to Exchange show here too." : 'Nothing found.'}</div>}
+          {visible.map((a) => (
+            <div key={a.groupId + a.assetId} onClick={() => { setPick(a); setErr(null); }} className={`flex items-center gap-2 px-3 py-2 border-b border-line-secondary last:border-b-0 cursor-pointer ${pick?.assetId === a.assetId && pick.groupId === a.groupId ? 'bg-accent-dim' : 'hover:bg-[var(--hover-overlay)]'}`}>
               <span className="text-[9.5px] font-semibold px-1.5 rounded border border-line text-content-faint">{a.type === 'rest-api' ? 'API' : a.type === 'ruleset' ? 'Rules' : 'RAML'}</span>
-              <span className="min-w-0 flex-1"><span className="block font-semibold truncate">{a.name}</span><span className="block text-[11px] text-content-faint truncate">{a.org || (a.groupId === me?.org_id ? me.org_name : a.groupId)}</span></span>
+              <span className="min-w-0 flex-1"><span className="block font-semibold truncate">{a.name}</span><span className="block text-[11px] text-content-faint truncate">{ownerOf(a)}</span></span>
               <span className="font-mono text-[11px] text-content-muted">{a.version}</span>{a.status !== 'published' && life(a.status)}
             </div>
           ))}
         </div>
         {pick && <label className="flex items-center gap-2.5"><span className="text-[11.5px] text-content-faint">Version</span>
-          <select value={version} onChange={(e) => setVersion(e.target.value)} className="h-[26px] px-1.5 rounded-md border border-line bg-surface-input text-[12px]">
+          {loadingVersions ? <span className="flex items-center gap-2 text-[12px] text-content-muted"><span className="w-3 h-3 rounded-full border-2 border-accent border-t-transparent animate-spin" />Reading versions from Exchange…</span>
+          : <select value={version} onChange={(e) => setVersion(e.target.value)} className="h-[26px] px-1.5 rounded-md border border-line bg-surface-input text-[12px]">
             {shown.map((v) => <option key={v.version} value={v.version}>{v.version}{v.status !== 'published' ? ` (${v.status === 'development' ? 'Development' : v.status})` : ''}</option>)}
-          </select>
-          {!shown.length && versions.length > 0 && <span className="text-[11.5px] text-content-faint">Only Development versions: tick the box below to see them.</span>}</label>}
+          </select>}
+          {!loadingVersions && !shown.length && versions.length > 0 && <span className="text-[11.5px] text-content-faint">Only Development versions: tick the box below to see them.</span>}</label>}
         {err && <div className="text-[12px] text-err select-text">{err}</div>}
       </div>
     </Modal>
