@@ -461,7 +461,14 @@ pub fn release_on_exit(app: &AppHandle) {
   let held = app.try_state::<Arc<Anypoint>>().and_then(|s| s.lock.lock().unwrap().take());
   if let Some(h) = held {
     h.stop.store(true, Ordering::SeqCst);
-    let _ = call(app, "POST", &format!("/designcenter/api-designer/projects/{}/branches/{}/releaseLock", h.project, h.branch), Some(&json!({})));
+    // At most a few seconds: closing mustn't hang on a slow network (the lock expires by itself in a minute anyway).
+    let (tx, rx) = std::sync::mpsc::channel();
+    let app = app.clone();
+    std::thread::spawn(move || {
+      let _ = call(&app, "POST", &format!("/designcenter/api-designer/projects/{}/branches/{}/releaseLock", h.project, h.branch), Some(&json!({})));
+      let _ = tx.send(());
+    });
+    let _ = rx.recv_timeout(Duration::from_secs(4));
   }
 }
 
