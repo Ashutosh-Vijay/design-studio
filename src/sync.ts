@@ -272,9 +272,19 @@ export async function writeDescriptor(root: string, text: string, change: (d: De
 }
 
 // An asset's versions, newest first, or null when Exchange doesn't have it (never published).
-export async function assetVersions(groupId: string, assetId: string): Promise<{ name: string; type: string; versions: Version[] } | null> {
-  const r = await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}`);
-  if (r.status === 404) return null;
+// An asset with only Development versions isn't found by the bare read, so on a 404 its version comes from
+// the search (which lists Development assets) or the caller's guess, and the read is pinned to that.
+export async function assetVersions(groupId: string, assetId: string, guess?: string): Promise<{ name: string; type: string; versions: Version[] } | null> {
+  let r = await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}`);
+  if (r.status === 404) {
+    const s = await api('GET', `/exchange/api/v2/assets/search?search=${encodeURIComponent(assetId)}&organizationIds=${groupId}&limit=40`);
+    const hit = s.status === 200 ? (s.json as { groupId: string; assetId: string; version: string }[]).find((a) => a.groupId === groupId && a.assetId === assetId) : undefined;
+    for (const v of [...new Set([hit?.version, guess].filter((x): x is string => !!x))]) {
+      const p = await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}/${v}`);
+      if (p.status === 200) { r = p; break; }
+    }
+    if (r.status === 404) return null;
+  }
   must(r, `Reading ${assetId} from Exchange`);
   // Read pinned to a version, an asset lists Development versions too (the bare read leaves them out).
   // "versions" holds that minor line (1.1.x); "otherVersions" the newest of each other line, whose own

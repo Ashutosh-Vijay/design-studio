@@ -51,7 +51,7 @@ export function PublishDialog({ root, main, paths, errors, model, version, onClo
       invoke<{ json: { user?: { memberOfOrganizations?: { id: string; name: string }[] } } }>('anypoint_api', { method: 'GET', path: '/accounts/api/me' })
         .then((r) => setGroups(r.json?.user?.memberOfOrganizations ?? []), () => {});
       try {
-        const a = await S.assetVersions(x.d.groupId, x.d.assetId);
+        const a = await S.assetVersions(x.d.groupId, x.d.assetId, x.d.version);
         const vs = a?.versions ?? []; setVersions(vs);
         // Design Center's rule: the last published version plus a patch, or the project's version the first time.
         if (!version) setV(vs[0] ? S.bump(vs[0].version, 'patch') : x.d.version || '1.0.0');
@@ -164,7 +164,7 @@ export function ExchangePanel({ root, model, modelOf, onPublish }: {
       const m = await status(); setMe(m);
       const x = await S.readDescriptor(root); setD(x?.d ?? null);
       if (!m || !x) return;
-      try { setA(await S.assetVersions(x.d.groupId, x.d.assetId)); } catch (e) { setErr(String(e)); }
+      try { setA(await S.assetVersions(x.d.groupId, x.d.assetId, x.d.version)); } catch (e) { setErr(String(e)); }
     })();
   }, [root]);
   // Compare with the newest version: its files (with dependencies) are fetched once into .apidesigner/published/.
@@ -251,7 +251,7 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
     const m = await status(); setMe(m);
     if (!m || !x) return;
     for (const d of x.d.dependencies ?? []) {
-      S.assetVersions(d.groupId, d.assetId).then((a) => setInfo((i) => ({ ...i, [`${d.groupId}/${d.assetId}`]: a && { name: a.name, type: a.type, versions: a.versions, latest: a.versions.find((v) => v.status === 'published')?.version ?? a.versions[0]?.version } })), () => {});
+      S.assetVersions(d.groupId, d.assetId, d.version).then((a) => setInfo((i) => ({ ...i, [`${d.groupId}/${d.assetId}`]: a && { name: a.name, type: a.type, versions: a.versions, latest: a.versions.find((v) => v.status === 'published')?.version ?? a.versions[0]?.version } })), () => {});
     }
   };
   useEffect(() => { load(); }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -377,7 +377,7 @@ export function AddDependency({ onClose, onAdd, importing, rulesets }: { onClose
     if (!pick) return;
     let gone = false;
     setVersions([]); setVersion(''); setLoadingVersions(true);
-    S.assetVersions(pick.groupId, pick.assetId).then((a) => { if (!gone) setVersions(a?.versions ?? []); }, (e) => setErr(String(e))).finally(() => { if (!gone) setLoadingVersions(false); });
+    S.assetVersions(pick.groupId, pick.assetId, (pick as { version?: string }).version).then((a) => { if (!gone) setVersions(a?.versions ?? []); }, (e) => setErr(String(e))).finally(() => { if (!gone) setLoadingVersions(false); });
     return () => { gone = true; };
   }, [pick]);
   const shown = versions.filter((v) => dev || v.status === 'published');
