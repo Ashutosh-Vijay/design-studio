@@ -1,6 +1,6 @@
 API Designer Studio
 
-The Exchange logo used in the app (src/components/Icons.tsx, "Exchange") comes from MuleSoft's
-Anypoint icon set. It is MuleSoft's property, used only to point at Anypoint Exchange, and is not
-covered by this project's licence. Anypoint, Design Center, Exchange and MuleSoft are trademarks
-of Salesforce, Inc. This project is not affiliated with or endorsed by Salesforce or MuleSoft.
+The Exchange and Design Center logos used in the app (src/components/Icons.tsx, "Exchange" and
+"DesignCenter") come from MuleSoft's Anypoint icon set. They are MuleSoft's property, used only to
+point at Anypoint Exchange and Design Center, and are not covered by this project's licence.
+Anypoint, Design Center, Exchange and MuleSoft are trademarks of Salesforce, Inc. This project is not affiliated with or endorsed by Salesforce or MuleSoft.

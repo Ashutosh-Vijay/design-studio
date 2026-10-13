@@ -257,7 +257,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
               const off = me?.read_only ? 'The connection is read only. Turn it off in settings.' : info && info.perms[perm] === false ? "Your Design Center permissions don't allow it." : !info ? 'Reading permissions…' : null;
               return <button key={label} disabled={!!off} title={off ?? undefined} onClick={fn} className={`shrink-0 hover:text-content underline disabled:no-underline disabled:opacity-50 ${label === 'Delete…' ? 'text-err' : ''}`}>{label}</button>;
             })}
-            <button className="shrink-0 hover:text-content underline" onClick={() => me && openUrl(S.projectUrls(me.host, me.org_id, pick.id).web)}>Open in Design Center</button>
+            <button className="shrink-0 flex items-center gap-1 hover:text-content underline" onClick={() => me && openUrl(S.projectUrls(me.host, me.org_id, pick.id).web)}><Icons.DesignCenter size={13} />Open in Design Center</button>
           </div>
         )}
         {dlg}
@@ -543,7 +543,8 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
               <div key={label}>
                 {(i === 3 || i === 6 || i === 10) && <div className="my-1 border-t border-line-subtle" />}
                 <button disabled={!!off} title={off ?? undefined} onClick={() => { setAt(null); fn(); }}
-                  className={`w-full h-7 px-2 rounded text-left text-[12.5px] hover:bg-surface-3 disabled:text-content-ghost disabled:hover:bg-transparent ${label.startsWith('Delete') ? 'text-err' : 'text-content-secondary hover:text-content'}`}>{label}</button>
+                  className={`w-full h-7 px-2 flex items-center gap-2 rounded text-left text-[12.5px] hover:bg-surface-3 disabled:text-content-ghost disabled:hover:bg-transparent ${label.startsWith('Delete') ? 'text-err' : 'text-content-secondary hover:text-content'}`}>
+                  <span className="flex-1">{label}</span>{label === 'Open in Design Center' && <Icons.DesignCenter size={14} />}</button>
               </div>
             ))}
           </div>
