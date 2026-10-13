@@ -4,6 +4,7 @@
 import { useMemo, type ReactNode } from 'react';
 import { parseTree, findNodeAtLocation, findNodeAtOffset, getNodePath, getNodeValue, type Node as JNode, type JSONPath } from 'jsonc-parser';
 import { Icons } from './components/Icons';
+import { Select } from './components/Popup';
 import { METHODS, type Outline, type Resource, type Decl } from './raml';
 import { Field, Sec, AddSelect, IconBtn, Badge, UsedBy, BTN, CODES, MEDIA, codeColor, type AmfModel, type At } from './Inspector';
 
@@ -143,7 +144,7 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
     const t = typeOf(p), target = schemaNames.includes(t.replace(/\[\]$/, '')) ? ['components', 'schemas', t.replace(/\[\]$/, '')] : null;
     return (
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
-        <Field value={t} mono list="ads-oasj-types" placeholder="string" onCommit={(v) => onEdit((x) => setType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
+        <Field value={t} mono options={[...schemaNames, ...OAS_BUILTIN]} placeholder="string" onCommit={(v) => onEdit((x) => setType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
         {target && <IconBtn title={`Go to ${target[2]}`} onClick={() => go(target)}><Icons.ChevronRight size={12} /></IconBtn>}
       </span>
     );
@@ -194,10 +195,8 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
             return (
               <div key={n} className={rowCls(inside(ip)) + ' flex items-center gap-1 py-[3px]'} onClick={() => go(ip)}>
                 <span className="w-[32%] shrink-0"><Field value={str([...ip, 'name'])} mono onCommit={(v) => v && onEdit((x) => set(x, [...ip, 'name'], v))} /></span>
-                <select value={where} onClick={(e) => e.stopPropagation()} onChange={(e) => onEdit((x) => set(x, [...ip, 'in'], e.target.value))}
-                  className="h-[26px] w-[62px] shrink-0 rounded border border-line bg-surface-input text-[11px] font-mono text-content-secondary">
-                  {['query', 'path', 'header', 'cookie'].map((w) => <option key={w}>{w}</option>)}
-                </select>
+                <Select value={where} onChange={(v) => onEdit((x) => set(x, [...ip, 'in'], v))} mono
+                  className="w-[70px] shrink-0 !px-1.5 text-[11px] text-content-secondary" options={['query', 'path', 'header', 'cookie'].map((w) => ({ value: w }))} />
                 {typeCell([...ip, 'schema'])}
                 <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={where === 'path' || p.required === true} disabled={where === 'path'} className="accent-[var(--accent)]"
@@ -302,7 +301,6 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
       {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />Read-only: managed by Exchange</div>}
       <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
-      <datalist id="ads-oasj-types">{[...schemaNames, ...OAS_BUILTIN].map((t) => <option key={t} value={t} />)}</datalist>
     </div>
   );
 }

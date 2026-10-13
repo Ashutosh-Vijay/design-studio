@@ -3,6 +3,7 @@
 // text (src/splice.ts) applied through the editor, so Ctrl Z undoes it and the code stays the master.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Icons } from './components/Icons';
+import { PopupList, Select } from './components/Popup';
 import { METHODS, BUILTIN_TYPES, entries, kids, kid, keyPathAt, type Outline, type Decl } from './raml';
 import * as S from './splice';
 
@@ -37,8 +38,9 @@ export const Badge = ({ m }: { m: string }) => <span className={`font-mono text-
 export const codeColor = (c: string) => (c[0] === '2' ? 'var(--ok)' : c[0] === '4' ? 'var(--warn)' : c[0] === '5' ? 'var(--err)' : 'var(--content-muted)');
 
 // A text box that writes on Enter or when you leave it; Escape puts the old value back.
-export function Field({ value, onCommit, placeholder, mono, multiline, list, className = '', focus, onFocused }: {
-  value: string; onCommit: (v: string) => void; placeholder?: string; mono?: boolean; multiline?: boolean; list?: string; className?: string; focus?: boolean; onFocused?: () => void;
+// With options, it suggests as you type (the app's own list: a native datalist ignores the theme).
+export function Field({ value, onCommit, placeholder, mono, multiline, options, className = '', focus, onFocused }: {
+  value: string; onCommit: (v: string) => void; placeholder?: string; mono?: boolean; multiline?: boolean; options?: string[]; className?: string; focus?: boolean; onFocused?: () => void;
 }) {
   // A row just added through "Add" takes the focus with its name selected, ready to type over.
   const ref = useRef<HTMLInputElement>(null);
@@ -50,11 +52,25 @@ export function Field({ value, onCommit, placeholder, mono, multiline, list, cla
   // The box's own value, not state: a change and a blur can arrive before React has re-rendered.
   const onBlur = (e: { currentTarget: HTMLInputElement | HTMLTextAreaElement }) => { if (skip.current) { skip.current = false; return; } const nv = e.currentTarget.value; if (nv !== value) onCommit(nv); };
   const esc = (e: { key: string; currentTarget: HTMLElement }) => { if (e.key === 'Escape') { skip.current = true; setV(value); e.currentTarget.blur(); } };
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const shown = !options || !open ? [] : options.filter((o) => o !== v && o.toLowerCase().includes(v.trim().toLowerCase())).slice(0, 80);
+  const pick = (o: string) => { setOpen(false); setV(o); skip.current = true; if (o !== value) onCommit(o); ref.current?.blur(); };
   return multiline
     ? <textarea value={v} placeholder={placeholder} spellCheck={false} rows={Math.min(8, Math.max(2, v.split('\n').length))} onChange={(e) => setV(e.target.value)} onBlur={onBlur}
         onKeyDown={(e) => { esc(e); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.blur(); }} className={cls + ' py-1 resize-y leading-snug'} />
-    : <input ref={ref} value={v} placeholder={placeholder} spellCheck={false} list={list} onChange={(e) => setV(e.target.value)} onBlur={onBlur}
-        onKeyDown={(e) => { esc(e); if (e.key === 'Enter') e.currentTarget.blur(); }} className={cls + ' h-[26px]'} />;
+    : <>
+        <input ref={ref} value={v} placeholder={placeholder} spellCheck={false} onChange={(e) => { setV(e.target.value); setOpen(true); setActive(-1); }}
+          onBlur={(e) => { setOpen(false); onBlur(e); }} onMouseDown={() => options && setOpen(true)}
+          onKeyDown={(e) => {
+            if (shown.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setActive(e.key === 'ArrowDown' ? (active + 1) % shown.length : active <= 0 ? shown.length - 1 : active - 1); return; }
+            if (e.key === 'ArrowDown' && options) { setOpen(true); return; }
+            if (e.key === 'Escape' && shown.length) { e.stopPropagation(); setOpen(false); return; }
+            if (e.key === 'Enter' && shown[active]) { e.preventDefault(); pick(shown[active]); return; }
+            esc(e); if (e.key === 'Enter') e.currentTarget.blur();
+          }} className={cls + ' h-[26px]'} />
+        {shown.length > 0 && ref.current && <PopupList anchor={ref.current} opts={shown.map((o) => ({ value: o }))} active={active} setActive={setActive} onPick={(o) => pick(o.value)} onClose={() => setOpen(false)} mono={mono} />}
+      </>;
 }
 
 export const IconBtn = ({ title, onClick, children }: { title: string; onClick: () => void; children: ReactNode }) => (
@@ -73,17 +89,18 @@ export function Sec({ title, count, add, children }: { title: string; count?: nu
   );
 }
 
-// A small picker that looks like a button: "+ Add response" with the choices in a native select.
+// A small picker that looks like a link: "+ Add response" with the choices in a list under it.
 export function AddSelect({ label, options, onPick }: { label: string; options: string[]; onPick: (v: string) => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false); const [active, setActive] = useState(0);
   if (!options.length) return null;
   return (
-    <label className="relative normal-case tracking-normal font-medium text-[11px] text-accent hover:underline cursor-pointer flex items-center gap-0.5">
-      <Icons.Plus size={11} />{label}
-      <select value="" onChange={(e) => { if (e.target.value) onPick(e.target.value); }} className="absolute inset-0 opacity-0 cursor-pointer">
-        <option value="" />
-        {options.map((o) => <option key={o} value={o}>{o}{CODES[o] ? `  ${CODES[o]}` : ''}</option>)}
-      </select>
-    </label>
+    <>
+      <button ref={ref} type="button" onClick={() => { setActive(0); setOpen(!open); }}
+        className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />{label}</button>
+      {open && ref.current && <PopupList anchor={ref.current} opts={options.map((o) => ({ value: o, hint: CODES[o] }))} active={active} setActive={setActive}
+        onPick={(o) => { setOpen(false); onPick(o.value); }} onClose={() => setOpen(false)} mono />}
+    </>
   );
 }
 
@@ -149,8 +166,6 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
   // The suggestion lists for type boxes, built once per outline rather than on every keystroke.
   const lists = useMemo(() => (
     <>
-      <datalist id="ads-types">{typeNames.map((t) => <option key={t} value={t} />)}</datalist>
-      <datalist id="ads-rtypes">{(outline?.resourceTypes ?? []).map((d) => { const n = d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name; return <option key={n} value={n} />; })}</datalist>
     </>
   ), [typeNames, outline, own]);
   const traitNames =(outline?.traits ?? []).map((d) => (d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name));
@@ -188,7 +203,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     const known = !t || d || BUILTIN_TYPES.includes(t.replace(/\[\]$/, '')) || /[|(]/.test(t);
     return (
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
-        <Field value={t} mono list="ads-types" placeholder="string" onCommit={(v) => onEdit((x) => S.setType(x, path, v))} className={known ? 'text-[var(--syn-type)]' : 'text-err'} />
+        <Field value={t} mono options={typeNames} placeholder="string" onCommit={(v) => onEdit((x) => S.setType(x, path, v))} className={known ? 'text-[var(--syn-type)]' : 'text-err'} />
         {d && <IconBtn title={`Go to ${d.name}`} onClick={() => onOpen(d.file, d.from)}><Icons.ChevronRight size={12} /></IconBtn>}
         {isInline(path) && path.join('\0') !== (node.kind === 'decl' ? node.path.join('\0') : '') && (
           <IconBtn title="Extract to Declaration: make this a named type" onClick={() => onEdit((x) => S.extractType(x, path, extractName(path)))}><Icons.Braces size={12} /></IconBtn>
@@ -404,7 +419,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         {docs(node.path, 'resource')}
         <Sec title="Resource type">
           {rt != null && E[rt].val.includes('{') ? <div className="font-mono text-[11.5px] text-content-secondary break-all">{E[rt].val}</div>
-            : <Field value={rt != null ? S.unquote(E[rt].val) : ''} mono list="ads-rtypes" placeholder="None" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'type', v || null))} />}
+            : <Field value={rt != null ? S.unquote(E[rt].val) : ''} mono options={(outline?.resourceTypes ?? []).map((d) => (d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name))} placeholder="None" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'type', v || null))} />}
         </Sec>
         {traits(node.path)}
         <Sec title="Methods" count={methods.length || undefined} add={<AddSelect label="Add method" options={METHODS.filter((m) => !methods.some((j) => E[j].key === m))} onPick={(m) => onEdit((x) => S.addChild(x, node.path, [`${m}:`]))} />}>
@@ -465,10 +480,8 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         )}
         {!included && node.sect === 'securitySchemes' && <>
           <Sec title="Scheme type">
-            <select value={S.scalar(text, [...node.path, 'type']) ?? ''} onChange={(e) => onEdit((x) => S.setScalar(x, node.path, 'type', e.target.value || null))}
-              className="w-full h-[26px] rounded border border-line bg-surface-input text-[12px] font-mono text-content px-1.5">
-              {['', 'OAuth 2.0', 'OAuth 1.0', 'Basic Authentication', 'Digest Authentication', 'Pass Through'].concat((S.scalar(text, [...node.path, 'type']) ?? '').startsWith('x-') ? [S.scalar(text, [...node.path, 'type'])!] : []).map((t) => <option key={t} value={t}>{t || 'Choose a type'}</option>)}
-            </select>
+            <Select value={S.scalar(text, [...node.path, 'type']) ?? ''} onChange={(v) => onEdit((x) => S.setScalar(x, node.path, 'type', v || null))} mono className="w-full text-[12px]"
+              options={['', 'OAuth 2.0', 'OAuth 1.0', 'Basic Authentication', 'Digest Authentication', 'Pass Through'].concat((S.scalar(text, [...node.path, 'type']) ?? '').startsWith('x-') ? [S.scalar(text, [...node.path, 'type'])!] : []).map((t) => ({ value: t, label: t || 'Choose a type' }))} />
           </Sec>
           {params([...node.path, 'describedBy'], 'headers', 'Headers it needs', 'Add')}
           {params([...node.path, 'describedBy'], 'queryParameters', 'Query parameters it needs', 'Add')}
@@ -576,7 +589,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
     const target = schemaNames.includes(t.replace(/\[\]$/, '')) ? at(['components', 'schemas', t.replace(/\[\]$/, '')]) : -1;
     return (
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
-        <Field value={t} mono list="ads-oas-types" placeholder="string" onCommit={(v) => onEdit((x) => setOasType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
+        <Field value={t} mono options={[...schemaNames, ...OAS_BUILTIN]} placeholder="string" onCommit={(v) => onEdit((x) => setOasType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
         {target >= 0 && <IconBtn title={`Go to ${t.replace(/\[\]$/, '')}`} onClick={() => onGoLine(E[target].line)}><Icons.ChevronRight size={12} /></IconBtn>}
       </span>
     );
@@ -632,10 +645,8 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
             return (
               <div key={n} className={rowCls(here(j, end)) + ' flex items-center gap-1 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
                 <span className="w-[32%] shrink-0"><Field value={S.scalar(text, [...ip, 'name']) ?? ''} mono onCommit={(v) => v && onEdit((x) => S.setInItem(x, [...op, 'parameters'], n, 'name', v))} /></span>
-                <select value={where} onClick={(e) => e.stopPropagation()} onChange={(e) => onEdit((x) => S.setInItem(x, [...op, 'parameters'], n, 'in', e.target.value, true))}
-                  className="h-[26px] w-[62px] shrink-0 rounded border border-line bg-surface-input text-[11px] font-mono text-content-secondary">
-                  {['query', 'path', 'header', 'cookie'].map((w) => <option key={w}>{w}</option>)}
-                </select>
+                <Select value={where} onChange={(v) => onEdit((x) => S.setInItem(x, [...op, 'parameters'], n, 'in', v, true))} mono
+                  className="w-[70px] shrink-0 !px-1.5 text-[11px] text-content-secondary" options={['query', 'path', 'header', 'cookie'].map((w) => ({ value: w }))} />
                 {typeCell([...ip, 'schema'])}
                 <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={where === 'path' || S.scalar(text, [...ip, 'required']) === 'true'} disabled={where === 'path'} className="accent-[var(--accent)]"
@@ -755,7 +766,6 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
       {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />Read-only: managed by Exchange</div>}
       <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
-      <datalist id="ads-oas-types">{[...schemaNames, ...OAS_BUILTIN].map((t) => <option key={t} value={t} />)}</datalist>
     </div>
   );
 }

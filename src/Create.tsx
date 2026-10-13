@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { documentDir } from '@tauri-apps/api/path';
 import { Modal, Spinner, btn, btnPrimary } from './App';
+import { Select } from './components/Popup';
 import type { Me } from './SyncUI';
 import * as S from './sync';
 
@@ -88,7 +89,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
         <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Project name</span>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && name.trim() && !busy) go(); }} spellCheck={false} className={field} /></label>
         <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">{what === 'api' ? 'Language' : 'Fragment type'}</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value as Kind)} className={field}>{list.map((k) => <option key={k} value={k}>{KINDS[k].label}</option>)}</select></label>
+          <Select value={kind} onChange={(v) => setKind(v as Kind)} className="w-full" options={list.map((k) => ({ value: k, label: KINDS[k].label }))} /></label>
         <div className="flex flex-col gap-1.5">
           <span className="text-[11.5px] text-content-faint">Where</span>
           {([[true, 'In Design Center, and here to work on'], [false, 'Only on this computer']] as const).map(([v, label]) => (
@@ -116,11 +117,10 @@ export function NewFileDialog({ folder, hasRoot, onClose, onMake }: { folder: st
         <button className={btnPrimary} disabled={!name.trim()} onClick={go}>Create</button></>}>
       <div className="flex flex-col gap-3 text-[12.5px]">
         <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Format</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value as Kind)} className={field}>
-            <optgroup label="API specification">{API_KINDS.map((k) => <option key={k} value={k}>{KINDS[k].label}</option>)}</optgroup>
-            <optgroup label="RAML fragment">{FRAGMENTS.map((k) => <option key={k} value={k}>{KINDS[k].label}</option>)}</optgroup>
-            <optgroup label="Other">{(['jsonSchema', 'other'] as Kind[]).map((k) => <option key={k} value={k}>{KINDS[k].label}</option>)}</optgroup>
-          </select></label>
+          <Select value={kind} onChange={(v) => setKind(v as Kind)} className="w-full" options={[
+            ...API_KINDS.map((k) => ({ value: k, label: KINDS[k].label, group: 'API specification' })),
+            ...FRAGMENTS.map((k) => ({ value: k, label: KINDS[k].label, group: 'RAML fragment' })),
+            ...(['jsonSchema', 'other'] as Kind[]).map((k) => ({ value: k, label: KINDS[k].label, group: 'Other' }))]} /></label>
         <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Name</span>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) go(); }} spellCheck={false} placeholder={kind === 'other' ? 'notes.md' : 'name'} className={`${field} font-mono`} />
           <span className="text-[11.5px] text-content-faint">A / makes folders, like examples/order.</span></label>

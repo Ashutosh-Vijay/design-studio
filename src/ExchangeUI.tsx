@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
+import { Select } from './components/Popup';
 import { Modal, Spinner, btn, btnPrimary } from './App';
 import { Badge, type AmfModel } from './Inspector';
 import type { Me } from './SyncUI';
@@ -140,9 +141,8 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
           <summary className="cursor-pointer text-[12px] text-content-muted">Advanced</summary>
           <div className="mt-2.5 flex flex-col gap-2.5">
             <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Business group</span>
-              <select value={group} onChange={(e) => setGroup(e.target.value)} className={field}>
-                {(groups.some((g) => g.id === group) ? groups : [{ id: group, name: me?.org_name ?? group }, ...groups]).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select></label>
+              <Select value={group} onChange={setGroup} className="w-full !h-[28px] text-[12.5px]"
+                options={(groups.some((g) => g.id === group) ? groups : [{ id: group, name: me?.org_name ?? group }, ...groups]).map((g) => ({ value: g.id, label: g.name }))} /></label>
             <div className="flex gap-2.5">
               <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Asset name</span><input value={name} onChange={(e) => setName(e.target.value)} className={field} /></label>
               <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Asset ID</span><input value={assetId} onChange={(e) => setAssetId(e.target.value)} spellCheck={false} className={`${field} font-mono`} /></label>
@@ -424,9 +424,8 @@ export function AddDependency({ onClose, onAdd, importing, rulesets }: { onClose
         </div>
         {pick && <label className="flex items-center gap-2.5"><span className="text-[11.5px] text-content-faint">Version</span>
           {loadingVersions ? <span className="flex items-center gap-2 text-[12px] text-content-muted"><span className="w-3 h-3 rounded-full border-2 border-accent border-t-transparent animate-spin" />Reading versions from Exchange…</span>
-          : <select value={version} onChange={(e) => setVersion(e.target.value)} className="h-[26px] px-1.5 rounded-md border border-line bg-surface-input text-[12px]">
-            {shown.map((v) => <option key={v.version} value={v.version}>{v.version}{v.status !== 'published' ? ` (${v.status === 'development' ? 'Development' : v.status})` : ''}</option>)}
-          </select>}
+          : <Select value={version} onChange={setVersion} className="min-w-[140px] text-[12px]"
+            options={shown.map((v) => ({ value: v.version, hint: v.status !== 'published' ? (v.status === 'development' ? 'Development' : v.status) : undefined }))} />}
           {!loadingVersions && !shown.length && versions.length > 0 && <span className="text-[11.5px] text-content-faint">Only Development versions: tick the box below to see them.</span>}</label>}
         {err && <div className="text-[12px] text-err select-text">{err}</div>}
       </div>

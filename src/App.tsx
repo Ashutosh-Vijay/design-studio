@@ -10,6 +10,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
+import { Select } from './components/Popup';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
@@ -1775,10 +1776,7 @@ function MoveDialog({ name, libs, exists, onOk, onCancel }: { name: string; libs
         <button className={btnPrimary} disabled={bad} onClick={() => onOk(isNew ? { path, alias, isNew } : { ...libs.find((l) => l.alias === pick)!, isNew })}>Move</button></>}>
       <div className="flex flex-col gap-2 text-[12.5px] text-content-secondary">
         <label className="flex flex-col gap-1">Library
-          <select value={pick} onChange={(e) => setPick(e.target.value)} className={input}>
-            {libs.map((l) => <option key={l.alias} value={l.alias}>{l.alias}  ({l.path})</option>)}
-            <option value="">New library…</option>
-          </select>
+          <Select value={pick} onChange={setPick} className="w-full h-[30px]" options={[...libs.map((l) => ({ value: l.alias, hint: l.path })), { value: '', label: 'New library…' }]} />
         </label>
         {isNew && <>
           <label className="flex flex-col gap-1">File<input value={path} onChange={(e) => setPath(e.target.value)} spellCheck={false} className={input} /></label>

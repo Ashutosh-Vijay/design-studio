@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
+import { Select } from './components/Popup';
 import { Modal, TextDialog, Spinner, btn, btnPrimary } from './App';
 import * as S from './sync';
 import { AddDependency } from './ExchangeUI';
@@ -180,9 +181,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
           <div className="flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Key size={12} />Kept in {KEYCHAIN}, never in a project file.</div>
         </div>}
         <label className="mt-1 flex items-center gap-2.5"><span className="text-[11.5px] text-content-faint">Region</span>
-          <select value={region} onChange={(e) => setRegion(e.target.value)} className="h-[26px] px-1.5 rounded-md border border-line bg-surface-input text-[12px]">
-            {REGIONS.map(([n, h]) => <option key={h} value={h}>{n}</option>)}
-          </select>
+          <Select value={region} onChange={setRegion} className="text-[12px]" options={REGIONS.map(([n, h]) => ({ value: h, label: n }))} />
           <span className="text-[11.5px] text-content-faint">Where your Anypoint organization lives.</span></label>
         {usOnly && <div className="text-[11.5px] text-warn">Sign in with Anypoint works for organizations in the US region. In another region, use your own Connected App.</div>}
         <label className="mt-1 flex items-start gap-2 cursor-pointer">
@@ -213,13 +212,11 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
         <div className="flex items-center gap-2.5">
           <span className="text-[12px] text-content-secondary">{me?.username}</span>
           {groups.length > 1 && me ? (
-            <select value={me.org_id} title="Business group" onChange={async (e) => {
-              const g = groups.find((x) => x.id === e.target.value)!;
+            <Select value={me.org_id} title="Business group" onChange={async (id) => {
+              const g = groups.find((x) => x.id === id)!;
               await invoke('anypoint_set_org', { orgId: g.id, orgName: g.name });
               const m = { ...me, org_id: g.id, org_name: g.name }; setMe(m); setPick(null); loadProjects(m);
-            }} className="h-[24px] px-1 rounded-md border border-line bg-surface-input text-[11.5px]">
-              {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-            </select>
+            }} className="!h-[24px] text-[11.5px]" options={groups.map((g) => ({ value: g.id, label: g.name }))} />
           ) : <span className="text-[11.5px] text-content-faint">{me?.org_name}</span>}
           <span className="flex-1" />
           <label className="flex items-center gap-1.5 h-[26px] w-[200px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
@@ -269,9 +266,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
         ) : (
           <div className="flex flex-col gap-2">
             <label className="flex items-center gap-2.5"><span className="w-[64px] text-[11.5px] text-content-faint">Branch</span>
-              <select value={branch} onChange={(e) => setBranch(e.target.value)} className="h-[26px] px-1.5 rounded-md border border-line bg-surface-input text-[12px]">
-                {(branchList.length ? branchList : ['master']).map((x) => <option key={x}>{x}</option>)}
-              </select></label>
+              <Select value={branch} onChange={setBranch} className="min-w-[160px] text-[12px]" options={(branchList.length ? branchList : ['master']).map((x) => ({ value: x }))} /></label>
             {custom ? (
               <label className="flex items-center gap-2.5"><span className="w-[64px] text-[11.5px] text-content-faint">Pull into</span>
                 <input value={into} onChange={(e) => setInto(e.target.value)} spellCheck={false} placeholder="An empty or new folder" className="flex-1 h-[28px] px-2 rounded-md border border-line bg-surface-input font-mono text-[12px] outline-none focus:border-accent" />
@@ -651,9 +646,7 @@ export function ShareDialog({ projectId, name, org, onClose, onSaved }: { projec
             <div key={x.id} className="flex items-center gap-2 px-3 py-2 border-b border-line-secondary last:border-b-0">
               <span className="min-w-0 flex-1"><span className="block font-semibold truncate">{x.name}</span><span className="block text-[11.5px] text-content-faint truncate">{x.type === 'team' ? 'Team' : x.username ?? x.email}</span></span>
               {x.isOwner ? <span className="text-[12px] text-content-faint">Owner</span> : (
-                <select value={x.role} onChange={(e) => setList(list.map((y) => (y.id === x.id ? { ...y, role: e.target.value } : y)))} className="h-[26px] px-1.5 rounded-md border border-line bg-surface-input text-[12px]">
-                  {ROLES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                </select>
+                <Select value={x.role ?? ''} onChange={(role) => setList(list.map((y) => (y.id === x.id ? { ...y, role } : y)))} className="text-[12px]" options={ROLES.map(([v, label]) => ({ value: v, label }))} />
               )}
             </div>
           ))}

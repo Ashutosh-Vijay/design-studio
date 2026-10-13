@@ -2,6 +2,7 @@
 // and Try it against the local mock, which amf-server runs on the open spec, unsaved edits included.
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Icons } from './components/Icons';
+import { Select } from './components/Popup';
 import { Badge, codeColor, type AmfModel, type At } from './Inspector';
 
 type Page = { kind: 'home' } | { kind: 'res'; path: string } | { kind: 'type'; name: string };
@@ -190,8 +191,8 @@ function TryIt({ op, path, mock }: { op: Op; path: string; mock: Mock }) {
       {op.body.length > 0 && <textarea value={body} onChange={(e) => setBody(e.target.value)} spellCheck={false} rows={5} placeholder="Request body"
         className="w-full p-2 rounded-md border border-line bg-surface-input font-mono text-[11.5px] outline-none focus:border-accent resize-y" />}
       <div className="flex items-center gap-2">
-        {op.responses.length > 1 && <select value={status} onChange={(e) => setStatus(e.target.value)} title="Which response the mock gives (MS2-Status-Code)" className="h-[26px] px-1 rounded-md border border-line bg-surface-input text-[11.5px]">
-          <option value="">First success</option>{op.responses.map((r) => <option key={r.code} value={r.code}>{r.code}</option>)}</select>}
+        {op.responses.length > 1 && <Select value={status} onChange={setStatus} title="Which response the mock gives (MS2-Status-Code)" className="text-[11.5px]"
+          options={[{ value: '', label: 'First success' }, ...op.responses.map((r) => ({ value: r.code }))]} />}
         <span className="flex-1" />
         <button disabled={busy} onClick={send} className="h-[26px] px-3 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-50">{busy ? <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full border-2 border-current border-t-transparent animate-spin" />Sending…</span> : 'Send'}</button>
       </div>
