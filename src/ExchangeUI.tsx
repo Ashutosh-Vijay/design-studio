@@ -65,12 +65,14 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
     : linked === false ? 'Publishing goes through Design Center: pull this project from Design Center to publish it.' : !d ? 'This project has no exchange.json, so it has no Exchange asset to publish as.' : null;
   const go = async () => {
     setErr(null); setStep(0);
+    window.dispatchEvent(new CustomEvent('ads-publishing', { detail: true }));
     try {
       // Exchange gets what Design Center has, so unsaved edits are saved here first, then pushed by publish.
       await saveAll();
       const r = await S.publish(root, await paths(), { name: name.trim(), assetId: assetId.trim(), groupId: group, version: v.trim(), apiVersion: apiVersion.trim() || 'v1', main: main ?? d!.main ?? '', classifier: d!.classifier ?? 'raml', development: dev }, setStep);
       setDone({ text: `Published ${v.trim()} to Exchange${dev ? ' as Development' : ''}.${r.pushed ? ` Your ${r.pushed} ${r.pushed === 1 ? 'change was' : 'changes were'} pushed first.` : ''}`, pushed: r.pushed });
     } catch (e) { setErr(String(e).replace(/^Error: /, '')); setStep(null); }
+    finally { window.dispatchEvent(new CustomEvent('ads-publishing', { detail: false })); }
   };
   const spin = <span className="w-3.5 h-3.5 shrink-0 rounded-full border-2 border-accent border-t-transparent animate-spin" />;
   const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input text-[12.5px] outline-none focus:border-accent disabled:opacity-60';

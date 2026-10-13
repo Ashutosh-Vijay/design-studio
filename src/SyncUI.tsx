@@ -361,8 +361,12 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
   const holdingRef = useRef(false); holdingRef.current = holding;
   const lockTried = useRef(0);
   const timer = useRef(0);
+  // While publishing, Design Center rewrites exchange.json and the app pulls it back at the end: in between it
+  // looks a change ahead, so nothing is checked until the publish is over.
+  const publishing = useRef(false);
 
   const refresh = async (remote = true) => {
+    if (publishing.current) return;
     const l = await S.readLink(root); setLink(l); if (!l) return;
     const ch = await S.localChanges(root, l, await listFiles());
     setToPush(ch.count);
@@ -382,8 +386,9 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     const t = window.setInterval(() => refresh(), 60000);
     const f = () => refresh();
     const local = () => refresh(false);
-    window.addEventListener('focus', f); window.addEventListener('ads-files-changed', local);
-    return () => { clearInterval(t); window.removeEventListener('focus', f); window.removeEventListener('ads-files-changed', local); };
+    const pub = (e: Event) => { publishing.current = (e as CustomEvent<boolean>).detail; if (!publishing.current) { setBehind(false); refresh(); } };
+    window.addEventListener('focus', f); window.addEventListener('ads-files-changed', local); window.addEventListener('ads-publishing', pub);
+    return () => { clearInterval(t); window.removeEventListener('focus', f); window.removeEventListener('ads-files-changed', local); window.removeEventListener('ads-publishing', pub); };
   }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
   // Lock while I edit: the first unsaved edit takes the lock; a lock someone else holds is said once a minute at most.
   useEffect(() => {
