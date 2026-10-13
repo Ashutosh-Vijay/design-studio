@@ -2,7 +2,6 @@
 // Files panel's + menu. The starter text is Design Center's own where it has one, so new files look the same.
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { documentDir } from '@tauri-apps/api/path';
 import { Modal, Spinner, btn, btnPrimary } from './App';
 import { Select } from './components/Popup';
 import type { Me } from './SyncUI';
@@ -68,7 +67,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
         onCreated(root, null);
       } else {
         setBusy('Creating it…');
-        const home = (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '') + '/API Designer Studio/On this computer/';
+        const home = (await S.projectsDir()) + '/On this computer/';
         let root = home + n.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-');
         if ((await invoke<{ files: unknown[] }>('open_project', { root }).then((p) => p.files.length, () => 0))) root += ` (${Date.now().toString(36)})`;
         const file = fileName(kind, n.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-'));

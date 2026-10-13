@@ -12,11 +12,13 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getVersion } from '@tauri-apps/api/app';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu } from './SyncUI';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
+import { projectsDir } from './sync';
 import { DocsPanel } from './Docs';
 import { ApiMap } from './ApiMap';
 import { CreateDialog, NewFileDialog } from './Create';
@@ -169,7 +171,7 @@ export default function App() {
         <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title="Search files and commands (Ctrl K)" onClick={() => setPaletteOpen('')}>
           <Icons.Search size={15} />
         </button>
-        {!project && settingsBtn('w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content')}
+        {settingsBtn('w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content')}
         <WindowControls />
       </header>
 
@@ -190,7 +192,6 @@ export default function App() {
           openFileRef={openFileRef}
           paletteRef={paletteRef}
           syncRef={syncRef}
-          settingsButton={settingsBtn('relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center text-content-faint hover:text-content-secondary')}
         />
         </Boundary>
       ) : (
@@ -303,10 +304,10 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate
 type OpenFile = { state: EditorState; disk: string };
 
 type PaletteItem = { group: string; label: string; detail?: string; run: () => void };
-function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFileRef, paletteRef, syncRef, settingsButton }: {
+function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFileRef, paletteRef, syncRef }: {
   project: Project; initialNotice: string | null; onDirtyCount: (n: number) => void; onRefresh: () => Promise<void>; openFileRef: MutableRefObject<(path: string) => void>;
   paletteRef: MutableRefObject<{ symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null>;
-  syncRef: MutableRefObject<SyncHooks | null>; settingsButton: ReactNode;
+  syncRef: MutableRefObject<SyncHooks | null>;
 }) {
   const [filter, setFilter] = useState('');
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
@@ -460,6 +461,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
 
   useEffect(() => {
     view.current = new EditorView({ parent: host.current! });
+    window.addEventListener('ads-editor-prefs', () => view.current?.requestMeasure());
     if (import.meta.env.DEV) (window as unknown as { __view: EditorView }).__view = view.current; // for UI checks over CDP
     return () => view.current?.destroy();
   }, []);
@@ -1233,8 +1235,6 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
               {icon}
             </button>
           ))}
-          <div className="flex-1" />
-          {settingsButton}
         </nav>
 
         {rail !== 'map' && <aside className="w-[272px] shrink-0 bg-surface border-r border-line flex flex-col min-h-0">
@@ -1849,10 +1849,24 @@ function ZipDialog({ zip, dest, onOk, onCancel }: { zip: string; dest: string; o
     </Modal>
   );
 }
+// Editor text size and wrapping: a CSS variable and a class on <html>, so every open editor follows at once.
+const editorPrefs = (): { size: number; wrap: boolean } => { try { return { size: 12.5, wrap: false, ...JSON.parse(localStorage.getItem('ads.editor') ?? '{}') }; } catch { return { size: 12.5, wrap: false }; } };
+function applyEditorPrefs(p = editorPrefs()) {
+  document.documentElement.style.setProperty('--editor-size', `${p.size}px`);
+  document.documentElement.classList.toggle('ads-wrap', p.wrap);
+  window.dispatchEvent(new Event('ads-editor-prefs'));
+}
+applyEditorPrefs();
 function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect }: {
   at: DOMRect; pref: ThemePref; accent: string; onChange: (p: ThemePref, a: string) => void; onClose: () => void; onConnect: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [ed, setEdState] = useState(editorPrefs);
+  const setEd = (p: { size: number; wrap: boolean }) => { setEdState(p); try { localStorage.setItem('ads.editor', JSON.stringify(p)); } catch { /* ignore */ } applyEditorPrefs(p); };
+  const [home, setHome] = useState('');
+  const [version, setVersion] = useState('');
+  useEffect(() => { projectsDir().then(setHome); if (isTauri) getVersion().then(setVersion, () => {}); }, []);
+  let custom = false; try { custom = !!localStorage.getItem('ads.projectsDir'); } catch { /* ignore */ }
   useEffect(() => {
     const down = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
     window.addEventListener('mousedown', down);
@@ -1881,7 +1895,33 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect }: {
             style={{ background: `oklch(${dark ? 72 : 55}% ${a.chroma} ${a.hue})`, outline: accent === a.id ? '2px solid var(--content)' : 'none', outlineOffset: 2 }} />
         ))}
       </div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Editor</div>
+      <div className="flex items-center gap-2 text-[12px]">
+        <span className="text-content-secondary">Text size</span><span className="flex-1" />
+        <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-line">
+          {([[11.5, 'S'], [12.5, 'M'], [14, 'L']] as const).map(([px, label]) => (
+            <button key={label} title={`${px} px`} onClick={() => setEd({ ...ed, size: px })}
+              className={`w-7 h-6 rounded text-[11.5px] ${ed.size === px ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint'}`}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-[12px] cursor-pointer" title="Long lines wrap to the editor's width instead of scrolling sideways">
+        <input type="checkbox" checked={ed.wrap} onChange={(e) => setEd({ ...ed, wrap: e.target.checked })} className="accent-[var(--accent)]" />Wrap long lines
+      </label>
+      {isTauri && <>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Projects folder</div>
+        <div className="text-[11.5px] text-content-faint leading-snug">Where projects you pull or create go.</div>
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <span className="flex-1 min-w-0 truncate font-mono text-[11px] text-content-secondary" title={home}>{home}</span>
+          <button className={btn + ' !h-6 !px-2 !text-[11.5px]'} onClick={async () => {
+            const d = await openDialog({ directory: true, title: 'Where should projects go?' });
+            if (typeof d === 'string') { try { localStorage.setItem('ads.projectsDir', d.replace(/\\/g, '/')); } catch { /* ignore */ } setHome(d.replace(/\\/g, '/')); }
+          }}>Change…</button>
+        </div>
+        {custom && <button className="mt-1 text-[11.5px] text-accent hover:underline" onClick={async () => { try { localStorage.removeItem('ads.projectsDir'); } catch { /* ignore */ } setHome(await projectsDir()); }}>Use the default</button>}
+      </>}
       {isTauri && <AnypointSettings onConnect={onConnect} />}
+      <div className="mt-3.5 pt-2.5 border-t border-line-subtle text-[11px] text-content-faint">{APP_NAME} {version} · MIT licence</div>
     </div>
   );
 }

@@ -119,7 +119,7 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
             <div className="mt-1 text-content-secondary">Read only stops the app from changing anything in Anypoint. To publish, turn it off:</div>
             <ol className="mt-1.5 ml-4 list-decimal text-content-secondary leading-relaxed">
               <li>Close this window.</li>
-              <li>Click <span className="inline-flex align-[-2px] text-content"><Icons.Sliders size={14} /></span> <b className="text-content">Settings</b> at the bottom left.</li>
+              <li>Click <span className="inline-flex align-[-2px] text-content"><Icons.Sliders size={14} /></span> <b className="text-content">Settings</b> at the top right.</li>
               <li>Under Anypoint, untick <b className="text-content">Read only</b> and confirm.</li>
               <li>Click Publish again.</li>
             </ol>

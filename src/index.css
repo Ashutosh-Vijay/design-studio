@@ -138,3 +138,6 @@ code, pre, .font-mono { font-family: var(--font-mono); }
 
 ::selection { background: var(--selection-bg); }
 :focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* Settings, Editor, Wrap long lines: what CodeMirror's lineWrapping does, switched from <html>. */
+.ads-wrap .cm-content { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; flex-shrink: 1; }

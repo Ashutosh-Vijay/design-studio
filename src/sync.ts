@@ -23,9 +23,14 @@ const filePath = (p: string) => encodeURIComponent(p);
 
 // Where a Design Center project lives here: Documents/API Designer Studio/{org}/{project}, with a short id
 // added when another project already has that folder. here: it's already pulled there.
+// Settings, Projects folder: Documents/API Designer Studio unless changed.
+export async function projectsDir() {
+  let d: string | null = null; try { d = localStorage.getItem('ads.projectsDir'); } catch { /* ignore */ }
+  return (d ?? (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '') + '/API Designer Studio').replace(/\/+$/, '');
+}
 export async function projectHome(org: string, name: string, id: string) {
   const safe = (x: string) => x.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/, '') || 'project';
-  const home = (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '') + `/API Designer Studio/${safe(org)}/`;
+  const home = (await projectsDir()) + `/${safe(org)}/`;
   for (const root of [home + safe(name), `${home}${safe(name)} (${id.slice(0, 8)})`]) {
     const l = await readLink(root);
     if (l?.projectId === id) return { root, here: true };
