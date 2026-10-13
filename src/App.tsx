@@ -150,7 +150,7 @@ export default function App() {
       <header data-tauri-drag-region className="h-11 shrink-0 flex items-center gap-2.5 pl-3 bg-surface border-b border-line">
         <button className="w-8 h-7 flex items-center justify-center rounded-md hover:bg-surface-2" title={project ? 'All projects' : APP_NAME}
           onClick={() => { if (project && okToLeave()) { setProject(null); setDirtyCount(0); } }}>
-          <img src="/logo.svg" width={22} height={22} alt="" />
+          <img src="/logo-small.svg" width={22} height={22} alt="" />
         </button>
         <span data-tauri-drag-region className="text-[13px] font-semibold">{project ? project.name : APP_NAME}</span>
         {project && isTauri && <ProjectMenu key={project.root} root={project.root} name={project.name} onNotice={(t, err) => syncRef.current?.notice(t, err)}
