@@ -254,14 +254,15 @@ export const Icons = {
       <path d="M8.5 6.2c3 0 4 -1 7 -1M8.5 6.2c2 0 1 8 3.5 8M15 14.2h0.5c1.5 0 1 4.5 0 4.5" />
     </>,
   ),
+  // MuleSoft's Exchange logo (exchange-logo-filled from Anypoint's icon set), to point at Exchange, as other
+  // community tools do. It's MuleSoft's: not covered by this project's licence (see NOTICE).
   Exchange: mk(
     <>
-      {/* Our own: two arrows passing each other, the usual sign for an exchange (not MuleSoft's artwork). */}
-      <path d="M4 8h15" />
-      <path d="M15.5 4.5 19 8l-3.5 3.5" />
-      <path d="M20 16H5" />
-      <path d="M8.5 12.5 5 16l3.5 3.5" />
+      <path d="M5.315 4.902a9.807 9.807 0 0 0-.96 1.045l5.258 5.257 1.59-1.591-4.666-4.666c-.336-.337-.876-.371-1.222-.045zm13.369 14.196c.345-.325.665-.674.96-1.045L14.38 12.79l-1.591 1.59 4.672 4.673c.336.337.876.371 1.222.044z" />
+      <path d="M5.96 7.552L4.357 5.947A9.709 9.709 0 0 0 2.25 12c0 2.287.787 4.39 2.106 6.053l1.605-1.604A7.466 7.466 0 0 1 4.5 12c0-1.665.543-3.203 1.46-4.448zm12.075-.002l1.607-1.606a9.707 9.707 0 0 1 2.104 6.053 9.714 9.714 0 0 1-2.102 6.056l-1.609-1.607a7.466 7.466 0 0 0 1.461-4.449 7.466 7.466 0 0 0-1.46-4.448z" />
+      <path d="M19.643 5.947a9.802 9.802 0 0 0-.959-1.045c-.346-.326-.886-.292-1.222.045L4.355 18.053c.295.371.615.72.96 1.044.346.327.886.293 1.222-.044L19.644 5.947z" />
     </>,
+    { fill: 'currentColor', stroke: 0 },
   ),
   Deps: mk(
     <>
