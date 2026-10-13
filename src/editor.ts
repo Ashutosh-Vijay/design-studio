@@ -23,9 +23,11 @@ const theme = EditorView.theme({
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
   '.cm-gutters': { backgroundColor: 'var(--surface)', color: 'var(--content-ghost)', border: 'none' },
   '.cm-lineNumbers .cm-gutterElement': { padding: '0 10px 0 14px' },
-  '.cm-activeLine': { backgroundColor: 'var(--surface-2)' },
+  // See-through: CodeMirror draws the selection under the lines, so an opaque band would hide it on the cursor's line.
+  '.cm-activeLine': { backgroundColor: 'color-mix(in oklch, var(--content) 5%, transparent)' },
   '.cm-activeLineGutter': { backgroundColor: 'var(--surface-2)', color: 'var(--content-muted)' },
   // Selection keeps the syntax colours readable: a light wash, stronger while the editor has focus.
+  '&.cm-has-selection .cm-activeLine': { backgroundColor: 'transparent' },
   '.cm-selectionBackground': { backgroundColor: 'var(--editor-sel-blur) !important' },
   '&.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--editor-sel) !important' },
   '.cm-content ::selection': { backgroundColor: 'transparent' },
@@ -188,6 +190,8 @@ export function baseExtensions(): Extension[] {
     lineNumbers(), foldGutter(), highlightActiveLineGutter(), highlightSpecialChars(), history(), drawSelection(), dropCursor(),
     EditorState.allowMultipleSelections.of(true), indentOnInput(), bracketMatching(), closeBrackets(),
     rectangularSelection(), crosshairCursor(), highlightActiveLine(), highlightSelectionMatches(),
+    // With text selected, the current-line band goes, so the selection is the one thing shown.
+    EditorView.editorAttributes.compute(['selection'], (st) => ({ class: st.selection.ranges.some((r) => !r.empty) ? 'cm-has-selection' : '' })),
     indentUnit.of('  '), EditorState.tabSize.of(2),
     syntaxHighlighting(highlight), theme, findWidget, conflictPlugin, usesField,
     keymap.of([{ key: 'Mod-h', run: openReplace }, { key: 'Mod-Shift-ArrowRight', run: growSelection }, { key: 'Mod-Shift-ArrowLeft', run: shrinkSelection }, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),

@@ -49,8 +49,8 @@
   --scrollbar-thumb-hover: oklch(40% 0.004 80);
   --selection-bg: oklch(72% 0.15 158 / 0.35);
   --selection-text: oklch(100% 0 0);
-  --editor-sel: color-mix(in oklch, var(--accent) 24%, transparent);
-  --editor-sel-blur: color-mix(in oklch, var(--accent) 13%, transparent);
+  --editor-sel: color-mix(in oklch, var(--accent) 30%, transparent);
+  --editor-sel-blur: color-mix(in oklch, var(--accent) 20%, transparent);
   --hover-overlay: oklch(100% 0 0 / 0.05);
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 
@@ -104,8 +104,8 @@
   --scrollbar-thumb: oklch(80% 0.004 80);
   --scrollbar-thumb-hover: oklch(70% 0.004 80);
   --selection-bg: oklch(55% 0.15 158 / 0.25);
-  --editor-sel: color-mix(in oklch, var(--accent) 20%, transparent);
-  --editor-sel-blur: color-mix(in oklch, var(--accent) 11%, transparent);
+  --editor-sel: color-mix(in oklch, var(--accent) 26%, transparent);
+  --editor-sel-blur: color-mix(in oklch, var(--accent) 17%, transparent);
   --hover-overlay: oklch(0% 0 0 / 0.04);
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.14);
 
