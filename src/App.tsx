@@ -221,8 +221,8 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate
     <div className="flex-1 min-h-0 overflow-auto flex justify-center">
       <div className="w-full max-w-[1000px] grid grid-cols-[340px_minmax(0,1fr)] gap-12 px-10 pt-14 pb-8 content-start">
         <section>
-          <img src="/logo.svg" width={44} height={44} alt="" />
-          <h1 className="mt-4 mb-1.5 text-[22px] font-bold">Design Center specs, on your desktop</h1>
+          <img src="/logo.svg" width={120} height={120} alt="API Designer Studio" className="-ml-2.5 -mt-3 drop-shadow-[0_6px_18px_rgba(0,90,255,0.25)]" />
+          <h1 className="mt-2 mb-1.5 text-[22px] font-bold">Design Center specs, on your desktop</h1>
           <p className="text-content-muted leading-relaxed">A desktop designer for Anypoint Design Center specs, RAML and OAS. Big specs open in seconds, and every edit is checked as you type.</p>
           <div className="relative mt-6">
             <button disabled={!isTauri || !!opening} onClick={() => setCreateMenu(!createMenu)}
