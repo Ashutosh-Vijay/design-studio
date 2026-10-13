@@ -313,10 +313,12 @@ export async function searchAssets(q: string, types: string[]) {
 
 // Publish: what Design Center has must be what's here, so unsent changes are pushed first (push refuses
 // when Design Center moved on). Publishing needs the lock, and rewrites exchange.json there, so a pull follows.
-export async function publish(root: string, paths: string[], o: { name: string; assetId: string; groupId: string; version: string; apiVersion: string; main: string; classifier: string; development: boolean }) {
+export async function publish(root: string, paths: string[], o: { name: string; assetId: string; groupId: string; version: string; apiVersion: string; main: string; classifier: string; development: boolean }, step: (n: number) => void = () => {}) {
   let l = (await readLink(root))!;
+  step(0);
   const pushed = (await localChanges(root, l, paths)).count ? (await push(root, l, paths)).sent : 0;
   l = (await readLink(root))!;
+  step(1);
   await invoke('anypoint_hold_lock', { project: l.projectId, branch: l.branch });
   try {
     const r = await api('POST', `${branchPath(l)}/publish/exchange`, { name: o.name, apiVersion: o.apiVersion, version: o.version, main: o.main, assetId: o.assetId, groupId: o.groupId, classifier: o.classifier, ...(o.development ? { status: 'development' } : {}) });
@@ -324,7 +326,9 @@ export async function publish(root: string, paths: string[], o: { name: string; 
     must(r, 'Publishing');
   } finally { await invoke('anypoint_release_lock'); }
   // Exchange lists a new version a few seconds after publishing.
+  step(2);
   for (let i = 0; i < 15 && (await api('GET', `/exchange/api/v2/assets/${o.groupId}/${o.assetId}/${o.version}`)).status !== 200; i++) await new Promise((r) => setTimeout(r, 2000));
+  step(3);
   const after = await pull(root, (await readLink(root))!);
   return { pushed, pulled: after };
 }

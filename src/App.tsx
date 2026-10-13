@@ -139,7 +139,7 @@ export default function App() {
   });
 
   const settingsBtn = (cls: string) => (
-    <button className={cls} title="Theme and accent" onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget.getBoundingClientRect())}>
+    <button className={cls} title="Settings" onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget.getBoundingClientRect())}>
       <Icons.Sliders size={17} />
     </button>
   );
@@ -314,7 +314,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [crumb, setCrumb] = useState<{ key: string; from: number }[]>([]);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
-  const [notice, setNotice] = useState<{ text: string; err: boolean; actions?: [string, () => void][] } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; err: boolean; ok?: boolean; actions?: [string, () => void][] } | null>(null);
   const fail = (e: unknown) => setNotice({ text: String(e), err: true });
   useEffect(() => { if (initialNotice) setNotice({ text: initialNotice, err: false }); }, [initialNotice]);
   const [rail, setRail] = useState<'files' | 'api' | 'deps' | 'exchange' | 'map'>('api');
@@ -1332,11 +1332,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           {publishing != null && <PublishDialog root={project.root} main={project.main} paths={listPaths} model={amfModel} version={publishing || undefined}
             errors={problems.filter((x) => x.severity === 'error').length}
             onClose={() => setPublishing(null)} onShowErrors={() => { setPublishing(null); setProblemsOpen(true); }}
-            onDone={async (text) => { setPublishing(null); await syncRef.current?.reload(); setPublished((n) => n + 1); setNotice({ text, err: false }); }} />}
+            onDone={async (text) => { setPublishing(null); await syncRef.current?.reload(); setPublished((n) => n + 1); setNotice({ text, err: false, ok: true }); }} />}
           {!active && <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">{project.main ? 'Opening…' : 'No root file found. Pick a file on the left.'}</div>}
           {notice && (
-            <div className={`shrink-0 flex items-center gap-2 px-3 py-2 border-t border-line bg-surface-2 text-[12px] ${notice.err ? 'text-err' : 'text-content-secondary'}`}>
-              {!notice.err && <span className="text-accent flex"><Icons.Dot size={12} /></span>}
+            <div className={`shrink-0 flex items-center gap-2 px-3 py-2 border-t text-[12px] ${notice.ok ? 'border-[color-mix(in_oklch,var(--ok)_45%,transparent)] bg-[color-mix(in_oklch,var(--ok)_12%,transparent)] text-content font-medium' : notice.err ? 'border-line bg-surface-2 text-err' : 'border-line bg-surface-2 text-content-secondary'}`}>
+              {notice.ok ? <span className="text-ok flex"><Icons.Check size={14} /></span> : !notice.err && <span className="text-accent flex"><Icons.Dot size={12} /></span>}
               <span className="flex-1 select-text">{notice.text}</span>
               {notice.actions?.map(([label, run]) => (
                 <button key={label} onClick={run} className="h-6 px-2.5 rounded-md text-[12px] font-medium border border-line bg-surface text-content-secondary hover:text-content hover:border-content-ghost">{label}</button>

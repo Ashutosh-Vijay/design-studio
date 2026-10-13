@@ -290,6 +290,7 @@ export const Icons = {
       <path d="M8 11V7a4 4 0 0 1 8 0v4" />
     </>,
   ),
+  Check: mk(<path d="M20 6 9 17l-5-5" />),
   Sliders: mk(
     <>
       <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" />

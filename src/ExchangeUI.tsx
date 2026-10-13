@@ -35,7 +35,9 @@ export function PublishDialog({ root, main, paths, errors, model, version, onClo
   const [dev, setDev] = useState(false);
   const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
   const [group, setGroup] = useState(''); const [name, setName] = useState(''); const [assetId, setAssetId] = useState('');
-  const [busy, setBusy] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null);
+  const [step, setStep] = useState<number | null>(null); const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<{ text: string; pushed: number } | null>(null);
+  const busy = step != null && !done;
 
   useEffect(() => {
     (async () => {
@@ -58,25 +60,60 @@ export function PublishDialog({ root, main, paths, errors, model, version, onClo
 
   const taken = versions?.find((x) => x.version === v.trim());
   const bad = !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(v.trim()) ? 'Use a version like 1.2.0.' : taken?.status === 'published' ? `${v.trim()} is already in Exchange as Stable. Stable versions can't be published again.` : null;
-  const blocked = me === null ? 'Sign in to Anypoint to publish.' : me?.read_only ? 'This connection is read only. Turn it off in settings to publish.'
+  const blocked = me === null ? 'Sign in to Anypoint to publish.' : me?.read_only ? 'read only'
     : linked === false ? 'Publishing goes through Design Center: pull this project from Design Center to publish it.' : !d ? 'This project has no exchange.json, so it has no Exchange asset to publish as.' : null;
   const go = async () => {
-    setErr(null); setBusy('Publishing…');
+    setErr(null); setStep(0);
     try {
-      const r = await S.publish(root, await paths(), { name: name.trim(), assetId: assetId.trim(), groupId: group, version: v.trim(), apiVersion: apiVersion.trim() || 'v1', main: main ?? d!.main ?? '', classifier: d!.classifier ?? 'raml', development: dev });
-      onDone(`Published ${v.trim()} to Exchange${dev ? ' as Development' : ''}.${r.pushed ? ` Your ${r.pushed} ${r.pushed === 1 ? 'change was' : 'changes were'} pushed first.` : ''}`);
-    } catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(null); }
+      const r = await S.publish(root, await paths(), { name: name.trim(), assetId: assetId.trim(), groupId: group, version: v.trim(), apiVersion: apiVersion.trim() || 'v1', main: main ?? d!.main ?? '', classifier: d!.classifier ?? 'raml', development: dev }, setStep);
+      setDone({ text: `Published ${v.trim()} to Exchange${dev ? ' as Development' : ''}.${r.pushed ? ` Your ${r.pushed} ${r.pushed === 1 ? 'change was' : 'changes were'} pushed first.` : ''}`, pushed: r.pushed });
+    } catch (e) { setErr(String(e).replace(/^Error: /, '')); setStep(null); }
   };
+  const spin = <span className="w-3.5 h-3.5 shrink-0 rounded-full border-2 border-accent border-t-transparent animate-spin" />;
   const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input text-[12.5px] outline-none focus:border-accent disabled:opacity-60';
   const last = versions?.[0];
   return (
-    <Modal title="Publish to Exchange" sub={d ? `${d.name}` : undefined} onCancel={onClose} width={520}
-      footer={<><span className="flex-1 text-[12px] text-content-faint">{busy}</span><button className={btn} onClick={onClose}>Cancel</button>
-        <button className={btnPrimary} disabled={!!blocked || !!errors || !!bad || !!busy || versions == null && !!me || !name.trim() || !assetId.trim()} onClick={go}>Publish to Exchange</button></>}>
+    // While publishing there's nothing to cancel (Design Center has the request); once done, closing reloads the project.
+    <Modal title="Publish to Exchange" sub={d ? `${d.name}` : undefined} onCancel={done ? () => onDone(done.text) : busy ? () => {} : onClose} width={520}
+      footer={done ? <>
+        <button className={btn} onClick={() => openUrl(exchangeUrl(me ?? null, group, assetId.trim()) + v.trim() + '/')}>Open in Exchange</button>
+        <button className={btnPrimary} onClick={() => onDone(done.text)}>Done</button></>
+      : <><button className={btn} disabled={busy} onClick={onClose}>Cancel</button>
+        <button className={`${btnPrimary} flex items-center gap-2`} disabled={!!blocked || !!errors || !!bad || busy || versions == null && !!me || !name.trim() || !assetId.trim()} onClick={go}>
+          {busy && <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />}{busy ? 'Publishing…' : 'Publish to Exchange'}</button></>}>
+      {done ? (
+        <div className="flex flex-col items-center text-center gap-2 py-4">
+          <span className="w-11 h-11 rounded-full flex items-center justify-center bg-[color-mix(in_oklch,var(--ok)_15%,transparent)] text-ok"><Icons.Check size={24} /></span>
+          <div className="text-[14px] font-semibold">Published to Exchange</div>
+          <div className="text-[12.5px] text-content-secondary max-w-[400px]">
+            {name.trim()} {v.trim()} is in Exchange{dev ? ' as a Development version' : ''}.{done.pushed ? ` Your ${done.pushed} ${done.pushed === 1 ? 'change was' : 'changes were'} saved to Design Center first.` : ''}
+          </div>
+        </div>
+      ) : busy ? (
+        <div className="flex flex-col gap-2.5 py-2 text-[12.5px]">
+          <div className="text-content-secondary mb-1">Publishing {v.trim()}{dev ? ' as Development' : ''}. This can take a minute, so keep this window open.</div>
+          {['Saving your changes to Design Center', 'Publishing to Exchange', 'Waiting for Exchange to list the new version', "Pulling Design Center's updated exchange.json"].map((t, i) => (
+            <div key={t} className={`flex items-center gap-2.5 ${i > step! ? 'text-content-faint' : i === step ? 'text-content font-medium' : 'text-content-secondary'}`}>
+              {i < step! ? <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center text-ok"><Icons.Check size={14} /></span> : i === step ? spin : <span className="w-3.5 h-3.5 shrink-0 rounded-full border-2 border-line" />}{t}
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="flex flex-col gap-3 text-[12.5px]">
         {!!errors && <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[color-mix(in_oklch,var(--err)_30%,transparent)] bg-[color-mix(in_oklch,var(--err)_8%,transparent)]">
           <span className="flex-1">{errors} {errors === 1 ? 'error' : 'errors'} to fix first. Exchange won't accept a spec with errors.</span><button className={btn} onClick={onShowErrors}>Show</button></div>}
-        {blocked && <div className="px-3 py-2 rounded-lg border border-line bg-surface-2 text-content-secondary">{blocked}</div>}
+        {blocked === 'read only' ? (
+          <div className="px-3 py-2.5 rounded-lg border-2 border-err bg-[color-mix(in_oklch,var(--err)_10%,transparent)]">
+            <div className="flex items-center gap-2 font-semibold text-err"><Icons.Lock size={14} />Can't publish: this connection is read only</div>
+            <div className="mt-1 text-content-secondary">Read only stops the app from changing anything in Anypoint. To publish, turn it off:</div>
+            <ol className="mt-1.5 ml-4 list-decimal text-content-secondary leading-relaxed">
+              <li>Close this window.</li>
+              <li>Click <span className="inline-flex align-[-2px] text-content"><Icons.Sliders size={14} /></span> <b className="text-content">Settings</b> at the bottom left.</li>
+              <li>Under Anypoint, untick <b className="text-content">Read only</b> and confirm.</li>
+              <li>Click Publish again.</li>
+            </ol>
+          </div>
+        ) : blocked && <div className="px-3 py-2.5 rounded-lg border-2 border-[color-mix(in_oklch,var(--warn)_60%,transparent)] bg-[color-mix(in_oklch,var(--warn)_8%,transparent)] text-content">{blocked}</div>}
         <div className="flex gap-2.5">
           <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Asset version</span>
             <input value={v} onChange={(e) => setV(e.target.value)} spellCheck={false} className={`${field} font-mono`} />
@@ -104,8 +141,9 @@ export function PublishDialog({ root, main, paths, errors, model, version, onClo
             </div>
           </div>
         </details>
-        {err && <div className="text-[12px] text-err select-text">{err}</div>}
+        {err && <div className="px-3 py-2 rounded-lg border border-[color-mix(in_oklch,var(--err)_40%,transparent)] bg-[color-mix(in_oklch,var(--err)_8%,transparent)] text-[12px] text-err select-text">{err}</div>}
       </div>
+      )}
     </Modal>
   );
 }
