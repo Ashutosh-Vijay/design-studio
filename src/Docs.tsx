@@ -193,7 +193,7 @@ function TryIt({ op, path, mock }: { op: Op; path: string; mock: Mock }) {
         {op.responses.length > 1 && <select value={status} onChange={(e) => setStatus(e.target.value)} title="Which response the mock gives (MS2-Status-Code)" className="h-[26px] px-1 rounded-md border border-line bg-surface-input text-[11.5px]">
           <option value="">First success</option>{op.responses.map((r) => <option key={r.code} value={r.code}>{r.code}</option>)}</select>}
         <span className="flex-1" />
-        <button disabled={busy} onClick={send} className="h-[26px] px-3 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-50">{busy ? 'Sending…' : 'Send'}</button>
+        <button disabled={busy} onClick={send} className="h-[26px] px-3 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-50">{busy ? <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full border-2 border-current border-t-transparent animate-spin" />Sending…</span> : 'Send'}</button>
       </div>
       <div className="font-mono text-[10.5px] text-content-faint break-all select-text">{op.method.toUpperCase()} {url()}</div>
       {res && ('error' in res ? <div className="text-[12px] text-err select-text">{res.error}</div> : <>

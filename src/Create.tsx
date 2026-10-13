@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { documentDir } from '@tauri-apps/api/path';
-import { Modal, btn, btnPrimary } from './App';
+import { Modal, Spinner, btn, btnPrimary } from './App';
 import type { Me } from './SyncUI';
 import * as S from './sync';
 
@@ -82,7 +82,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
   const list = what === 'api' ? API_KINDS : FRAGMENTS;
   return (
     <Modal title={what === 'api' ? 'New API Specification' : 'New Fragment'} sub={what === 'api' ? 'How the API behaves and what it exchanges' : 'Pieces to reuse across APIs'} onCancel={onClose} width={500}
-      footer={<><span className="flex-1 text-[12px] text-content-faint">{busy}</span><button className={btn} onClick={onClose}>Cancel</button>
+      footer={<><span className="flex-1 flex items-center gap-2 text-[12px] text-content-muted">{busy && <><Spinner />{busy}</>}</span><button className={btn} onClick={onClose}>Cancel</button>
         <button className={btnPrimary} disabled={!name.trim() || !!busy || me === undefined} onClick={go}>Create</button></>}>
       <div className="flex flex-col gap-3 text-[12.5px]">
         <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Project name</span>

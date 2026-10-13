@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
-import { Modal, btn, btnPrimary } from './App';
+import { Modal, Spinner, btn, btnPrimary } from './App';
 import { Badge, type AmfModel } from './Inspector';
 import type { Me } from './SyncUI';
 import * as S from './sync';
@@ -23,8 +23,8 @@ const MULESOFT = '68ef9520-24e9-4cf2-b2f5-620025690913'; // MuleSoft's own organ
 const Note = ({ children }: { children: ReactNode }) => <div className="text-[12px] text-content-faint leading-relaxed">{children}</div>;
 
 // ---------- Publish to Exchange ----------
-export function PublishDialog({ root, main, paths, errors, model, version, onClose, onDone, onShowErrors }: {
-  root: string; main: string | null; paths: () => Promise<string[]>; errors: number; model: AmfModel | null; version?: string;
+export function PublishDialog({ root, main, paths, errors, model, version, unsaved, saveAll, onClose, onDone, onShowErrors }: {
+  root: string; main: string | null; paths: () => Promise<string[]>; errors: number; model: AmfModel | null; version?: string; unsaved: number; saveAll: () => Promise<void>;
   onClose: () => void; onDone: (text: string) => void; onShowErrors: () => void;
 }) {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -44,7 +44,7 @@ export function PublishDialog({ root, main, paths, errors, model, version, onClo
     (async () => {
       const m = await status(); setMe(m);
       setLinked(!!(await S.readLink(root)));
-      const x = await S.readDescriptor(root); if (!x) return;
+      const x = await S.readDescriptor(root); if (!x) { setVersions([]); return; }
       setD(x.d); setGroup(x.d.groupId); setName(x.d.name); setAssetId(x.d.assetId);
       if (!m) return;
       // Business groups this user can publish to, from who-am-I.
@@ -66,6 +66,8 @@ export function PublishDialog({ root, main, paths, errors, model, version, onClo
   const go = async () => {
     setErr(null); setStep(0);
     try {
+      // Exchange gets what Design Center has, so unsaved edits are saved here first, then pushed by publish.
+      await saveAll();
       const r = await S.publish(root, await paths(), { name: name.trim(), assetId: assetId.trim(), groupId: group, version: v.trim(), apiVersion: apiVersion.trim() || 'v1', main: main ?? d!.main ?? '', classifier: d!.classifier ?? 'raml', development: dev }, setStep);
       setDone({ text: `Published ${v.trim()} to Exchange${dev ? ' as Development' : ''}.${r.pushed ? ` Your ${r.pushed} ${r.pushed === 1 ? 'change was' : 'changes were'} pushed first.` : ''}`, pushed: r.pushed });
     } catch (e) { setErr(String(e).replace(/^Error: /, '')); setStep(null); }
@@ -99,10 +101,13 @@ export function PublishDialog({ root, main, paths, errors, model, version, onClo
             </div>
           ))}
         </div>
+      ) : me === undefined || (me && versions == null && !err) || (me && d === null && linked === null) ? (
+        <div className="flex items-center gap-2.5 py-6 justify-center text-[12.5px] text-content-muted"><Spinner size={14} />Reading this API's versions from Exchange…</div>
       ) : (
       <div className="flex flex-col gap-3 text-[12.5px]">
         {!!errors && <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[color-mix(in_oklch,var(--err)_30%,transparent)] bg-[color-mix(in_oklch,var(--err)_8%,transparent)]">
           <span className="flex-1">{errors} {errors === 1 ? 'error' : 'errors'} to fix first. Exchange won't accept a spec with errors.</span><button className={btn} onClick={onShowErrors}>Show</button></div>}
+        {!!unsaved && !blocked && <div className="px-3 py-2 rounded-lg border border-accent-border bg-accent-dim text-content-secondary">{unsaved} unsaved {unsaved === 1 ? 'file' : 'files'}: {unsaved === 1 ? "it's" : "they're"} saved and sent to Design Center first, so Exchange gets what you see.</div>}
         {blocked === 'read only' ? (
           <div className="px-3 py-2.5 rounded-lg border-2 border-err bg-[color-mix(in_oklch,var(--err)_10%,transparent)]">
             <div className="flex items-center gap-2 font-semibold text-err"><Icons.Lock size={14} />Can't publish: this connection is read only</div>
@@ -185,7 +190,7 @@ export function ExchangePanel({ root, model, modelOf, onPublish }: {
     })();
   }, [a, d, model]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (me === undefined || d === undefined) return <div className="p-3"><Note>Loading…</Note></div>;
+  if (me === undefined || d === undefined) return <div className="p-3"><Note><span className="flex items-center gap-2"><Spinner />Reading Exchange…</span></Note></div>;
   if (!d) return <div className="p-3"><Note>This project has no exchange.json, so it isn't an Exchange asset yet. Projects pulled from Design Center have one.</Note></div>;
   if (!me) return <div className="p-3"><Note>Sign in to Anypoint to see {d.name} in Exchange: its versions and what changed since the last one.</Note></div>;
   const last = a?.versions[0];
@@ -199,7 +204,7 @@ export function ExchangePanel({ root, model, modelOf, onPublish }: {
         <div className="mt-3">Last published <b>{last.version}</b> {ago(last.created)}{last.by ? ` by ${last.by === me.username ? 'you' : last.by}` : ''}.</div>
         <button className="mt-1 text-[12px] text-accent hover:underline" onClick={() => openUrl(exchangeUrl(me, d.groupId, d.assetId))}>Open in Exchange</button>
         <H>Changed since {last.version}</H>
-        {busy && <Note>{busy}</Note>}
+        {busy && <Note><span className="flex items-center gap-2"><Spinner />{busy}</span></Note>}
         {!model && !busy && <Note>Shown after the spec is checked.</Note>}
         {diff && diff.base === last.version && <>
           {diff.changes.length === 0 && <Note>No changes to resources, methods or types.</Note>}
@@ -337,7 +342,7 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
   const frags = (deps ?? []).filter((d) => !isSet(d)), rsDeps = (deps ?? []).filter(isSet);
   return (
     <div className="flex-1 overflow-auto pb-4 text-[12.5px]">
-      {busy && <div className="px-3 pt-2"><Note>{busy}</Note></div>}
+      {busy && <div className="px-3 pt-2"><Note><span className="flex items-center gap-2"><Spinner />{busy}</span></Note></div>}
       {header('Fragments', frags.length, 'fragment')}
       {frags.length === 0 && <div className="px-3"><Note>None yet. Fragments from Exchange, like shared libraries and traits, go here.</Note></div>}
       {frags.map(row)}

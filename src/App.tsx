@@ -153,12 +153,12 @@ export default function App() {
           <img src="/logo-small.svg" width={22} height={22} alt="" />
         </button>
         <span data-tauri-drag-region className="text-[13px] font-semibold">{project ? project.name : APP_NAME}</span>
-        {project && isTauri && <ProjectMenu key={project.root} root={project.root} name={project.name} onNotice={(t, err) => syncRef.current?.notice(t, err)}
+        {project && isTauri && <ProjectMenu key={`menu:${project.root}`} root={project.root} name={project.name} onNotice={(t, err) => syncRef.current?.notice(t, err)}
           onChanged={() => { syncRef.current?.reload(); }} onOpen={(root) => openFolder(root)} onGone={() => { const l = recent.filter((r) => r.root !== project.root); writeRecent(l); setRecent(l); setProject(null); setDirtyCount(0); }} />}
         {project && <span data-tauri-drag-region className="text-[12px] text-content-faint">{dirtyCount ? `${dirtyCount} unsaved` : 'All changes saved'}</span>}
         <div data-tauri-drag-region className="flex-1 h-full" />
         {project && isTauri && (
-          <SyncBar key={project.root} root={project.root} dirty={dirtyCount}
+          <SyncBar key={`sync:${project.root}`} root={project.root} dirty={dirtyCount}
             listFiles={async () => (await invoke<Project>('open_project', { root: project.root })).files.map((f) => f.path)}
             saveAll={async () => { await syncRef.current?.saveAll(); }}
             onNotice={(t, err) => syncRef.current?.notice(t, err)}
@@ -1330,10 +1330,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             onGovAuto={async (auto) => { const st = { ...govSettings, auto }; setGovSettings(st); await writeGovSettings(project.root, st); if (auto) runGovernance(); }}
             onAddRuleset={() => setRail('deps')} />}
           {publishing != null && <PublishDialog root={project.root} main={project.main} paths={listPaths} model={amfModel} version={publishing || undefined}
+            unsaved={dirty.size} saveAll={async () => { await syncRef.current?.saveAll(); }}
             errors={problems.filter((x) => x.severity === 'error').length}
             onClose={() => setPublishing(null)} onShowErrors={() => { setPublishing(null); setProblemsOpen(true); }}
             onDone={async (text) => { setPublishing(null); await syncRef.current?.reload(); setPublished((n) => n + 1); setNotice({ text, err: false, ok: true }); }} />}
-          {!active && <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">{project.main ? 'Opening…' : 'No root file found. Pick a file on the left.'}</div>}
+          {!active && <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">{project.main ? <span className="flex items-center gap-2"><Spinner />Opening…</span> : 'No root file found. Pick a file on the left.'}</div>}
           {notice && (
             <div className={`shrink-0 flex items-center gap-2 px-3 py-2 border-t text-[12px] ${notice.ok ? 'border-[color-mix(in_oklch,var(--ok)_45%,transparent)] bg-[color-mix(in_oklch,var(--ok)_12%,transparent)] text-content font-medium' : notice.err ? 'border-line bg-surface-2 text-err' : 'border-line bg-surface-2 text-content-secondary'}`}>
               {notice.ok ? <span className="text-ok flex"><Icons.Check size={14} /></span> : !notice.err && <span className="text-accent flex"><Icons.Dot size={12} /></span>}
@@ -1706,6 +1707,8 @@ export function Modal({ title, sub, children, footer, onCancel, width = 460 }: {
     </div>
   );
 }
+// The one spinner: anything waiting on Anypoint, AMF or the disk shows it beside its text.
+export const Spinner = ({ size = 12 }: { size?: number }) => <span style={{ width: size, height: size }} className="inline-block shrink-0 rounded-full border-2 border-accent border-t-transparent animate-spin" />;
 export const btn = 'h-[28px] px-3 rounded-md text-[12.5px] font-medium border border-line bg-surface-2 text-content-secondary hover:text-content hover:border-content-ghost disabled:opacity-45 disabled:cursor-not-allowed';
 export const btnPrimary = 'h-[28px] px-3 rounded-md text-[12.5px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-45 disabled:cursor-not-allowed';
 const inputCls = 'w-full h-[30px] px-2.5 rounded-md border border-line bg-surface-input text-content outline-none text-[12.5px] focus:border-accent';
@@ -1804,7 +1807,7 @@ function DuplicateDialog({ path, canConvert, exists, onOk, onCancel }: { path: s
   const go = async () => { if (clash || busy) return; setBusy(true); setErr(null); try { await onOk(target, fmt); } catch (e) { setErr(String(e)); setBusy(false); } };
   return (
     <Modal title="Duplicate As" sub={<>Makes a new file from <span className="font-mono text-content">{name}</span>{canConvert ? ', in the same format or converted' : ''}.</>} onCancel={onCancel}
-      footer={<><button className={btn} onClick={onCancel}>Cancel</button><button className={btnPrimary} disabled={clash || busy} onClick={go}>{busy ? 'Converting…' : 'Duplicate'}</button></>}>
+      footer={<><button className={btn} onClick={onCancel}>Cancel</button><button className={btnPrimary} disabled={clash || busy} onClick={go}>{busy ? <span className="flex items-center gap-2"><Spinner />Converting…</span> : 'Duplicate'}</button></>}>
       {canConvert && (
         <div className="mb-3.5">
           <div className="mb-1.5 text-[11.5px] font-semibold text-content-secondary">Format</div>
@@ -1837,7 +1840,7 @@ function ZipDialog({ zip, dest, onOk, onCancel }: { zip: string; dest: string; o
   const go = async () => { setBusy(true); setErr(null); try { await onOk(zip, d.trim()); } catch (e) { setErr(String(e)); setBusy(false); } };
   return (
     <Modal title={`Open ${base(zip.replace(/\\/g, '/'))}`} sub="The zip is unpacked into a folder, and you work on the folder from then on." onCancel={onCancel} width={560}
-      footer={<><button className={btn} onClick={onCancel}>Cancel</button><button className={btnPrimary} disabled={busy || !d.trim()} onClick={go}>{busy ? 'Unpacking…' : 'Unpack and open'}</button></>}>
+      footer={<><button className={btn} onClick={onCancel}>Cancel</button><button className={btnPrimary} disabled={busy || !d.trim()} onClick={go}>{busy ? <span className="flex items-center gap-2"><Spinner />Unpacking…</span> : 'Unpack and open'}</button></>}>
       <label className="block mb-1.5 text-[11.5px] font-semibold text-content-secondary">Unpack into</label>
       <div className="flex gap-2">
         <input className={inputCls + ' font-mono'} value={d} spellCheck={false} onChange={(e) => setD(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') go(); }} />

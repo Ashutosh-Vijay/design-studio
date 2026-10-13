@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
-import { Modal, TextDialog, btn, btnPrimary } from './App';
+import { Modal, TextDialog, Spinner, btn, btnPrimary } from './App';
 import * as S from './sync';
 import { AddDependency } from './ExchangeUI';
 
@@ -226,7 +226,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
             <Icons.Search size={12} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter projects" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" /></label>
         </div>
         <div className="max-h-[260px] overflow-auto rounded-md border border-line">
-          {list == null && !err && <div className="p-4 text-content-faint">Listing your projects…</div>}
+          {list == null && !err && <div className="p-4 flex items-center gap-2 text-content-muted"><Spinner />Listing your projects…</div>}
           {list != null && shown.length === 0 && <div className="p-4 text-content-faint">{list.length ? 'No project matches.' : 'No projects in Design Center yet.'}</div>}
           {shown.map((p) => (
             <div key={p.id} onClick={() => setPick(p)} onDoubleClick={() => { if (where[p.id]?.here && !busy) onPulled(where[p.id].root, null); }}
@@ -240,7 +240,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
         </div>
         {pick && (
           <div className="flex items-center gap-2 text-[11.5px] text-content-faint">
-            <span className="flex-1 min-w-0 truncate">{info ? `${info.type}, created ${new Date(info.created).toLocaleDateString()} by ${info.owner}` : 'Reading the details…'}</span>
+            <span className="flex-1 min-w-0 truncate">{info ? `${info.type}, created ${new Date(info.created).toLocaleDateString()} by ${info.owner}` : <span className="inline-flex items-center gap-1.5"><Spinner size={10} />Reading the details…</span>}</span>
             {([['Share…', 'canShare', () => setDlg(<ShareDialog projectId={pick.id} name={pick.name} org={me!.org_id} onClose={() => setDlg(null)} onSaved={(t) => { setDlg(null); setReport(t); }} />)],
               ['Rename…', 'canRename', () => setDlg(<TextDialog title="Rename project" label="Name in Design Center" value={pick.name} okLabel="Rename" onCancel={() => setDlg(null)}
                 onOk={async (v) => { setDlg(null); try { await S.renameProject(pick.id, v); setReport(`Renamed to ${v}.`); setPick({ ...pick, name: v }); await loadProjects(); } catch (e) { setErr(String(e)); } }} />)],
@@ -289,7 +289,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
       </div>
     );
     const pullingAll = !!busy?.includes(' of ');
-    foot = <><span className="flex-1 min-w-0 truncate text-[12px] text-content-faint">{busy}</span>
+    foot = <><span className="flex-1 min-w-0 flex items-center gap-2 text-[12px] text-content-muted">{busy && <><Spinner /><span className="truncate">{busy}</span></>}</span>
       {pullingAll ? <button className={btn} onClick={() => { stop.current = true; }}>Stop</button> : <button className={btn} onClick={onClose}>Close</button>}
       <button className={btn} disabled={!list?.length || !!busy} onClick={pullAll} title="Pull every project: new ones into their own folders, the ones already here brought up to date">Pull all</button>
       <button className={btnPrimary} disabled={!pick || !into.trim() || !!busy} onClick={pull}>{here ? 'Open' : 'Pull and open'}</button></>;
@@ -450,7 +450,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
         <div className="fixed inset-0 z-40" onMouseDown={() => setMenu(null)}>
           <div className="fixed w-[260px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" style={{ left: Math.max(8, menu.x), top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
             <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">Branches</div>
-            {!menu.branches.length && <div className="px-2 py-1.5 text-[12px] text-content-faint">Loading…</div>}
+            {!menu.branches.length && <div className="px-2 py-1.5 flex items-center gap-2 text-[12px] text-content-muted"><Spinner size={10} />Reading branches…</div>}
             {menu.branches.map((b) => (
               <button key={b} onClick={() => b !== link.branch && switchTo(b)} className="w-full h-7 px-2 rounded flex items-center gap-2 text-left text-[12.5px] text-content-secondary hover:bg-surface-3 hover:text-content">
                 <span className="w-4 flex">{b === link.branch ? <Icons.Dot size={12} /> : null}</span>{b}
@@ -538,7 +538,7 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
       {at && (
         <div className="fixed inset-0 z-40" onMouseDown={() => setAt(null)}>
           <div className="fixed w-[230px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" style={{ left: at.left, top: at.bottom + 4 }} onMouseDown={(e) => e.stopPropagation()}>
-            {!st && <div className="px-2 py-1.5 text-[12px] text-content-faint">Loading…</div>}
+            {!st && <div className="px-2 py-1.5 flex items-center gap-2 text-[12px] text-content-muted"><Spinner size={10} />Checking what you can do…</div>}
             {items.map(([label, off, fn], i) => (
               <div key={label}>
                 {(i === 3 || i === 6 || i === 10) && <div className="my-1 border-t border-line-subtle" />}
@@ -574,7 +574,7 @@ function UrlImport({ root, onClose, onDone }: { root: string; onClose: () => voi
   const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input font-mono text-[12px] outline-none focus:border-accent';
   return (
     <Modal title="Import from URL" sub="One file, as in Design Center" onCancel={onClose} width={520}
-      footer={<><span className="flex-1" /><button className={btn} onClick={onClose}>Cancel</button><button className={btnPrimary} disabled={!url.trim() || !file.trim() || busy} onClick={go}>{busy ? 'Fetching…' : 'Import'}</button></>}>
+      footer={<><span className="flex-1" /><button className={btn} onClick={onClose}>Cancel</button><button className={btnPrimary} disabled={!url.trim() || !file.trim() || busy} onClick={go}>{busy ? <span className="flex items-center gap-2"><Spinner />Fetching…</span> : 'Import'}</button></>}>
       <div className="flex flex-col gap-3 text-[12.5px]">
         <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Address</span>
           <input autoFocus value={url} onChange={(e) => { setUrl(e.target.value); if (!named) setFile(guess(e.target.value)); }} placeholder="https://…/api.raml" spellCheck={false} className={field} /></label>
@@ -641,7 +641,7 @@ export function ShareDialog({ projectId, name, org, onClose, onSaved }: { projec
           )}
         </div>
         <div className="max-h-[260px] overflow-auto rounded-md border border-line">
-          {!list && !err && <div className="p-3 text-content-faint">Loading…</div>}
+          {!list && !err && <div className="p-3 flex items-center gap-2 text-content-muted"><Spinner />Reading who has access…</div>}
           {list?.map((x) => (
             <div key={x.id} className="flex items-center gap-2 px-3 py-2 border-b border-line-secondary last:border-b-0">
               <span className="min-w-0 flex-1"><span className="block font-semibold truncate">{x.name}</span><span className="block text-[11.5px] text-content-faint truncate">{x.type === 'team' ? 'Team' : x.username ?? x.email}</span></span>
