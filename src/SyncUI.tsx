@@ -12,7 +12,11 @@ import * as S from './sync';
 import { AddDependency } from './ExchangeUI';
 
 export type Me = { username: string; user_id: string; org_id: string; org_name: string; host: string; mode: string; read_only: boolean };
-const REGIONS: [string, string][] = [['US', 'https://anypoint.mulesoft.com'], ['EU', 'https://eu1.anypoint.mulesoft.com']];
+// Anypoint's control planes (docs.mulesoft.com/control-planes). Sign in with Anypoint uses our Connected App,
+// which lives in the US cloud; every other cloud signs in with the organization's own Connected App.
+const REGIONS: [string, string][] = [['US', 'https://anypoint.mulesoft.com'], ['EU', 'https://eu1.anypoint.mulesoft.com'],
+  ['Canada', 'https://ca1.platform.mulesoft.com'], ['United Kingdom', 'https://gb1.platform.mulesoft.com'], ['Japan', 'https://jp1.platform.mulesoft.com'],
+  ['India', 'https://in1.platform.mulesoft.com'], ['Australia', 'https://au1.platform.mulesoft.com'], ['US Government', 'https://gov.anypoint.mulesoft.com']];
 const REDIRECT = 'http://localhost:8765/callback';
 // Where secrets go, in the words of each system.
 const KEYCHAIN = /Windows/.test(navigator.userAgent) ? 'Windows Credential Manager' : /Mac/.test(navigator.userAgent) ? 'the macOS Keychain' : 'the system keyring';
@@ -184,7 +188,9 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
         <label className="mt-1 flex items-center gap-2.5"><span className="text-[11.5px] text-content-faint">Region</span>
           <Select value={region} onChange={setRegion} className="text-[12px]" options={REGIONS.map(([n, h]) => ({ value: h, label: n }))} />
           <span className="text-[11.5px] text-content-faint">Where your Anypoint organization lives.</span></label>
-        {usOnly && <div className="text-[11.5px] text-warn">Sign in with Anypoint works for organizations in the US region. In another region, use your own Connected App.</div>}
+        {usOnly && <div className="flex items-center gap-2 px-2.5 py-2 rounded-md border border-[color-mix(in_oklch,var(--warn)_45%,transparent)] bg-[color-mix(in_oklch,var(--warn)_8%,transparent)] text-[11.5px]">
+          <span className="flex-1">Sign in with Anypoint is for organizations in the US cloud. Organizations in {REGIONS.find(([, h]) => h === region)?.[0]} sign in with their own Connected App, made once by an admin in Access Management.</span>
+          <button className={`${btn} !h-6 !text-[11.5px] shrink-0`} onClick={() => setWay('byok')}>Use my own Connected App</button></div>}
         <label className="mt-1 flex items-start gap-2 cursor-pointer">
           <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
           <span><span className="block text-[12.5px]">Read only</span>
