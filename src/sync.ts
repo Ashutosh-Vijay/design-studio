@@ -3,7 +3,7 @@
 // a hash of every file at that commit) and .apidesigner/base/, the files as they were then, which a
 // three-way merge needs when both sides changed a file.
 import { invoke } from '@tauri-apps/api/core';
-import { documentDir } from '@tauri-apps/api/path';
+import { documentDir, homeDir } from '@tauri-apps/api/path';
 
 const DC = '/designcenter/api-designer';
 const LINK = '.apidesigner/link.json', BASE = '.apidesigner/base/';
@@ -21,21 +21,22 @@ const branchPath = (l: { projectId: string; branch: string }) => `${DC}/projects
 // inside a folder all need %2F (M3 probes; a raw slash answers 404).
 const filePath = (p: string) => encodeURIComponent(p);
 
-// Where a Design Center project lives here: Documents/API Designer Studio/{org}/{project}, with a short id
+// Where a Design Center project lives here: {projects folder}/{org}/{project}, with a short id
 // added when another project already has that folder. here: it's already pulled there.
-// Settings, Projects folder: Documents/Design Studio unless changed. A folder from before the rename
-// (Documents/API Designer Studio) stays the default for whoever has one, so their projects are found.
+// Settings, Projects folder: a "Design Studio" folder in the user's home (C:\Users\name, /Users/name,
+// /home/name) unless changed in Settings. Pulled and created projects go there, {org}/{project} inside.
 export async function projectsDir() {
   let d: string | null = null; try { d = localStorage.getItem('ads.projectsDir'); } catch { /* ignore */ }
   if (d) return d.replace(/\/+$/, '');
-  const docs = (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '');
-  const old = await invoke<{ files: unknown[] }>('open_project', { root: `${docs}/API Designer Studio` }).then(() => true, () => false);
-  return `${docs}/${old ? 'API Designer Studio' : 'Design Studio'}`;
+  return (await homeDir()).replace(/\\/g, '/').replace(/\/+$/, '') + '/Design Studio';
 }
 export async function projectHome(org: string, name: string, id: string) {
   const safe = (x: string) => x.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/, '') || 'project';
-  const home = (await projectsDir()) + `/${safe(org)}/`;
-  for (const root of [home + safe(name), `${home}${safe(name)} (${id.slice(0, 8)})`]) {
+  const folders = (home: string) => [home + safe(name), `${home}${safe(name)} (${id.slice(0, 8)})`];
+  // Pulled before the folder moved here (Documents/API Designer Studio): found where it is, not pulled twice.
+  const docs = (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '');
+  for (const root of folders(`${docs}/API Designer Studio/${safe(org)}/`)) if ((await readLink(root))?.projectId === id) return { root, here: true };
+  for (const root of folders((await projectsDir()) + `/${safe(org)}/`)) {
     const l = await readLink(root);
     if (l?.projectId === id) return { root, here: true };
     if (!l && !(await invoke<{ files: unknown[] }>('open_project', { root }).then((x) => x.files.length, () => 0))) return { root, here: false };

@@ -35,12 +35,15 @@ pub struct Connection {
 }
 fn yes() -> bool { true }
 
-// The sign-in broker on ashutosh-vijay.dev holds our Connected App's secret (PLAN 2.1).
-pub const BROKER: &str = "https://ashutosh-vijay.dev/api-designer-studio/auth";
+// The sign-in broker holds our Connected App's secret (PLAN 2.1). The same broker answers on Cloudflare's own
+// address too, for networks that block ashutosh-vijay.dev; whichever answers is used, and kept for refreshes.
+pub const BROKERS: [&str; 2] = ["https://ashutosh-vijay.dev/api-designer-studio/auth", "https://ashutosh-vijay.pages.dev/api-designer-studio/auth"];
+const UNREACHABLE: &str = "Couldn't reach the sign-in service";
 fn broker_post(broker: &str, action: &str, body: Value) -> Result<Value, String> {
-  let res = client().post(format!("{broker}/{action}")).json(&body).send().map_err(|e| format!("Couldn't reach the sign-in service: {e}"))?;
+  let res = client().post(format!("{broker}/{action}")).json(&body).send().map_err(|e| format!("{UNREACHABLE}: {e}"))?;
   let status = res.status();
-  let v: Value = res.json().unwrap_or(json!({}));
+  // A company proxy that blocks the site answers with its own page, not the broker's JSON: that's unreachable too.
+  let v: Value = match res.json() { Ok(v) => v, Err(_) if !status.is_success() => return Err(format!("{UNREACHABLE} ({status}).")), Err(_) => json!({}) };
   if status.is_success() { return Ok(v); }
   Err(match v["error"].as_str().unwrap_or("") {
     "not_configured" => "Sign in with Anypoint isn't available yet. Use your own Connected App for now.".into(),
@@ -152,6 +155,19 @@ fn start_session(app: &AppHandle, conn: Connection, tokens: &Value) -> Result<Me
 
 // A fresh access token: the one in memory, or a new one from the refresh token (browser sign-in) or the
 // app's own credentials (client credentials). Also restores the session after a restart.
+// Each broker in turn, starting with `first`, until one can be reached (any real answer, even an error,
+// counts). Returns the answer and the broker that gave it.
+fn broker_any(first: &str, action: &str, body: Value) -> Result<(Value, String), String> {
+  let order: Vec<String> = std::iter::once(first.to_string()).chain(BROKERS.iter().map(|b| b.to_string()).filter(|b| b != first)).collect();
+  for b in &order {
+    match broker_post(b, action, body.clone()) {
+      Err(e) if e.starts_with(UNREACHABLE) => continue,
+      r => return r.map(|v| (v, b.clone())),
+    }
+  }
+  Err(format!("{UNREACHABLE}. Your network may block it. Use your own Connected App instead: it talks only to Anypoint."))
+}
+
 fn access(app: &AppHandle) -> Result<(String, Me, String), String> {
   let state = app.state::<Arc<Anypoint>>();
   if let Some(s) = state.session.lock().unwrap().as_ref() {
@@ -160,7 +176,7 @@ fn access(app: &AppHandle) -> Result<(String, Me, String), String> {
   let conn: Connection = std::fs::read_to_string(conn_file(app)?).ok().and_then(|t| serde_json::from_str(&t).ok()).ok_or("Not signed in to Anypoint.")?;
   let tokens = if conn.mode == "anypoint" {
     let refresh = keychain("refresh-token")?.get_password().map_err(|_| "Sign in again to continue.")?;
-    broker_post(&conn.broker, "refresh", json!({ "refresh_token": refresh }))?
+    broker_any(&conn.broker, "refresh", json!({ "refresh_token": refresh }))?.0
   } else if conn.mode == "client" {
     let secret = keychain("client-secret")?.get_password().map_err(|_| "The Connected App secret isn't in the keychain any more. Sign in again.")?;
     token_request(&conn.host, json!({ "grant_type": "client_credentials", "client_id": conn.client_id, "client_secret": secret }))?
@@ -233,14 +249,15 @@ fn browser_sign_in(host: &str, client_id: &str, secret: &str) -> Result<Value, S
 // Sign in with Anypoint: the broker gives the login link, Anypoint sends the browser back through the
 // broker to http://127.0.0.1:{port}/done with a sealed ticket, and only this app (it holds the verifier
 // whose hash started it) can turn the ticket into tokens.
-fn broker_sign_in(broker: &str) -> Result<Value, String> {
+fn broker_sign_in(first: &str) -> Result<(Value, String), String> {
   use base64::Engine;
   use sha2::Digest;
   let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Couldn't open a local port for the sign-in: {e}"))?;
   let port = listener.local_addr().map_err(|e| e.to_string())?.port();
   let verifier = random_hex() + &random_hex();
   let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes()));
-  let start = broker_post(broker, "start", json!({ "challenge": challenge, "port": port }))?;
+  let (start, broker) = broker_any(first, "start", json!({ "challenge": challenge, "port": port }))?;
+  let broker = broker.as_str();
   let url = start["url"].as_str().ok_or("The sign-in service sent no link.")?;
   tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| format!("Couldn't open the browser: {e}"))?;
   let done = Arc::new(AtomicBool::new(false));
@@ -264,7 +281,7 @@ fn broker_sign_in(broker: &str) -> Result<Value, String> {
     let ticket = query_param(q, "ticket").ok_or("The sign-in came back without a ticket.")?;
     let tokens = broker_post(broker, "collect", json!({ "ticket": ticket, "verifier": verifier }));
     reply(&mut stream, page(if tokens.is_ok() { "Signed in. You can close this tab and go back to Design Studio." } else { "The sign-in didn't finish. See Design Studio." }));
-    return tokens;
+    return tokens.map(|t| (t, broker.to_string()));
   }
   Err("The sign-in was interrupted.".into())
 }
@@ -274,9 +291,11 @@ pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, c
   tauri::async_runtime::spawn_blocking(move || {
     let host = host.trim_end_matches('/').to_string();
     // A different broker only in development, for testing against a local one.
-    let broker = broker.filter(|_| cfg!(debug_assertions)).unwrap_or_else(|| BROKER.to_string());
+    let mut broker = broker.filter(|_| cfg!(debug_assertions)).unwrap_or_else(|| BROKERS[0].to_string());
     let tokens = if mode == "anypoint" {
-      broker_sign_in(&broker)?
+      let (t, b) = broker_sign_in(&broker)?;
+      broker = b;
+      t
     } else if mode == "client" {
       token_request(&host, json!({ "grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret }))?
     } else {

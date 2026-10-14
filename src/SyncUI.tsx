@@ -293,7 +293,10 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
   return (
     <Modal title={title} sub={sub} onCancel={onClose} width={600} footer={foot}>
       {body}
-      {err && <div className="mt-3 text-[12px] text-err select-text">{err}</div>}
+      {err && <div className="mt-3 text-[12px] text-err select-text">{err}
+        {/* Blocked networks: the way out is the user's own Connected App, which talks only to Anypoint. */}
+        {/Couldn't reach the sign-in service/.test(err) && way === 'ours' && <button className={`${btn} ml-2 !h-6 !text-[11.5px]`} onClick={() => { setWay('byok'); setErr(null); setStep('choose'); }}>Use my own Connected App</button>}
+      </div>}
     </Modal>
   );
 }
