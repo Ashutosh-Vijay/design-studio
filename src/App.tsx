@@ -13,6 +13,7 @@ import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
@@ -131,6 +132,12 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (import.meta.env.PROD && (e.key === 'F5' || (mod && e.key.toLowerCase() === 'r'))) { e.preventDefault(); return; }
+      if (mod && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0') && !e.altKey) {
+        e.preventDefault();
+        const i = ZOOMS.indexOf(savedZoom());
+        setZoom(e.key === '0' ? 1 : ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + (e.key === '-' ? -1 : 1)))]);
+        return;
+      }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(''); }
       else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); setPaletteOpen('@'); }
       else if (e.key === 'F1') { e.preventDefault(); setPaletteOpen('>'); }
@@ -1857,12 +1864,24 @@ function applyEditorPrefs(p = editorPrefs()) {
   window.dispatchEvent(new Event('ads-editor-prefs'));
 }
 applyEditorPrefs();
+// Interface size: the window's own zoom (as Ctrl Plus in a browser), so icons, panels and text all scale and
+// positions stay right. Settings and Ctrl Plus, Ctrl Minus, Ctrl 0 set it.
+export const ZOOMS = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
+export const savedZoom = () => { try { const z = Number(localStorage.getItem('ads.zoom')); return ZOOMS.includes(z) ? z : 1; } catch { return 1; } };
+export function setZoom(z: number) {
+  try { localStorage.setItem('ads.zoom', String(z)); } catch { /* ignore */ }
+  if (isTauri) getCurrentWebview().setZoom(z).catch(() => {});
+  window.dispatchEvent(new Event('ads-zoom'));
+}
+if (isTauri && savedZoom() !== 1) getCurrentWebview().setZoom(savedZoom()).catch(() => {});
 function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect }: {
   at: DOMRect; pref: ThemePref; accent: string; onChange: (p: ThemePref, a: string) => void; onClose: () => void; onConnect: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [ed, setEdState] = useState(editorPrefs);
   const setEd = (p: { size: number; wrap: boolean }) => { setEdState(p); try { localStorage.setItem('ads.editor', JSON.stringify(p)); } catch { /* ignore */ } applyEditorPrefs(p); };
+  const [zoom, setZoomState] = useState(savedZoom);
+  useEffect(() => { const f = () => setZoomState(savedZoom()); window.addEventListener('ads-zoom', f); return () => window.removeEventListener('ads-zoom', f); }, []);
   const [home, setHome] = useState('');
   const [version, setVersion] = useState('');
   useEffect(() => { projectsDir().then(setHome); if (isTauri) getVersion().then(setVersion, () => {}); }, []);
@@ -1895,6 +1914,15 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect }: {
             style={{ background: `oklch(${dark ? 72 : 55}% ${a.chroma} ${a.hue})`, outline: accent === a.id ? '2px solid var(--content)' : 'none', outlineOffset: 2 }} />
         ))}
       </div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Interface size</div>
+      <div className="flex items-center gap-1.5 text-[12px]">
+        <button className={btn + ' !h-6 !w-7 !px-0'} title="Smaller (Ctrl Minus)" disabled={zoom <= ZOOMS[0]} onClick={() => setZoom(ZOOMS[ZOOMS.indexOf(zoom) - 1])}>−</button>
+        <span className="w-12 text-center tabular-nums text-content-secondary">{Math.round(zoom * 100)}%</span>
+        <button className={btn + ' !h-6 !w-7 !px-0'} title="Bigger (Ctrl Plus)" disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onClick={() => setZoom(ZOOMS[ZOOMS.indexOf(zoom) + 1])}>+</button>
+        <span className="flex-1" />
+        {zoom !== 1 && <button className="text-[11.5px] text-accent hover:underline" title="Ctrl 0" onClick={() => setZoom(1)}>Reset</button>}
+      </div>
+      <div className="mt-1 text-[11px] text-content-faint">Everything: icons, panels and text. Ctrl Plus and Ctrl Minus work anywhere.</div>
       <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Editor</div>
       <div className="flex items-center gap-2 text-[12px]">
         <span className="text-content-secondary">Text size</span><span className="flex-1" />
