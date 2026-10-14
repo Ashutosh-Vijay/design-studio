@@ -97,7 +97,7 @@ export function AddSelect({ label, options, onPick }: { label: string; options: 
   return (
     <>
       <button ref={ref} type="button" onClick={() => { setActive(0); setOpen(!open); }}
-        className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />{label}</button>
+        className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline outline-none flex items-center gap-0.5"><Icons.Plus size={11} />{label}</button>
       {open && ref.current && <PopupList anchor={ref.current} opts={options.map((o) => ({ value: o, hint: CODES[o] }))} active={active} setActive={setActive}
         onPick={(o) => { setOpen(false); onPick(o.value); }} onClose={() => setOpen(false)} mono />}
     </>

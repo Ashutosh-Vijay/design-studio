@@ -300,10 +300,10 @@ export async function assetVersions(groupId: string, assetId: string, guess?: st
   const pinned = await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}/${r.json.version}`);
   const j = pinned.status === 200 ? pinned.json : r.json;
   const all: V[] = [...(j.versions ?? [])];
-  for (const o of ((j.otherVersions ?? []) as V[]).filter((o) => !all.some((v) => v.version === o.version))) {
-    const x = await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}/${o.version}`);
+  // All lines at once: a ruleset with ten minor lines took ten round trips one after another.
+  const others = ((j.otherVersions ?? []) as V[]).filter((o) => !all.some((v) => v.version === o.version));
+  for (const [o, x] of await Promise.all(others.map(async (o) => [o, await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}/${o.version}`)] as const)))
     all.push(...(x.status === 200 ? x.json.versions ?? [o] : [o]));
-  }
   const vs = [...new Map(all.map((v) => [v.version, { version: v.version, status: v.status, created: Date.parse(v.createdDate ?? v.createdAt ?? '') || 0, by: v.createdBy?.userName ?? '' }])).values()];
   return { name: r.json.name, type: r.json.type, versions: vs.sort((a, b) => cmpVersion(b.version, a.version)) };
 }

@@ -26,8 +26,10 @@ export function PopupList({ anchor, opts, active, setActive, onPick, onClose, mo
     // scrolls itself as you type, so only something around the anchor counts.)
     const scroll = (e: Event) => { const t = e.target as Node; if (t !== anchor && (t === document || t.contains?.(anchor))) onClose(); };
     const down = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node)) onClose(); };
-    window.addEventListener('scroll', scroll, true); window.addEventListener('resize', onClose); window.addEventListener('mousedown', down);
-    return () => { window.removeEventListener('scroll', scroll, true); window.removeEventListener('resize', onClose); window.removeEventListener('mousedown', down); };
+    // Escape closes the list first, before a dialog behind it hears it and closes too.
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); onClose(); } };
+    window.addEventListener('scroll', scroll, true); window.addEventListener('resize', onClose); window.addEventListener('mousedown', down); window.addEventListener('keydown', esc, true);
+    return () => { window.removeEventListener('scroll', scroll, true); window.removeEventListener('resize', onClose); window.removeEventListener('mousedown', down); window.removeEventListener('keydown', esc, true); };
   }, [anchor]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { ref.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: 'nearest' }); }, [active]);
   if (!pos || !opts.length) return null;

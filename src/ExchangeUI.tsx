@@ -202,7 +202,7 @@ export function ExchangePanel({ root, model, modelOf, onPublish }: {
   const next = diff && last ? S.bump(stable && S.cmpVersion(stable.version, last.version) >= 0 ? stable.version : last.version, diff.part) : null;
   return (
     <div className="flex-1 overflow-auto px-3 pb-4 text-[12.5px]">
-      {a === undefined && !err && <div className="mt-3"><Note>Reading Exchange…</Note></div>}
+      {a === undefined && !err && <div className="mt-3"><Note><span className="flex items-center gap-2"><Spinner />Reading this API's versions…</span></Note></div>}
       {a === null && <div className="mt-3"><Note>{d.name} isn't in Exchange yet. Publish it to make the first version.</Note><button className={`${btn} mt-2.5`} onClick={() => onPublish(d.version || '1.0.0')}>Publish…</button></div>}
       {a && last && <>
         <div className="mt-3">Last published <b>{last.version}</b> {ago(last.created)}{last.by ? ` by ${last.by === me.username ? 'you' : last.by}` : ''}.</div>
