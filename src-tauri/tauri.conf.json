@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "API Designer Studio",
+  "productName": "Design Studio",
   "version": "0.1.0",
   "identifier": "com.apidesignerstudio.desktop",
   "build": {
@@ -13,7 +13,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "API Designer Studio",
+        "title": "Design Studio for MuleSoft",
+        "visible": false,
         "width": 1400,
         "height": 900,
         "minWidth": 1000,

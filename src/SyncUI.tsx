@@ -6,6 +6,7 @@ import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialo
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
+import { ask } from './Brand';
 import { Modal, TextDialog, Spinner, btn, btnPrimary } from './App';
 import * as S from './sync';
 import { AddDependency } from './ExchangeUI';
@@ -315,7 +316,7 @@ export function AnypointSettings({ onConnect }: { onConnect: () => void }) {
             <input type="checkbox" checked={me.read_only} className="accent-[var(--accent)]" onChange={async (e) => {
               const on = e.target.checked;
               // Turning writes on is the one that needs a second look.
-              if (!on && !window.confirm(`Let API Designer Studio push changes to Design Center in ${me.org_name || 'this organization'}? Pushing saves files, takes the lock and can delete files there.`)) return;
+              if (!on && !(await ask(`Let Design Studio push changes to Design Center in ${me.org_name || 'this organization'}? Pushing saves files, takes the lock and can delete files there.`))) return;
               await invoke('anypoint_set_read_only', { on }); setMe({ ...me, read_only: on });
             }} />Read only
           </label>
@@ -490,7 +491,7 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
     if (!paths.length) return;
     let r = await invoke<{ written: string[]; existing: string[] }>('import_into', { root, folder: '', sources: paths, overwrite: false });
     if (r.existing.length) {
-      if (!window.confirm(`${r.existing.length === 1 ? r.existing[0] + ' is' : r.existing.length + ' files are'} already in the project${r.existing.length > 1 ? ` (${r.existing.slice(0, 5).join(', ')}${r.existing.length > 5 ? '…' : ''})` : ''}. Replace?`)) return;
+      if (!(await ask(`${r.existing.length === 1 ? r.existing[0] + ' is' : r.existing.length + ' files are'} already in the project${r.existing.length > 1 ? ` (${r.existing.slice(0, 5).join(', ')}${r.existing.length > 5 ? '…' : ''})` : ''}. Replace?`))) return;
       r = await invoke('import_into', { root, folder: '', sources: paths, overwrite: true });
     }
     onChanged();
@@ -566,7 +567,7 @@ function UrlImport({ root, onClose, onDone }: { root: string; onClose: () => voi
     try {
       const text = await invoke<string>('fetch_url', { url: url.trim() });
       const exists = await invoke<string>('read_text_file', { root, path: file.trim() }).then(() => true, () => false);
-      if (exists && !window.confirm(`${file.trim()} is already in the project. Replace it?`)) { setBusy(false); return; }
+      if (exists && !(await ask(`${file.trim()} is already in the project. Replace it?`))) { setBusy(false); return; }
       await invoke('write_file_exact', { root, path: file.trim(), text });
       onDone(`Imported ${file.trim()}. Files it includes aren't fetched: import them too, or fix the paths.`);
     } catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(false); }

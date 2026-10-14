@@ -14,6 +14,7 @@ import { Select } from './components/Popup';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { APP_NAME, About, Splash, ask } from './Brand';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
@@ -32,7 +33,6 @@ type Project = { root: string; name: string; main: string | null; files: { path:
 type Recent = { root: string; name: string; opened: number };
 type SyncHooks = { saveAll: () => Promise<void>; notice: (t: string, err: boolean) => void; reload: () => Promise<void>; publish: () => void };
 
-const APP_NAME = 'API Designer Studio';
 
 function readRecent(): Recent[] {
   try { return JSON.parse(localStorage.getItem('ads.recent') || '[]'); } catch { return []; }
@@ -60,6 +60,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState(savedTheme);
   const [settingsAt, setSettingsAt] = useState<DOMRect | null>(null);
+  const [about, setAbout] = useState(false);
+  const [version, setVersion] = useState('');
+  useEffect(() => { if (isTauri) getVersion().then(setVersion, () => {}); }, []);
   // The palette: '' everything (Ctrl K), '@' symbols (Ctrl Shift O), '>' commands (F1).
   const [paletteOpen, setPaletteOpen] = useState<false | '' | '@' | '>'>(false);
   const paletteRef = useRef<{ symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null>(null);
@@ -73,22 +76,22 @@ export default function App() {
   useEffect(() => { applyTheme(theme.pref, theme.accent); }, [theme]);
 
   // Leaving a project (or the window) with unsaved files asks first.
-  const okToLeave = () => dirtyCount === 0 || window.confirm(`${dirtyCount} ${dirtyCount === 1 ? 'file has' : 'files have'} unsaved changes. Leave without saving?`);
+  const okToLeave = async () => dirtyCount === 0 || await ask(`${dirtyCount} ${dirtyCount === 1 ? 'file has' : 'files have'} unsaved changes. Leave without saving?`);
   // Closing the window with unsaved files asks first. (A browser-style beforeunload prompt would be
   // a blocking native dialog in WebView2, so the guard sits on Tauri's close request instead.)
   const dirtyRef = useRef(0);
   dirtyRef.current = dirtyCount;
   useEffect(() => {
     if (!isTauri) return;
-    const un = getCurrentWindow().onCloseRequested((e) => {
+    const un = getCurrentWindow().onCloseRequested(async (e) => {
       const n = dirtyRef.current;
-      if (n && !window.confirm(`${n} ${n === 1 ? 'file has' : 'files have'} unsaved changes. Close without saving?`)) e.preventDefault();
+      if (n && !(await ask(`${n} ${n === 1 ? 'file has' : 'files have'} unsaved changes. Close without saving?`))) e.preventDefault();
     });
     return () => { un.then((f) => f()); };
   }, []);
 
   async function openFolder(root?: string) {
-    if (project && !okToLeave()) return;
+    if (project && !(await okToLeave())) return;
     setError(null);
     let dir = root;
     if (!dir) {
@@ -158,10 +161,13 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-bg text-content select-none">
       {/* Title bar: the window has no OS decorations, so this is the drag region */}
       <header data-tauri-drag-region className="h-11 shrink-0 flex items-center gap-2.5 pl-3 bg-surface border-b border-line">
-        <button className="w-8 h-7 flex items-center justify-center rounded-md hover:bg-surface-2" title={project ? 'All projects' : APP_NAME}
-          onClick={() => { if (project && okToLeave()) { setProject(null); setDirtyCount(0); } }}>
+        <button className="w-8 h-7 flex items-center justify-center rounded-md hover:bg-surface-2" title={`About ${APP_NAME}`} onClick={() => setAbout(true)}>
           <img src="/logo-small.svg" width={22} height={22} alt="" />
         </button>
+        {project && <button title="Back to all projects" onClick={async () => { if (await okToLeave()) { setProject(null); setDirtyCount(0); } }}
+          className="h-7 pl-1.5 pr-2.5 -ml-1 flex items-center gap-1 rounded-md text-[12px] text-content-muted hover:bg-surface-2 hover:text-content">
+          <Icons.ArrowLeft size={14} />Projects</button>}
+        {project && <span className="w-px h-4 bg-line" />}
         <span data-tauri-drag-region className="text-[13px] font-semibold">{project ? project.name : APP_NAME}</span>
         {project && isTauri && <ProjectMenu key={`menu:${project.root}`} root={project.root} name={project.name} onNotice={(t, err) => syncRef.current?.notice(t, err)}
           onChanged={() => { syncRef.current?.reload(); }} onOpen={(root) => openFolder(root)} onGone={() => { const l = recent.filter((r) => r.root !== project.root); writeRecent(l); setRecent(l); setProject(null); setDirtyCount(0); }} />}
@@ -209,6 +215,8 @@ export default function App() {
       {connectOpen && <ConnectDialog openRoot={project?.root} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
       {creating && <CreateDialog what={creating} onClose={() => setCreating(null)} onCreated={(root) => { setCreating(null); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
+      {about && <About version={version} onClose={() => setAbout(false)} />}
+      <Splash />
       {settingsAt && (
         <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)}
           onConnect={() => { setSettingsAt(null); setConnectOpen(true); }} />
@@ -230,7 +238,7 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate
     <div className="flex-1 min-h-0 overflow-auto flex justify-center">
       <div className="w-full max-w-[1000px] grid grid-cols-[340px_minmax(0,1fr)] gap-12 px-10 pt-14 pb-8 content-start">
         <section>
-          <img src="/logo.svg" width={120} height={120} alt="API Designer Studio" className="-ml-2.5 -mt-3 drop-shadow-[0_6px_18px_rgba(0,90,255,0.25)]" />
+          <img src="/logo.svg" width={120} height={120} alt="Design Studio" className="-ml-2.5 -mt-3 drop-shadow-[0_6px_18px_rgba(0,90,255,0.25)]" />
           <h1 className="mt-2 mb-1.5 text-[22px] font-bold">Design Center specs, on your desktop</h1>
           <p className="text-content-muted leading-relaxed">A desktop designer for Anypoint Design Center specs, RAML and OAS. Big specs open in seconds, and every edit is checked as you type.</p>
           <div className="relative mt-6">
@@ -1142,8 +1150,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     } catch (e) { fail(e); }
   }
 
-  function closeTab(path: string) {
-    if (dirty.has(path) && !window.confirm(`${base(path)} has unsaved changes. Close it anyway?`)) return;
+  async function closeTab(path: string) {
+    if (dirty.has(path) && !(await ask(`${base(path)} has unsaved changes. Close it anyway?`))) return;
     const i = tabs.indexOf(path), rest = tabs.filter((t) => t !== path);
     files.current.delete(path);
     setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
@@ -1156,9 +1164,9 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   }
 
   // Several tabs at once (the tab menu): one question for the unsaved ones among them.
-  function closeTabs(paths: string[]) {
+  async function closeTabs(paths: string[]) {
     const unsaved = paths.filter((p) => dirty.has(p));
-    if (unsaved.length && !window.confirm(`${unsaved.length === 1 ? base(unsaved[0]) + ' has' : unsaved.length + ' of them have'} unsaved changes. Close anyway?`)) return;
+    if (unsaved.length && !await ask(`${unsaved.length === 1 ? base(unsaved[0]) + ' has' : unsaved.length + ' of them have'} unsaved changes. Close anyway?`)) return;
     const gone = new Set(paths), rest = tabs.filter((t) => !gone.has(t));
     for (const p of paths) files.current.delete(p);
     setDirty((d) => { const n = new Set(d); paths.forEach((p) => n.delete(p)); return n; });

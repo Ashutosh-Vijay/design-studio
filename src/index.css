@@ -141,3 +141,8 @@ code, pre, .font-mono { font-family: var(--font-mono); }
 
 /* Settings, Editor, Wrap long lines: what CodeMirror's lineWrapping does, switched from <html>. */
 .ads-wrap .cm-content { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; flex-shrink: 1; }
+
+/* The splash loaders (components/Loaders.tsx): CSS animations, since SMIL doesn't run in the webview. */
+@keyframes ds-spin { from { transform: rotate(var(--from)); } to { transform: rotate(var(--to)); } }
+@keyframes ds-swing { 0%, 100% { transform: rotate(-32deg); } 50% { transform: rotate(32deg); } }
+@keyframes ds-pulse { 0%, 100% { r: 6px; stroke-opacity: 0.4; } 50% { r: 14px; stroke-opacity: 0; } }

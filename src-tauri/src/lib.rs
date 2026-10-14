@@ -295,6 +295,9 @@ pub fn run() {
     .manage(watch::WatchState::default())
     .manage(std::sync::Arc::new(anypoint::Anypoint::default()))
     .setup(|app| {
+      // The window starts hidden and the page shows it after its first frame; this is the safety net.
+      let h = app.handle().clone();
+      std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_secs(4)); if let Some(w) = tauri::Manager::get_webview_window(&h, "main") { let _ = w.show(); } });
       amf::start_in_background(app.handle());
       Ok(())
     })
@@ -302,7 +305,7 @@ pub fn run() {
       anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only, anypoint::anypoint_set_org,
       anypoint::anypoint_dev_session])
     .build(tauri::generate_context!())
-    .expect("error while building API Designer Studio")
+    .expect("error while building Design Studio")
     .run(|app, event| {
       if let tauri::RunEvent::Exit = event {
         amf::stop(app);

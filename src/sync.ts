@@ -23,10 +23,14 @@ const filePath = (p: string) => encodeURIComponent(p);
 
 // Where a Design Center project lives here: Documents/API Designer Studio/{org}/{project}, with a short id
 // added when another project already has that folder. here: it's already pulled there.
-// Settings, Projects folder: Documents/API Designer Studio unless changed.
+// Settings, Projects folder: Documents/Design Studio unless changed. A folder from before the rename
+// (Documents/API Designer Studio) stays the default for whoever has one, so their projects are found.
 export async function projectsDir() {
   let d: string | null = null; try { d = localStorage.getItem('ads.projectsDir'); } catch { /* ignore */ }
-  return (d ?? (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '') + '/API Designer Studio').replace(/\/+$/, '');
+  if (d) return d.replace(/\/+$/, '');
+  const docs = (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '');
+  const old = await invoke<{ files: unknown[] }>('open_project', { root: `${docs}/API Designer Studio` }).then(() => true, () => false);
+  return `${docs}/${old ? 'API Designer Studio' : 'Design Studio'}`;
 }
 export async function projectHome(org: string, name: string, id: string) {
   const safe = (x: string) => x.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/, '') || 'project';

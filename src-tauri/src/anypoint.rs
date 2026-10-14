@@ -199,7 +199,7 @@ fn browser_sign_in(host: &str, client_id: &str, secret: &str) -> Result<Value, S
   // Give up after five minutes: wake the listener with a request of our own.
   let done = Arc::new(AtomicBool::new(false));
   { let done = done.clone(); std::thread::spawn(move || { std::thread::sleep(Duration::from_secs(300)); if !done.load(Ordering::SeqCst) { let _ = std::net::TcpStream::connect("127.0.0.1:8765").map(|mut s| s.write_all(b"GET /timeout HTTP/1.1\r\n\r\n")); } }); }
-  let page = |msg: &str| format!("<!doctype html><meta charset=utf-8><title>API Designer Studio</title><body style=\"font:15px system-ui;margin:3em\"><h2>{msg}</h2>");
+  let page = |msg: &str| format!("<!doctype html><meta charset=utf-8><title>Design Studio</title><body style=\"font:15px system-ui;margin:3em\"><h2>{msg}</h2>");
   for stream in listener.incoming() {
     let Ok(mut stream) = stream else { continue };
     let mut buf = [0u8; 8192];
@@ -217,13 +217,13 @@ fn browser_sign_in(host: &str, client_id: &str, secret: &str) -> Result<Value, S
       continue;
     }
     if let Some(err) = error {
-      reply(&mut stream, page("The sign-in didn't finish. See API Designer Studio."));
+      reply(&mut stream, page("The sign-in didn't finish. See Design Studio."));
       done.store(true, Ordering::SeqCst);
       let desc = query_param(q, "error_description").unwrap_or_default();
       return Err(if err == "invalid_scope" { "The Connected App needs the Full Access and Background Access scopes.".into() } else { format!("Anypoint said: {err} {desc}") });
     }
     if query_param(q, "state").as_deref() != Some(state.as_str()) { reply(&mut stream, page("This sign-in link is out of date. Start again from the app.")); continue; }
-    reply(&mut stream, page("Signed in. You can close this tab and go back to API Designer Studio."));
+    reply(&mut stream, page("Signed in. You can close this tab and go back to Design Studio."));
     done.store(true, Ordering::SeqCst);
     return token_request(host, json!({ "grant_type": "authorization_code", "code": code.unwrap(), "redirect_uri": REDIRECT, "client_id": client_id, "client_secret": secret }));
   }
@@ -245,7 +245,7 @@ fn broker_sign_in(broker: &str) -> Result<Value, String> {
   tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| format!("Couldn't open the browser: {e}"))?;
   let done = Arc::new(AtomicBool::new(false));
   { let done = done.clone(); std::thread::spawn(move || { std::thread::sleep(Duration::from_secs(300)); if !done.load(Ordering::SeqCst) { let _ = std::net::TcpStream::connect(("127.0.0.1", port)).map(|mut s| s.write_all(b"GET /timeout HTTP/1.1\r\n\r\n")); } }); }
-  let page = |msg: &str| format!("<!doctype html><meta charset=utf-8><title>API Designer Studio</title><body style=\"font:15px system-ui;margin:3em\"><h2>{msg}</h2>");
+  let page = |msg: &str| format!("<!doctype html><meta charset=utf-8><title>Design Studio</title><body style=\"font:15px system-ui;margin:3em\"><h2>{msg}</h2>");
   for stream in listener.incoming() {
     let Ok(mut stream) = stream else { continue };
     let mut buf = [0u8; 16384];
@@ -258,12 +258,12 @@ fn broker_sign_in(broker: &str) -> Result<Value, String> {
     let q = target.split_once('?').map(|x| x.1).unwrap_or("");
     done.store(true, Ordering::SeqCst);
     if let Some(err) = query_param(q, "error") {
-      reply(&mut stream, page("The sign-in didn't finish. See API Designer Studio."));
+      reply(&mut stream, page("The sign-in didn't finish. See Design Studio."));
       return Err(if err == "access_denied" { "The sign-in was cancelled.".into() } else { format!("Anypoint said: {err} {}", query_param(q, "error_description").unwrap_or_default()) });
     }
     let ticket = query_param(q, "ticket").ok_or("The sign-in came back without a ticket.")?;
     let tokens = broker_post(broker, "collect", json!({ "ticket": ticket, "verifier": verifier }));
-    reply(&mut stream, page(if tokens.is_ok() { "Signed in. You can close this tab and go back to API Designer Studio." } else { "The sign-in didn't finish. See API Designer Studio." }));
+    reply(&mut stream, page(if tokens.is_ok() { "Signed in. You can close this tab and go back to Design Studio." } else { "The sign-in didn't finish. See Design Studio." }));
     return tokens;
   }
   Err("The sign-in was interrupted.".into())

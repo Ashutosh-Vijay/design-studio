@@ -1,0 +1,138 @@
+// The app's own face: the startup splash (DataWeave Studio's loaders) and the About popup the logo opens.
+import { useEffect, useMemo, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { confirm } from '@tauri-apps/plugin-dialog';
+import { Icons } from './components/Icons';
+import { isTauri } from './components/WindowControls';
+import { OrbitalLoader, PendulumLoader, RingsLoader } from './components/Loaders';
+
+export const APP_NAME = 'Design Studio';
+export const APP_FULL_NAME = 'Design Studio for MuleSoft';
+
+// Every "are you sure?" goes through this and is awaited. In the app, window.confirm is Tauri's dialog
+// plugin's and returns a promise, which counts as "yes" when tested like a boolean: so it never waited.
+export const ask = (message: string): Promise<boolean> =>
+  isTauri ? confirm(message, { title: APP_NAME, kind: 'warning' }) : Promise.resolve(window.confirm(message));
+
+const css = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+const STAGES = ['Starting…', 'Loading the editor…', 'Warming up the AMF engine…', 'Almost ready…'];
+
+// Covers the window until the AMF engine answers (any answer: an unknown op still means it's up), so the
+// first project opens straight into a checked spec. One of the three loaders, picked at random per launch.
+export function Splash() {
+  const Loader = useMemo(() => [OrbitalLoader, PendulumLoader, RingsLoader][Math.floor(Math.random() * 3)], []);
+  const colors = useMemo(() => ({ accent: css('--accent', '#10b981'), fg: css('--content', '#f3efe6') }), []);
+  const [ready, setReady] = useState(false);
+  const [warn, setWarn] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [fade, setFade] = useState(false);
+  const [gone, setGone] = useState(false);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!isTauri) { setReady(true); return; }
+    invoke('amf', { op: 'ping', args: {} }).then(() => setReady(true), (e) => {
+      if (/didn't answer|isn't running|Couldn't start Java|didn't start/.test(String(e))) setWarn(true);
+      setReady(true);
+    });
+    const s = setTimeout(() => setSlow(true), 5000);
+    const cap = setTimeout(() => { setWarn(true); setReady(true); }, 20000); // never stand between the user and the app
+    return () => { clearTimeout(s); clearTimeout(cap); };
+  }, []);
+  useEffect(() => {
+    if (gone) return;
+    const t = setInterval(() => setProgress((p) => (ready ? (p + (100 - p) * 0.3 >= 99.5 ? 100 : p + (100 - p) * 0.3) : p < 25 ? p + 2.5 : p < 50 ? p + 1.2 : p < 70 ? p + 0.6 : p < 85 ? p + 0.2 : p)), 80);
+    return () => clearInterval(t);
+  }, [ready, gone]);
+  useEffect(() => { if (progress >= 100 && !fade) { setFade(true); setTimeout(() => setGone(true), 500); } }, [progress, fade]);
+  if (gone) return null;
+  const stage = progress < 15 ? 0 : progress < 45 ? 1 : progress < 90 ? 2 : 3;
+  return (
+    <div className={`fixed inset-0 z-[200] flex flex-col items-center justify-center bg-bg transition-opacity duration-500 ${fade ? 'opacity-0 pointer-events-none' : ''}`}>
+      <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(1200px 800px at 50% 50%, color-mix(in oklch, var(--content) 3%, transparent), transparent 70%), radial-gradient(600px 400px at 50% 110%, color-mix(in oklch, var(--accent) 6%, transparent), transparent 70%)' }} />
+      <div className="relative" style={{ width: 260, height: 260 }}><Loader accent={colors.accent} fg={colors.fg} size={260} /></div>
+      <h1 className="relative mt-7 mb-1 text-2xl font-bold tracking-tight text-content">{APP_NAME}</h1>
+      <p className="relative mb-9 text-sm text-content-faint">for MuleSoft API specs</p>
+      <div className="relative w-72 mb-4 h-1.5 rounded-full bg-surface-2 overflow-hidden">
+        <div className="h-full rounded-full bg-accent transition-all duration-200 ease-out" style={{ width: `${progress}%` }} />
+      </div>
+      <div className="relative flex items-center gap-2 text-xs">
+        <span className="text-content-muted">{warn ? 'Started with warnings' : STAGES[stage]}</span>
+        <span className="font-mono text-content-ghost">{Math.round(progress)}%</span>
+      </div>
+      {slow && !ready && <div className="relative mt-3 max-w-[340px] text-center text-[11px] leading-relaxed text-content-ghost">The AMF engine takes a few extra seconds on slow or heavily monitored machines. Only once per launch.</div>}
+    </div>
+  );
+}
+
+// About, as in DataWeave Studio: what it is, version, licence, engine, and who made it.
+export function About({ version, onClose }: { version: string; onClose: () => void }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
+  const Stat = ({ kicker, value, sub, accent }: { kicker: string; value: string; sub: string; accent?: boolean }) => (
+    <div>
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.8px] text-content-faint">{kicker}</div>
+      <div className={`text-[26px] font-bold leading-[1.1] tracking-[-0.8px] ${accent ? 'text-accent' : 'text-content'}`}>{value}</div>
+      <div className="mt-0.5 text-[11px] text-content-faint">{sub}</div>
+    </div>
+  );
+  const Rule = () => <div className="my-6 h-px bg-line-subtle" />;
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 pt-[5vh]" onClick={onClose}
+      style={{ background: 'color-mix(in oklch, var(--bg) 70%, transparent)', backdropFilter: 'blur(3px)' }}>
+      <div className="relative my-auto w-full max-w-[760px] overflow-hidden rounded-xl border border-line bg-surface" onClick={(e) => e.stopPropagation()}
+        style={{ boxShadow: '0 32px 90px color-mix(in oklch, oklch(0% 0 0) 55%, transparent)' }}>
+        <button onClick={onClose} aria-label="Close" className="absolute right-[14px] top-[14px] z-10 flex h-7 w-7 items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content"><Icons.X size={13} /></button>
+        <div className="px-8 pb-6 pt-7">
+          <div className="flex items-center gap-8">
+            <div className="min-w-0 flex-1">
+              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[1px] text-accent">A free desktop tool for MuleSoft developers</div>
+              <h1 className="m-0 text-[46px] font-bold leading-[1.04] tracking-[-1.5px] text-content">{APP_NAME}.<br /><span className="text-accent">Code and visual, in sync.</span></h1>
+            </div>
+            <img src="/logo.svg" alt="" width={124} height={124} className="mr-2 shrink-0" style={{ filter: 'drop-shadow(0 10px 28px rgba(0, 90, 255, 0.28))' }} />
+          </div>
+          <p className="mb-0 mt-[18px] max-w-[580px] text-[15px] leading-[1.55] text-content-muted">
+            Design Center's API Designer on your desktop: RAML and OAS, big specs that open in seconds, every edit checked by MuleSoft's own AMF engine,
+            and the same pull, push and publish to Exchange. Works offline; you only sign in to sync.
+          </p>
+          <Rule />
+          <div className="grid grid-cols-3 gap-x-7 gap-y-6">
+            <Stat kicker="version" value={version || '–'} sub="installed" accent />
+            <Stat kicker="license" value="MIT" sub="free and open source" />
+            <Stat kicker="engine" value="AMF 5.15" sub="Apache 2.0 · MuleSoft" />
+          </div>
+          <Rule />
+          <div className="grid items-start gap-6" style={{ gridTemplateColumns: '180px 1fr' }}>
+            <div>
+              <div className="mb-[10px] text-[10.5px] font-semibold uppercase tracking-[0.8px] text-content-faint">From the maker</div>
+              <div className="mb-[10px] flex items-center gap-[10px]">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[14px] font-bold text-accent-ink" style={{ background: 'linear-gradient(135deg, var(--accent), var(--violet))' }}>AV</div>
+                <div>
+                  <div className="text-[13px] font-semibold text-content">Ashutosh Vijay</div>
+                  <div className="text-[10.5px] text-content-faint">MuleSoft dev</div>
+                </div>
+              </div>
+              <div className="flex gap-1">
+                {([['Portfolio', 'https://ashutosh-vijay.dev/'], ['GitHub', 'https://github.com/Ashutosh-Vijay'], ['LinkedIn', 'https://www.linkedin.com/in/ashutosh-vijay/']] as const).map(([label, url]) => (
+                  <button key={label} title={label} onClick={() => openUrl(url)} className="h-7 rounded-md border border-line-subtle px-2 text-[11px] text-content-muted hover:bg-surface-2">{label}</button>
+                ))}
+              </div>
+            </div>
+            <div className="border-l-[3px] border-accent pl-[18px] text-[16px] leading-[1.55] tracking-[-0.1px] text-content">
+              &ldquo;On a big spec, Design Center's suggestions crawl, so we all ended up copying an endpoint, pasting it and editing by hand.
+              {` ${APP_NAME}`} makes that fast again, and keeps the visual side and the code in step both ways.&rdquo;
+            </div>
+          </div>
+          <div className="my-[18px] h-px bg-line-subtle" />
+          <div className="text-[10px] leading-[1.6] text-content-faint">
+            {APP_FULL_NAME}. AMF by MuleSoft / Salesforce, Apache License 2.0. Anypoint, Design Center, Exchange and MuleSoft are trademarks of Salesforce, Inc.
+            Not affiliated with, endorsed by, or sponsored by MuleSoft or Salesforce.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
