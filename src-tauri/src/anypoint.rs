@@ -47,6 +47,7 @@ fn broker_post(broker: &str, action: &str, body: Value) -> Result<Value, String>
   if status.is_success() { return Ok(v); }
   Err(match v["error"].as_str().unwrap_or("") {
     "not_configured" => "Sign in with Anypoint isn't available yet. Use your own Connected App for now.".into(),
+    "region_unavailable" => "Sign in with Anypoint isn't set up for this region yet. Use your own Connected App.".into(),
     "invalid_grant" => "The sign-in has expired. Sign in again.".into(),
     "expired" => "The sign-in took too long. Try again.".into(),
     e => format!("The sign-in service answered {status}{}{e}.", if e.is_empty() { "" } else { ": " }),
@@ -168,6 +169,27 @@ fn broker_any(first: &str, action: &str, body: Value) -> Result<(Value, String),
   Err(format!("{UNREACHABLE}. Your network may block it. Use your own Connected App instead: it talks only to Anypoint."))
 }
 
+// The broker's name for an Anypoint cloud, from its host (the broker keeps one Connected App per cloud).
+fn region_of(host: &str) -> &'static str {
+  for (code, h) in [("eu", "eu1.anypoint"), ("ca", "ca1.platform"), ("gb", "gb1.platform"), ("jp", "jp1.platform"), ("in", "in1.platform"), ("au", "au1.platform")] {
+    if host.contains(h) { return code; }
+  }
+  "us"
+}
+
+// Which clouds "Sign in with Anypoint" works in: the ones the broker has a Connected App for.
+#[tauri::command]
+pub async fn anypoint_broker_regions() -> Result<Vec<String>, String> {
+  tauri::async_runtime::spawn_blocking(|| {
+    for b in BROKERS {
+      if let Ok(r) = client().get(format!("{b}/regions")).send() {
+        if let Ok(v) = r.json::<Value>() { if let Some(a) = v["regions"].as_array() { return Ok(a.iter().filter_map(|x| x.as_str().map(String::from)).collect()); } }
+      }
+    }
+    Ok(vec!["us".into()]) // an older broker, or none reachable: the US cloud, as before
+  }).await.map_err(|e| e.to_string())?
+}
+
 fn access(app: &AppHandle) -> Result<(String, Me, String), String> {
   let state = app.state::<Arc<Anypoint>>();
   if let Some(s) = state.session.lock().unwrap().as_ref() {
@@ -176,7 +198,7 @@ fn access(app: &AppHandle) -> Result<(String, Me, String), String> {
   let conn: Connection = std::fs::read_to_string(conn_file(app)?).ok().and_then(|t| serde_json::from_str(&t).ok()).ok_or("Not signed in to Anypoint.")?;
   let tokens = if conn.mode == "anypoint" {
     let refresh = keychain("refresh-token")?.get_password().map_err(|_| "Sign in again to continue.")?;
-    broker_any(&conn.broker, "refresh", json!({ "refresh_token": refresh }))?.0
+    broker_any(&conn.broker, "refresh", json!({ "refresh_token": refresh, "region": region_of(&conn.host) }))?.0
   } else if conn.mode == "client" {
     let secret = keychain("client-secret")?.get_password().map_err(|_| "The Connected App secret isn't in the keychain any more. Sign in again.")?;
     token_request(&conn.host, json!({ "grant_type": "client_credentials", "client_id": conn.client_id, "client_secret": secret }))?
@@ -249,14 +271,14 @@ fn browser_sign_in(host: &str, client_id: &str, secret: &str) -> Result<Value, S
 // Sign in with Anypoint: the broker gives the login link, Anypoint sends the browser back through the
 // broker to http://127.0.0.1:{port}/done with a sealed ticket, and only this app (it holds the verifier
 // whose hash started it) can turn the ticket into tokens.
-fn broker_sign_in(first: &str) -> Result<(Value, String), String> {
+fn broker_sign_in(first: &str, region: &str) -> Result<(Value, String), String> {
   use base64::Engine;
   use sha2::Digest;
   let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Couldn't open a local port for the sign-in: {e}"))?;
   let port = listener.local_addr().map_err(|e| e.to_string())?.port();
   let verifier = random_hex() + &random_hex();
   let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes()));
-  let (start, broker) = broker_any(first, "start", json!({ "challenge": challenge, "port": port }))?;
+  let (start, broker) = broker_any(first, "start", json!({ "challenge": challenge, "port": port, "region": region }))?;
   let broker = broker.as_str();
   let url = start["url"].as_str().ok_or("The sign-in service sent no link.")?;
   tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| format!("Couldn't open the browser: {e}"))?;
@@ -293,7 +315,7 @@ pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, c
     // A different broker only in development, for testing against a local one.
     let mut broker = broker.filter(|_| cfg!(debug_assertions)).unwrap_or_else(|| BROKERS[0].to_string());
     let tokens = if mode == "anypoint" {
-      let (t, b) = broker_sign_in(&broker)?;
+      let (t, b) = broker_sign_in(&broker, region_of(&host))?;
       broker = b;
       t
     } else if mode == "client" {

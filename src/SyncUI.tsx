@@ -38,6 +38,10 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
   const [readOnly, setReadOnly] = useState(true);
   const [acts, setActs] = useState<'user' | 'app'>('user');
   const [region, setRegion] = useState(REGIONS[0][1]);
+  // Clouds where Sign in with Anypoint works: asked of the broker, so a new one needs no app update.
+  const [ourRegions, setOurRegions] = useState<string[]>(['us']);
+  useEffect(() => { invoke<string[]>('anypoint_broker_regions').then(setOurRegions, () => {}); }, []);
+  const code = (h: string) => (h.match(/\/\/(eu|ca|gb|jp|in|au)1\./)?.[1] ?? 'us');
   const [clientId, setClientId] = useState(''); const [secret, setSecret] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [list, setList] = useState<S.Remote[] | null>(null);
@@ -154,7 +158,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
   let title = 'Connect to Anypoint', sub: ReactNode = 'Pull projects from Design Center, push your changes back, and publish to Exchange.', body: ReactNode = null, foot: ReactNode = null;
   if (step === 'checking') body = <div className="py-6 text-center text-content-faint text-[12.5px]">Checking the connection…</div>;
   else if (step === 'choose') {
-    const ours = way === 'ours', usOnly = ours && region !== REGIONS[0][1];
+    const ours = way === 'ours', usOnly = ours && !ourRegions.includes(code(region));
     const choice = (id: 'ours' | 'byok', t: ReactNode, d: string) => (
       <button onClick={() => setWay(id)} className={`w-full flex gap-2.5 p-2.5 rounded-lg border text-left ${way === id ? 'border-accent-border bg-accent-dim' : 'border-line hover:border-content-ghost'}`}>
         <span className={`mt-0.5 w-3.5 h-3.5 shrink-0 rounded-full border-2 ${way === id ? 'border-accent bg-accent' : 'border-content-ghost'}`} />
@@ -189,7 +193,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
           <Select value={region} onChange={setRegion} className="text-[12px]" options={REGIONS.map(([n, h]) => ({ value: h, label: n }))} />
           <span className="text-[11.5px] text-content-faint">Where your Anypoint organization lives.</span></label>
         {usOnly && <div className="flex items-center gap-2 px-2.5 py-2 rounded-md border border-[color-mix(in_oklch,var(--warn)_45%,transparent)] bg-[color-mix(in_oklch,var(--warn)_8%,transparent)] text-[11.5px]">
-          <span className="flex-1">Sign in with Anypoint is for organizations in the US cloud. Organizations in {REGIONS.find(([, h]) => h === region)?.[0]} sign in with their own Connected App, made once by an admin in Access Management.</span>
+          <span className="flex-1">Sign in with Anypoint isn't available for the {REGIONS.find(([, h]) => h === region)?.[0]} cloud yet (it works in {ourRegions.map((r) => REGIONS.find(([, h]) => code(h) === r)?.[0] ?? r).join(', ')}). Organizations there sign in with their own Connected App, made once by an admin in Access Management.</span>
           <button className={`${btn} !h-6 !text-[11.5px] shrink-0`} onClick={() => setWay('byok')}>Use my own Connected App</button></div>}
         <label className="mt-1 flex items-start gap-2 cursor-pointer">
           <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
