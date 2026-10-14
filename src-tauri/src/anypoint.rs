@@ -14,7 +14,9 @@ use tauri::{AppHandle, Manager};
 
 const SERVICE: &str = "API Designer Studio";
 // What the user registers as the redirect URI in their Connected App (shown in the sign-in form).
-pub const REDIRECT: &str = "http://localhost:8765/callback";
+// Where a direct sign-in comes back. Our Connected Apps register all four ports, so one busy port doesn't
+// stop a sign-in; a user's own Connected App registers the first.
+pub const PORTS: [u16; 4] = [8765, 8766, 8767, 8768];
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Connection {
@@ -22,7 +24,11 @@ pub struct Connection {
   client_id: String,
   host: String, // https://anypoint.mulesoft.com, or a regional host
   #[serde(default)]
-  broker: String, // where "anypoint" mode signs in and refreshes
+  broker: String, // where "anypoint" mode signs in and refreshes, when it goes through the broker
+  // "direct": "anypoint" mode signed in straight with Anypoint, with our public client for the region
+  // (clients.json); empty: through the broker.
+  #[serde(default)]
+  via: String,
   // Read only: every call that could change Design Center or Exchange is refused in call(), before any
   // request is made. Missing in an old file means read only, the safe side.
   #[serde(default = "yes")]
@@ -169,6 +175,40 @@ fn broker_any(first: &str, action: &str, body: Value) -> Result<(Value, String),
   Err(format!("{UNREACHABLE}. Your network may block it. Use your own Connected App instead: it talks only to Anypoint."))
 }
 
+// Our Connected Apps, one per Anypoint cloud: public on purpose (a desktop app can't keep a secret; every
+// sign-in also needs PKCE and only comes back to localhost). Read from the design-studio-auth repo, kept as
+// the last good copy, with the copy baked in at build time (src-tauri/clients.json) as the last resort.
+const CLIENTS_URLS: [&str; 2] = [
+  "https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio-auth/main/clients.json",
+  "https://cdn.jsdelivr.net/gh/Ashutosh-Vijay/design-studio-auth@main/clients.json",
+];
+const BAKED_CLIENTS: &str = include_str!("../clients.json");
+fn clients(app: &AppHandle, fresh: bool) -> Value {
+  let cache = app.path().app_config_dir().ok().map(|d| d.join("clients.json"));
+  let cached = || cache.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|t| serde_json::from_str::<Value>(&t).ok());
+  if !fresh { if let Some(v) = cached() { return v; } }
+  let quick = reqwest::blocking::Client::builder().timeout(Duration::from_secs(5)).build().expect("http client");
+  for u in CLIENTS_URLS {
+    if let Ok(v) = quick.get(u).send().and_then(|r| r.error_for_status()).and_then(|r| r.json::<Value>()) {
+      if v["regions"].is_object() {
+        if let Some(f) = &cache { if let Some(d) = f.parent() { let _ = std::fs::create_dir_all(d); } let _ = std::fs::write(f, v.to_string()); }
+        return v;
+      }
+    }
+  }
+  cached().unwrap_or_else(|| serde_json::from_str(BAKED_CLIENTS).unwrap_or(json!({ "regions": {} })))
+}
+fn our_client(app: &AppHandle, region: &str, fresh: bool) -> Option<(String, String)> {
+  let c = &clients(app, fresh)["regions"][region];
+  Some((c["client_id"].as_str()?.to_string(), c["client_secret"].as_str()?.to_string()))
+}
+fn strong_random(n: usize) -> String {
+  use base64::Engine;
+  let mut b = vec![0u8; n];
+  getrandom::getrandom(&mut b).expect("system random source");
+  base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
+}
+
 // The broker's name for an Anypoint cloud, from its host (the broker keeps one Connected App per cloud).
 fn region_of(host: &str) -> &'static str {
   for (code, h) in [("eu", "eu1.anypoint"), ("ca", "ca1.platform"), ("gb", "gb1.platform"), ("jp", "jp1.platform"), ("in", "in1.platform"), ("au", "au1.platform")] {
@@ -179,14 +219,18 @@ fn region_of(host: &str) -> &'static str {
 
 // Which clouds "Sign in with Anypoint" works in: the ones the broker has a Connected App for.
 #[tauri::command]
-pub async fn anypoint_broker_regions() -> Result<Vec<String>, String> {
-  tauri::async_runtime::spawn_blocking(|| {
+pub async fn anypoint_broker_regions(app: AppHandle) -> Result<Vec<String>, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    let mut out: Vec<String> = clients(&app, true)["regions"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
+    let quick = reqwest::blocking::Client::builder().timeout(Duration::from_secs(5)).build().expect("http client");
     for b in BROKERS {
-      if let Ok(r) = client().get(format!("{b}/regions")).send() {
-        if let Ok(v) = r.json::<Value>() { if let Some(a) = v["regions"].as_array() { return Ok(a.iter().filter_map(|x| x.as_str().map(String::from)).collect()); } }
+      if let Ok(v) = quick.get(format!("{b}/regions")).send().and_then(|r| r.json::<Value>()) {
+        for r in v["regions"].as_array().into_iter().flatten().filter_map(|x| x.as_str()) { if !out.iter().any(|o| o == r) { out.push(r.into()); } }
+        break;
       }
     }
-    Ok(vec!["us".into()]) // an older broker, or none reachable: the US cloud, as before
+    if out.is_empty() { out.push("us".into()); }
+    Ok(out)
   }).await.map_err(|e| e.to_string())?
 }
 
@@ -196,7 +240,16 @@ fn access(app: &AppHandle) -> Result<(String, Me, String), String> {
     if Instant::now() < s.expires { return Ok((s.access.clone(), s.me.clone(), s.conn.host.clone())); }
   }
   let conn: Connection = std::fs::read_to_string(conn_file(app)?).ok().and_then(|t| serde_json::from_str(&t).ok()).ok_or("Not signed in to Anypoint.")?;
-  let tokens = if conn.mode == "anypoint" {
+  let tokens = if conn.mode == "anypoint" && conn.via == "direct" {
+    let refresh = keychain("refresh-token")?.get_password().map_err(|_| "Sign in again to continue.")?;
+    let region = region_of(&conn.host);
+    let go = |fresh: bool| -> Result<Value, String> {
+      let (id, secret) = our_client(app, region, fresh).ok_or("Sign in again to continue.")?;
+      token_request(&conn.host, json!({ "grant_type": "refresh_token", "client_id": id, "client_secret": secret, "refresh_token": refresh }))
+    };
+    // A rotated client shows up as invalid_client: read the current one and try once more.
+    match go(false) { Err(e) if e.contains("client ID or secret") => go(true)?, r => r? }
+  } else if conn.mode == "anypoint" {
     let refresh = keychain("refresh-token")?.get_password().map_err(|_| "Sign in again to continue.")?;
     broker_any(&conn.broker, "refresh", json!({ "refresh_token": refresh, "region": region_of(&conn.host) }))?.0
   } else if conn.mode == "client" {
@@ -228,15 +281,22 @@ fn query_param(q: &str, key: &str) -> Option<String> {
 }
 
 // Browser sign-in: open Anypoint's authorize page and wait on the loopback redirect for the code.
-fn browser_sign_in(host: &str, client_id: &str, secret: &str) -> Result<Value, String> {
-  let listener = TcpListener::bind("127.0.0.1:8765").map_err(|_| "Port 8765 is in use, so the sign-in can't finish. Close what uses it and try again.".to_string())?;
-  let state = random_hex();
-  let url = format!("{host}/accounts/api/v2/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri={}&scope=full%20offline_access&state={state}&nonce={}",
-    "http%3A%2F%2Flocalhost%3A8765%2Fcallback", random_hex());
+fn browser_sign_in(host: &str, client_id: &str, secret: &str, ports: &[u16]) -> Result<Value, String> {
+  let (listener, port) = ports.iter().find_map(|p| TcpListener::bind(("127.0.0.1", *p)).ok().map(|l| (l, *p)))
+    .ok_or_else(|| format!("Port {} is in use, so the sign-in can't finish. Close what uses it and try again.", ports.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ")))?;
+  let redirect = format!("http://localhost:{port}/callback");
+  use sha2::Digest;
+  use base64::Engine;
+  let state = strong_random(16);
+  // PKCE: only this run of the app knows the verifier, so a sign-in code is useless to anyone else.
+  let verifier = strong_random(48);
+  let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes()));
+  let url = format!("{host}/accounts/api/v2/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri={}&scope=full%20offline_access&state={state}&nonce={}&code_challenge={challenge}&code_challenge_method=S256",
+    format!("http%3A%2F%2Flocalhost%3A{port}%2Fcallback"), strong_random(12));
   tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| format!("Couldn't open the browser: {e}"))?;
   // Give up after five minutes: wake the listener with a request of our own.
   let done = Arc::new(AtomicBool::new(false));
-  { let done = done.clone(); std::thread::spawn(move || { std::thread::sleep(Duration::from_secs(300)); if !done.load(Ordering::SeqCst) { let _ = std::net::TcpStream::connect("127.0.0.1:8765").map(|mut s| s.write_all(b"GET /timeout HTTP/1.1\r\n\r\n")); } }); }
+  { let done = done.clone(); std::thread::spawn(move || { std::thread::sleep(Duration::from_secs(300)); if !done.load(Ordering::SeqCst) { let _ = std::net::TcpStream::connect(("127.0.0.1", port)).map(|mut s| s.write_all(b"GET /timeout HTTP/1.1\r\n\r\n")); } }); }
   let page = |msg: &str| format!("<!doctype html><meta charset=utf-8><title>Design Studio</title><body style=\"font:15px system-ui;margin:3em\"><h2>{msg}</h2>");
   for stream in listener.incoming() {
     let Ok(mut stream) = stream else { continue };
@@ -263,7 +323,7 @@ fn browser_sign_in(host: &str, client_id: &str, secret: &str) -> Result<Value, S
     if query_param(q, "state").as_deref() != Some(state.as_str()) { reply(&mut stream, page("This sign-in link is out of date. Start again from the app.")); continue; }
     reply(&mut stream, page("Signed in. You can close this tab and go back to Design Studio."));
     done.store(true, Ordering::SeqCst);
-    return token_request(host, json!({ "grant_type": "authorization_code", "code": code.unwrap(), "redirect_uri": REDIRECT, "client_id": client_id, "client_secret": secret }));
+    return token_request(host, json!({ "grant_type": "authorization_code", "code": code.unwrap(), "redirect_uri": redirect, "client_id": client_id, "client_secret": secret, "code_verifier": verifier }));
   }
   Err("The sign-in was interrupted.".into())
 }
@@ -314,16 +374,22 @@ pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, c
     let host = host.trim_end_matches('/').to_string();
     // A different broker only in development, for testing against a local one.
     let mut broker = broker.filter(|_| cfg!(debug_assertions)).unwrap_or_else(|| BROKERS[0].to_string());
-    let tokens = if mode == "anypoint" {
+    let mut via = String::new();
+    // A broker passed in (development tests) means the broker path, so local stand-ins can test it.
+    let direct = if mode == "anypoint" && broker == BROKERS[0] { our_client(&app, region_of(&host), true) } else { None };
+    let tokens = if let Some((id, secret)) = direct {
+      via = "direct".into();
+      browser_sign_in(&host, &id, &secret, &PORTS)?
+    } else if mode == "anypoint" {
       let (t, b) = broker_sign_in(&broker, region_of(&host))?;
       broker = b;
       t
     } else if mode == "client" {
       token_request(&host, json!({ "grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret }))?
     } else {
-      browser_sign_in(&host, &client_id, &client_secret)?
+      browser_sign_in(&host, &client_id, &client_secret, &PORTS[..1])?
     };
-    let conn = Connection { broker: if mode == "anypoint" { broker } else { String::new() }, mode, client_id, host, read_only: read_only.unwrap_or(true), ..Default::default() };
+    let conn = Connection { broker: if mode == "anypoint" && via.is_empty() { broker } else { String::new() }, via, mode, client_id, host, read_only: read_only.unwrap_or(true), ..Default::default() };
     let me = start_session(&app, conn.clone(), &tokens)?;
     if conn.mode != "anypoint" { keychain("client-secret")?.set_password(&client_secret).map_err(|e| e.to_string())?; }
     let f = conn_file(&app)?;

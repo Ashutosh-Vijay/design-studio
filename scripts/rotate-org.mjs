@@ -5,6 +5,8 @@
  *   node scripts/rotate-org.mjs app [region]       make the org's Connected App match the template: create it if
  *                                                  missing, or add what's missing (redirect URIs, scopes), then
  *                                                  give its client ID and secret to the broker for that region
+ *        --broker   put them into the broker (Cloudflare) as that region's encrypted settings
+ *        --publish  put them into clients.json in Ashutosh-Vijay/design-studio-auth (public), which the app reads
  *
  * A browser window (Google Chrome) opens on the region's Anypoint; you sign in yourself, and the script
  * uses that browser session's token for Anypoint's own API. It never sees your password. Secrets are
@@ -26,18 +28,39 @@ const BROKER_SITES = ['https://ashutosh-vijay.dev', 'https://ashutosh-vijay.page
 const TEMPLATE = {
   client_name: APP_NAME,
   client_uri: 'https://ashutosh-vijay.dev/design-center-studio',
-  redirect_uris: [...BROKER_SITES.map((h) => `${h}/api-designer-studio/auth/callback`), 'http://localhost:8765/callback'],
+  // The broker's callbacks, and the app's own: four loopback ports, so one busy port doesn't stop a sign-in.
+  redirect_uris: [...BROKER_SITES.map((h) => `${h}/api-designer-studio/auth/callback`), ...[8765, 8766, 8767, 8768].map((p) => `http://localhost:${p}/callback`)],
   grant_types: ['authorization_code', 'refresh_token'],
   scopes: ['full', 'read:organization', 'openid', 'profile', 'email', 'offline_access', 'edit:design_center', 'edit:exchange'],
   audience: 'everyone',
   public_keys: [],
   enabled: true,
   generate_iss_claim_without_token: true,
+  pkce_enforcement: 'required', // the client is public (clients.json): every sign-in must carry PKCE
 };
 
 // Puts a value into the broker's Cloudflare Pages project as an encrypted variable, on stdin (never in a
 // command line or the output). Same as scripts/set-broker-secrets.mjs.
 import { spawnSync } from 'node:child_process';
+// Writes a region's client into clients.json in the public design-studio-auth repo, through the GitHub API
+// (gh, signed in). The new file goes in on stdin, so the secret never appears in a command line or output.
+const AUTH_REPO = 'Ashutosh-Vijay/design-studio-auth';
+function gh(args, input) {
+  const r = process.platform === 'win32' ? spawnSync('cmd.exe', ['/d', '/s', '/c', `gh ${args}`], { input, encoding: 'utf8' }) : spawnSync('sh', ['-c', `gh ${args}`], { input, encoding: 'utf8' });
+  return { ok: r.status === 0, out: `${r.stdout}${r.stderr}` };
+}
+function publishClient(region, id, secret) {
+  const cur = gh(`api repos/${AUTH_REPO}/contents/clients.json`);
+  if (!cur.ok) throw new Error(`Reading clients.json failed: ${cur.out.slice(0, 300)}`);
+  const meta = JSON.parse(cur.out);
+  const file = JSON.parse(Buffer.from(meta.content, 'base64').toString('utf8'));
+  file.regions[region] = { client_id: id, client_secret: secret, host: HOSTS[region], updated: new Date().toISOString().slice(0, 10) };
+  const body = JSON.stringify({ message: `${region}: new client`, sha: meta.sha, content: Buffer.from(JSON.stringify(file, null, 2) + '\n').toString('base64') });
+  const r = gh(`api -X PUT repos/${AUTH_REPO}/contents/clients.json --input -`, body);
+  if (!r.ok) throw new Error(`Writing clients.json failed: ${r.out.split(secret).join('<hidden>').slice(0, 300)}`);
+  console.log(`Published: clients.json now has ${region}.`);
+}
+
 function brokerSecret(name, value) {
   const cmd = `npx --yes wrangler@4 pages secret put ${name} --project-name ashutosh-vijay`;
   const r = process.platform === 'win32' ? spawnSync('cmd.exe', ['/d', '/s', '/c', cmd], { input: value, encoding: 'utf8' }) : spawnSync('sh', ['-c', cmd], { input: value, encoding: 'utf8' });
@@ -55,8 +78,8 @@ export async function signIn(host) {
   const tokens = new Set();
   context.on('request', (r) => { const a = r.headers().authorization; if (a?.startsWith('Bearer ') && /mulesoft\.com/.test(r.url())) tokens.add(a.slice(7)); });
   await page.goto(`${host}/login/`);
-  console.log('Sign in in the browser window that just opened. Waiting (up to 5 minutes)...');
-  for (let i = 0; i < 300; i++) {
+  console.log('Sign in in the browser window that just opened. Waiting (up to 10 minutes)...');
+  for (let i = 0; i < 600; i++) {
     await page.waitForTimeout(1000);
     if (/\/login/.test(page.url()) && !tokens.size) continue;
     for (const t of tokens) { const me = await api(host, t, 'GET', '/accounts/api/me'); if (me.status === 200 && me.json?.user) return done(t, me.json.user); }
@@ -68,10 +91,10 @@ export async function signIn(host) {
     }).catch(() => ({ status: 0, body: null, stored: [] }));
     if (inPage.status === 200 && inPage.body?.user) return done(null, inPage.body.user);
     for (const t of inPage.stored) { const me = await api(host, t, 'GET', '/accounts/api/me'); if (me.status === 200 && me.json?.user) return done(t, me.json.user); }
-    if (i % 15 === 14) console.log(`Still waiting. Page: ${page.url().replace(/[?#].*/, '')}; bearer tokens seen: ${tokens.size}; who-am-I in the page: ${inPage.status}.`);
+    if (i % 60 === 59) console.log(`Still waiting. Page: ${page.url().replace(/[?#].*/, '')}; bearer tokens seen: ${tokens.size}; who-am-I in the page: ${inPage.status}.`);
   }
   await browser.close();
-  throw new Error('No sign-in seen within 5 minutes.');
+  throw new Error('No sign-in seen within 10 minutes.');
 
   function done(token, me) {
     console.log(`Signed in (${token ? 'bearer token from the web app' : "the browser's session"}).`);
@@ -134,18 +157,25 @@ if (cmd === 'app') {
     } else {
       const missing = (k) => TEMPLATE[k].filter((x) => !(app[k] ?? []).includes(x));
       const add = { redirect_uris: missing('redirect_uris'), scopes: missing('scopes'), grant_types: missing('grant_types') };
-      if (Object.values(add).some((x) => x.length)) {
+      const pkce = app.pkce_enforcement !== TEMPLATE.pkce_enforcement;
+      if (Object.values(add).some((x) => x.length) || pkce) {
         const patch = Object.fromEntries(Object.entries(add).filter(([, v]) => v.length).map(([k]) => [k, [...app[k], ...add[k]]]));
+        if (pkce) patch.pkce_enforcement = TEMPLATE.pkce_enforcement;
         const r = await s.call('PATCH', `/accounts/api/connectedApplications/${app.client_id}`, patch);
         if (r.status >= 300) throw new Error(`Updating the Connected App answered ${r.status}: ${r.text.slice(0, 300)}`);
-        console.log(`Updated the Connected App: added ${Object.entries(add).filter(([, v]) => v.length).map(([k, v]) => `${k} ${v.join(', ')}`).join('; ')}.`);
+        console.log(`Updated the Connected App: ${[...Object.entries(add).filter(([, v]) => v.length).map(([k, v]) => `added ${k} ${v.join(', ')}`), ...(pkce ? [`PKCE ${TEMPLATE.pkce_enforcement}`] : [])].join('; ')}.`);
       } else console.log('The Connected App already matches.');
     }
     // Read it back: what Anypoint now has, and the secret for the broker.
     const now = (await s.call('GET', '/accounts/api/connectedApplications')).json;
     app = (now?.data ?? now ?? []).find((a) => a.client_name === APP_NAME);
     const off = ['redirect_uris', 'scopes', 'grant_types'].filter((k) => TEMPLATE[k].some((x) => !app[k]?.includes(x)));
-    console.log(off.length ? `Still different from the template: ${off.join(', ')}.` : 'Checked: redirect URIs, scopes and grants match the template.');
+    if (app.pkce_enforcement !== TEMPLATE.pkce_enforcement) off.push('pkce_enforcement');
+    console.log(off.length ? `Still different from the template: ${off.join(', ')}.` : 'Checked: redirect URIs, scopes, grants and PKCE match the template.');
+    if (process.argv.includes('--publish')) {
+      if (!app.client_secret) throw new Error("Anypoint didn't return the secret, so clients.json wasn't changed.");
+      publishClient(region, app.client_id, app.client_secret);
+    }
     if (process.argv.includes('--broker')) {
       if (!app.client_secret) throw new Error("Anypoint didn't return the secret, so the broker wasn't changed.");
       const suffix = region === 'us' ? '' : `_${region.toUpperCase()}`;
