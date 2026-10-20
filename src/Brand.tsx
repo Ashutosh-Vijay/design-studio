@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { confirm } from '@tauri-apps/plugin-dialog';
+import { check, type Update } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 import { Icons } from './components/Icons';
 import { isTauri } from './components/WindowControls';
 import { OrbitalLoader, PendulumLoader, RingsLoader } from './components/Loaders';
@@ -17,6 +19,47 @@ export const ask = (message: string): Promise<boolean> =>
 
 const css = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 const STAGES = ['Starting…', 'Loading the editor…', 'Warming up the AMF engine…', 'Almost ready…'];
+
+// Updates: checked a few seconds after start, downloaded quietly, then offered once ("Update ready" in the
+// title bar, and in About). Installing restarts the app: on Windows the installer runs silently and opens
+// the new version by itself; elsewhere the app relaunches. Store builds never update themselves.
+export type UpdateState = { state: 'idle' | 'checking' | 'downloading' | 'ready' | 'none' | 'error' | 'off'; version?: string; pct?: number };
+let updateState: UpdateState = { state: 'idle' };
+let pending: Update | null = null;
+const setUpdate = (u: UpdateState) => { updateState = u; window.dispatchEvent(new Event('ads-update')); };
+export const autoUpdates = () => { try { return localStorage.getItem('ads.updateCheck') !== '0'; } catch { return true; } };
+const storeBuild = import.meta.env.VITE_STORE_BUILD === '1';
+export async function checkForUpdate(manual = false) {
+  if (!isTauri || storeBuild || pending) return;
+  if (!manual && !autoUpdates()) { setUpdate({ state: 'off' }); return; }
+  setUpdate({ state: 'checking' });
+  try {
+    const u = await check();
+    if (!u) { setUpdate({ state: 'none' }); return; }
+    setUpdate({ state: 'downloading', version: u.version, pct: 0 });
+    let total = 0, got = 0;
+    await u.download((e) => {
+      if (e.event === 'Started') total = e.data.contentLength ?? 0;
+      else if (e.event === 'Progress') { got += e.data.chunkLength; if (total) setUpdate({ state: 'downloading', version: u.version, pct: Math.min(99, Math.round((got / total) * 100)) }); }
+    });
+    pending = u;
+    setUpdate({ state: 'ready', version: u.version });
+  } catch {
+    // Offline, or GitHub unreachable: not news. A manual check says so.
+    setUpdate({ state: manual ? 'error' : 'idle' });
+  }
+}
+// Installs the downloaded update and restarts. The caller saves unsaved work first.
+export async function installUpdate() {
+  if (!pending) return;
+  await pending.install(); // Windows: the silent installer takes over and reopens the app
+  await relaunch();
+}
+export function useUpdate() {
+  const [u, setU] = useState(updateState);
+  useEffect(() => { const f = () => setU(updateState); window.addEventListener('ads-update', f); return () => window.removeEventListener('ads-update', f); }, []);
+  return u;
+}
 
 // Covers the window until the AMF engine answers (any answer: an unknown op still means it's up), so the
 // first project opens straight into a checked spec. One of the three loaders, picked at random per launch.
@@ -66,7 +109,8 @@ export function Splash() {
 }
 
 // About, as in DataWeave Studio: what it is, version, licence, engine, and who made it.
-export function About({ version, onClose }: { version: string; onClose: () => void }) {
+export function About({ version, onClose, onRestart }: { version: string; onClose: () => void; onRestart: () => void }) {
+  const upd = useUpdate();
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', k);
@@ -127,6 +171,14 @@ export function About({ version, onClose }: { version: string; onClose: () => vo
             </div>
           </div>
           <div className="my-[18px] h-px bg-line-subtle" />
+          {isTauri && !storeBuild && <div className="mb-3 flex items-center gap-2 text-[12px] text-content-muted">
+            <span className={`w-2 h-2 rounded-full ${upd.state === 'ready' ? 'bg-accent' : upd.state === 'error' ? 'bg-err' : 'bg-content-ghost'}`} />
+            <span>{upd.state === 'checking' ? 'Checking for updates…' : upd.state === 'downloading' ? `Downloading ${upd.version} in the background… ${upd.pct ?? 0}%`
+              : upd.state === 'ready' ? `Version ${upd.version} is ready.` : upd.state === 'none' ? 'Up to date.' : upd.state === 'error' ? "Couldn't reach GitHub to check for updates."
+              : upd.state === 'off' ? 'Automatic update checks are off (Settings).' : `Version ${version}.`}</span>
+            {upd.state === 'ready' ? <button onClick={onRestart} className="text-accent font-semibold hover:underline">Restart to update</button>
+              : upd.state !== 'checking' && upd.state !== 'downloading' && <button onClick={() => checkForUpdate(true)} className="text-accent hover:underline">Check now</button>}
+          </div>}
           <div className="text-[10px] leading-[1.6] text-content-faint">
             {APP_FULL_NAME}. AMF by MuleSoft / Salesforce, Apache License 2.0. Anypoint, Design Center, Exchange and MuleSoft are trademarks of Salesforce, Inc.
             Not affiliated with, endorsed by, or sponsored by MuleSoft or Salesforce.

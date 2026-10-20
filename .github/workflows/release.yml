@@ -1,0 +1,185 @@
+name: Build & Release
+
+# A tag like v1.0.0 builds every platform, attaches the installers and the updater's latest.json to a draft
+# release, then publishes it. Copied from DataWeave Studio's release.yml and adapted.
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
+  # linuxdeploy and appimagetool are AppImages themselves; runners have no FUSE, so they self-extract.
+  APPIMAGE_EXTRACT_AND_RUN: "1"
+  # linuxdeploy strips every ELF it bundles and trips on the jlinked JRE, which jlink already stripped.
+  NO_STRIP: "true"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete an existing release of this tag
+        run: gh release delete "${{ github.ref_name }}" --repo "${{ github.repository }}" --yes 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            jdkArch: x64
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            jdkArch: aarch64
+          # Intel Macs: an x64 JDK through Rosetta on the Apple Silicon runner, so the JRE is x64.
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            jdkArch: x64
+          # The oldest supported Ubuntu on purpose: the AppImage needs the build machine's glibc or newer.
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            jdkArch: x64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Set up JDK 17 (for the AMF engine and its JRE)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          architecture: ${{ matrix.jdkArch }}
+          cache: maven
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2 || true
+
+      - name: Build the AMF engine (amf-server.jar)
+        shell: bash
+        run: |
+          cd amf-server
+          mvn -B -q -DskipTests package
+          mkdir -p ../src-tauri/resources/amf-server
+          cp target/amf-server.jar ../src-tauri/resources/amf-server/
+
+      - name: Bundle a minimal JRE (jlink)
+        shell: bash
+        run: |
+          MODULES=$(jdeps --print-module-deps --ignore-missing-deps --multi-release 17 src-tauri/resources/amf-server/amf-server.jar 2>/dev/null || echo "java.base,java.desktop,java.management,java.naming,java.sql,jdk.unsupported")
+          # jdk.httpserver for the local mock, jdk.crypto.ec for HTTPS, jdk.zipfs for zip reads.
+          jlink --add-modules "$MODULES,jdk.httpserver,jdk.crypto.ec,jdk.zipfs" --strip-debug --no-man-pages --no-header-files --compress=2 --output src-tauri/resources/jre
+          echo "Bundled JRE: $(du -sh src-tauri/resources/jre | cut -f1)"
+
+      - name: Bake in the sign-in clients (clients.json)
+        shell: bash
+        run: |
+          # The public per-region Connected Apps, so a fresh install signs in even if GitHub is unreachable
+          # at first start. The repo only keeps an empty copy.
+          curl -fsSL https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio-auth/main/clients.json -o src-tauri/clients.json
+          node -e "const c=require('./src-tauri/clients.json'); if(!c.regions) process.exit(1); console.log('regions:', Object.keys(c.regions).join(', '))"
+
+      - name: Build the app
+        uses: tauri-apps/tauri-action@v0.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # linuxdeploy looks for libjvm.so only in standard paths; point it at the JRE's own.
+          LD_LIBRARY_PATH: ${{ runner.os == 'Linux' && format('{0}/src-tauri/resources/jre/lib:{0}/src-tauri/resources/jre/lib/server', github.workspace) || '' }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Design Studio ${{ github.ref_name }}'
+          releaseBody: |
+            ### Downloads
+            - **Windows**: `.exe` (installer), `_x64_portable.zip` (no install: unzip and run), or `_x64-setup.zip` (the installer zipped, for proxies that block `.exe`)
+            - **macOS**: `.dmg` (Apple Silicon and Intel)
+            - **Linux**: `.AppImage`, `.deb` or `.rpm`
+
+            Everything is included: the AMF engine and a small Java runtime, so you don't need Java installed.
+            The app updates itself quietly after this.
+
+            ### Opening an unsigned build
+            The app isn't code-signed yet, so your system warns the first time you open it.
+            - **Windows (SmartScreen)**: **More info**, then **Run anyway**. If Smart App Control blocks the installer, use the portable zip.
+            - **macOS**: move the app to Applications, then **System Settings > Privacy & Security > Open Anyway**, or run `xattr -cr "/Applications/Design Studio.app"`.
+          releaseDraft: true
+          prerelease: false
+          updaterJsonPreferNsis: true
+          args: --target ${{ matrix.target }} ${{ runner.os == 'Linux' && '--verbose' || '' }}
+
+      - name: Zip the Windows installer (for proxies that block .exe)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $exe = Get-ChildItem -Recurse -Filter "*_x64-setup.exe" src-tauri/target | Select-Object -First 1
+          if ($exe) {
+            $zip = Join-Path $exe.DirectoryName "Design.Studio_${version}_x64-setup.zip"
+            Compress-Archive -Path $exe.FullName -DestinationPath $zip -Force
+            gh release upload "${{ github.ref_name }}" $zip --repo "${{ github.repository }}" --clobber
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Portable: the installer's payload extracted with 7-Zip (no install, no admin), zipped.
+      - name: Build the portable Windows zip
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $exe = Get-ChildItem -Recurse -Filter "*_x64-setup.exe" src-tauri/target | Select-Object -First 1
+          if (-not $exe) { Write-Host "No installer found; skipping"; exit 0 }
+          $dest = "C:\dsportable"
+          if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          & 7z x "$($exe.FullName)" "-o$dest" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { Write-Error "7z couldn't extract $($exe.Name)"; exit 1 }
+          Remove-Item -Recurse -Force "$dest\`$PLUGINSDIR" -ErrorAction SilentlyContinue
+          Remove-Item -Force "$dest\uninstall.exe" -ErrorAction SilentlyContinue
+          # 7-Zip keeps the cargo binary name; the installer would have renamed it to the product name.
+          if ((Test-Path "$dest\api-designer-studio.exe") -and -not (Test-Path "$dest\Design Studio.exe")) { Rename-Item "$dest\api-designer-studio.exe" "Design Studio.exe" }
+          $appExe = Get-ChildItem -Recurse -Filter "Design Studio.exe" $dest -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $appExe) { Get-ChildItem -Recurse $dest | Select-Object -ExpandProperty FullName; Write-Error "The app's exe wasn't found"; exit 1 }
+          $zip = "Design.Studio_${version}_x64_portable.zip"
+          Compress-Archive -Path "$($appExe.Directory.FullName)\*" -DestinationPath $zip -Force
+          gh release upload "${{ github.ref_name }}" $zip --repo "${{ github.repository }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        run: gh release edit "${{ github.ref_name }}" --draft=false --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,3 +7,7 @@ dist/
 src-tauri/gen/
 .tokens.json
 dependency-reduced-pom.xml
+# Built for releases (CI): the engine jar and a jlinked JRE. The placeholders keep dev builds happy.
+src-tauri/resources/**
+!src-tauri/resources/*/
+!src-tauri/resources/*/.gitkeep

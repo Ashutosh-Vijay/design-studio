@@ -14,7 +14,7 @@ import { Select } from './components/Popup';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { APP_NAME, About, Splash, ask } from './Brand';
+import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, autoUpdates } from './Brand';
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
@@ -66,6 +66,15 @@ export default function App() {
   const [theme, setTheme] = useState(savedTheme);
   const [settingsAt, setSettingsAt] = useState<DOMRect | null>(null);
   const [about, setAbout] = useState(false);
+  // Updates: a quiet check a few seconds after start; once downloaded, one "Update ready" in the title bar.
+  const upd = useUpdate();
+  useEffect(() => { const t = setTimeout(() => checkForUpdate(), 8000); return () => clearTimeout(t); }, []);
+  const restartToUpdate = async () => {
+    // The installer closes the app directly (no close prompt), so unsaved work is dealt with here.
+    if (dirtyCount && !(await ask(`${dirtyCount} ${dirtyCount === 1 ? 'file has' : 'files have'} unsaved changes. Save and restart to update?`))) return;
+    if (dirtyCount) await syncRef.current?.saveAll();
+    await installUpdate();
+  };
   const [version, setVersion] = useState('');
   useEffect(() => { if (isTauri) getVersion().then(setVersion, () => {}); }, []);
   // The palette: '' everything (Ctrl K), '@' symbols (Ctrl Shift O), '>' commands (F1).
@@ -189,6 +198,9 @@ export default function App() {
         <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title="Search files and commands (Ctrl K)" onClick={() => setPaletteOpen('')}>
           <Icons.Search size={15} />
         </button>
+        {upd.state === 'ready' && <button onClick={restartToUpdate} title={`Version ${upd.version} is downloaded. Restart to use it (a few seconds).`}
+          className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-[12px] font-medium text-accent border border-accent-border bg-accent-dim hover:brightness-110">
+          <span className="w-1.5 h-1.5 rounded-full bg-accent" />Update ready</button>}
         {settingsBtn('w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content')}
         <WindowControls />
       </header>
@@ -220,7 +232,7 @@ export default function App() {
       {connectOpen && <ConnectDialog openRoot={project?.root} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
       {creating && <CreateDialog what={creating} onClose={() => setCreating(null)} onCreated={(root) => { setCreating(null); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
-      {about && <About version={version} onClose={() => setAbout(false)} />}
+      {about && <About version={version} onClose={() => setAbout(false)} onRestart={restartToUpdate} />}
       <Splash />
       {settingsAt && (
         <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)}
@@ -1983,6 +1995,9 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect }: {
         {custom && <button className="mt-1 text-[11.5px] text-accent hover:underline" onClick={async () => { try { localStorage.removeItem('ads.projectsDir'); } catch { /* ignore */ } setHome(await projectsDir()); }}>Use the default</button>}
       </>}
       {isTauri && <AnypointSettings onConnect={onConnect} />}
+      {isTauri && import.meta.env.VITE_STORE_BUILD !== '1' && <label className="mt-3.5 flex items-center gap-2 text-[12px] cursor-pointer" title="Asks GitHub for a newer version a few seconds after the app starts, and downloads it quietly">
+        <input type="checkbox" defaultChecked={autoUpdates()} onChange={(e) => { try { localStorage.setItem('ads.updateCheck', e.target.checked ? '1' : '0'); } catch { /* ignore */ } }} className="accent-[var(--accent)]" />Check for updates automatically
+      </label>}
       <div className="mt-3.5 pt-2.5 border-t border-line-subtle text-[11px] text-content-faint">{APP_NAME} {version} · MIT licence</div>
     </div>
   );
