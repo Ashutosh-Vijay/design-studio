@@ -159,6 +159,10 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
 }
 
 // ---------- The Exchange panel: versions, and what changed since the last one ----------
+// The published version's model, fetched fresh once per app session (a Development version can be
+// republished under the same number), then compared again after every check without fetching.
+const published = new Map<string, Promise<{ old: AmfModel; dir: string }>>();
+
 export function ExchangePanel({ root, model, modelOf, onPublish }: {
   root: string; model: AmfModel | null; modelOf: (dir: string, main: string) => Promise<AmfModel>; onPublish: (version: string) => void;
 }) {
@@ -179,19 +183,23 @@ export function ExchangePanel({ root, model, modelOf, onPublish }: {
   // Compare with the newest version: its files (with dependencies) are fetched once into .apidesigner/published/.
   useEffect(() => {
     const base = a?.versions[0]?.version;
-    if (!base || !d || !model || diff?.base === base) return;
+    if (!base || !d || !model) return;
+    const key = `${root}|${base}`;
+    if (!published.has(key)) published.set(key, (async () => {
+      const dir = `.apidesigner/published/${base}/`;
+      await invoke('anypoint_fetch_dependency', { root, group: d.groupId, asset: d.assetId, version: base, published: true });
+      const pd = await S.readDescriptor(`${root}/${dir}`);
+      return { old: await modelOf(`${root}/${dir}`, pd?.d.main ?? d.main ?? ''), dir };
+    })());
+    let live = true;
     (async () => {
-      setBusy(`Comparing with ${base}…`); setErr(null);
-      try {
-        const dir = `.apidesigner/published/${base}/`;
-        const have = await invoke<{ files: unknown[] }>('open_project', { root: `${root}/${dir}` }).then((p) => p.files.length > 0, () => false);
-        if (!have) await invoke('anypoint_fetch_dependency', { root, group: d.groupId, asset: d.assetId, version: base, published: true });
-        const pd = await S.readDescriptor(`${root}/${dir}`);
-        const old = await modelOf(`${root}/${dir}`, pd?.d.main ?? d.main ?? '');
-        setDiff({ base, ...S.compareModels(old, model, dir) });
-      } catch (e) { setErr(`Couldn't compare with ${base}: ${String(e).replace(/^Error: /, '')}`); }
-      setBusy(null);
+      if (diff?.base !== base) setBusy(`Comparing with ${base}…`);
+      setErr(null);
+      try { const { old, dir } = await published.get(key)!; if (live) setDiff({ base, ...S.compareModels(old, model, dir) }); }
+      catch (e) { published.delete(key); if (live) setErr(`Couldn't compare with ${base}: ${String(e).replace(/^Error: /, '')}`); }
+      if (live) setBusy(null);
     })();
+    return () => { live = false; };
   }, [a, d, model]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (me === undefined || d === undefined) return <div className="p-3"><Note><span className="flex items-center gap-2"><Spinner />Reading Exchange…</span></Note></div>;

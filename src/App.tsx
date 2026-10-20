@@ -18,7 +18,7 @@ import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate,
 import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
-import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu } from './SyncUI';
+import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
 import { projectsDir, readLink, projectPermissions } from './sync';
 import { DocsPanel } from './Docs';
@@ -400,6 +400,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const activeRef = useRef<string | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  // Long-lived listeners (editor, engine, disk) read this render's project and functions, not the first one's.
+  const live = useRef({} as { main: string | null | undefined; checkable: boolean; updateCursorViews: typeof updateCursorViews; rebuildOutline: typeof rebuildOutline; runCheck: typeof runCheck; onDiskChange: typeof onDiskChange });
 
   useEffect(() => { onDirtyCount(dirty.size); }, [dirty, onDirtyCount]);
 
@@ -415,14 +417,14 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       const pos = u.state.selection.main.head, line = u.state.doc.lineAt(pos);
       setCursor({ line: line.number, col: pos - line.from + 1 });
       setCrumb(/\.(raml|ya?ml)$/i.test(path) ? yamlPathAt(u.state, pos) : []);
-      updateCursorViews(path, u.state);
+      live.current.updateCursorViews(path, u.state);
       setDoc({ path, text: u.state.doc.toString(), line: line.number - 1 });
     }
     if (u.docChanged) scheduleRef.current();
     if (u.docChanged || u.selectionSet) { clearTimeout(usesTimer.current); usesTimer.current = window.setTimeout(() => highlightRef.current(), 150); }
-    if (u.docChanged && (path === project.main || libraryFiles.current.has(path))) {
+    if (u.docChanged && (path === live.current.main || libraryFiles.current.has(path))) {
       clearTimeout(outlineTimer.current);
-      outlineTimer.current = window.setTimeout(rebuildOutline, 120);
+      outlineTimer.current = window.setTimeout(() => live.current.rebuildOutline(), 120);
     }
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
   const libraryFiles = useRef(new Set<string>());
@@ -485,7 +487,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   }
 
   function shelfInsert(item: string) {
-    const v = view.current, path = activeRef.current; if (!v || !path || !shelf) return;
+    const v = view.current, path = activeRef.current; if (!v || !path || !shelf || isReadOnly(path)) return;
     const pos = v.state.selection.main.head, line = v.state.doc.lineAt(pos).number - 1;
     const edit = shelfEdit(v.state.doc.toString(), line, shelf, item); if (!edit) return;
     v.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.insert }, selection: { anchor: edit.cursor }, scrollIntoView: true });
@@ -575,7 +577,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   };
   // The title bar's sync controls: save every unsaved file first, show what happened, reload after a pull.
   syncRef.current = {
-    saveAll: async () => { for (const p of [...dirty]) await save(p); },
+    saveAll: async () => { for (const p of [...dirty]) if (!(await save(p))) throw new Error(`${base(p)} couldn't be saved, so nothing was sent.`); },
     notice: (text, err) => setNotice({ text, err }),
     // The title bar's sync state recounts too: files can change on disk without an edit (dependencies, publish).
     reload: async () => { await onRefresh(); rebuildOutline(); scheduleRef.current(); window.dispatchEvent(new Event('ads-files-changed')); },
@@ -726,6 +728,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   async function renameSymbol(path: string, state: EditorState, pos: number) {
     const w = wordAt(state, pos); const d = w.text ? findDecl(path, w.text) : null;
     if (!d) { fail('Put the cursor on a type, trait, resource type or security scheme name to rename it.'); return; }
+    if (isReadOnly(d.file)) { fail(viewerOnly ? 'This project is view only.' : `${d.name} comes from an Exchange dependency, so it can't be renamed here.`); return; }
     setDialog(<TextDialog title={`Rename ${d.alias ? d.alias + '.' : ''}${d.name}`} label="New name" value={d.name} okLabel="Rename"
       hint="Changes the declaration and every place it's used, in every file." onCancel={() => setDialog(null)}
       onOk={async (nu) => {
@@ -835,6 +838,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   }
   // Apply a whole-file edit: in the editor when the file is open (it becomes unsaved), else straight to disk.
   async function writeAny(path: string, text: string) {
+    if (isReadOnly(path)) return; // View only, or an Exchange dependency: refactorings leave it alone
     const f = files.current.get(path);
     if (f) {
       const state = path === activeRef.current ? view.current!.state : f.state;
@@ -847,9 +851,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
 
   async function setRootFile(path: string) {
     let ex = project.files.some((f) => f.path === 'exchange.json') ? await readAny('exchange.json') : '';
-    ex = /"main"\s*:\s*"[^"]*"/.test(ex) ? ex.replace(/"main"\s*:\s*"[^"]*"/, `"main": "${path}"`) : `{\n  "main": "${path}"\n}\n`;
-    await invoke('save_text_file', { root: project.root, path: 'exchange.json', text: ex });
-    const f = files.current.get('exchange.json'); if (f) { f.disk = ex; f.state = f.state.update({ changes: { from: 0, to: f.state.doc.length, insert: ex } }).state; }
+    ex = /"main"\s*:\s*"[^"]*"/.test(ex) ? ex.replace(/"main"\s*:\s*"[^"]*"/, `"main": "${path}"`)
+      : /^\s*\{\s*"/.test(ex) ? ex.replace(/^\s*\{/, `{\n  "main": "${path}",`) // keep its other fields
+      : `{\n  "main": "${path}"\n}\n`;
+    if (files.current.has('exchange.json')) { await writeAny('exchange.json', ex); await save('exchange.json'); }
+    else await invoke('save_text_file', { root: project.root, path: 'exchange.json', text: ex });
     await onRefresh();
   }
 
@@ -877,7 +883,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const n = await retargetReferences(from, to);
     // Carry an open editor over to the new name.
     const f = files.current.get(from);
-    if (f) { files.current.delete(from); files.current.set(to, f); setTabs((t) => t.map((x) => (x === from ? to : x))); if (activeRef.current === from) { activeRef.current = to; setActive(to); } }
+    if (f) {
+      files.current.delete(from); files.current.set(to, f); forget(from); setTabs((t) => t.map((x) => (x === from ? to : x)));
+      setDirty((d) => { if (!d.has(from)) return d; const n = new Set(d); n.delete(from); n.add(to); return n; });
+      if (activeRef.current === from) { activeRef.current = to; setActive(to); }
+    }
     if (project.main === from) await setRootFile(to); else await onRefresh();
     setNotice({ text: `Renamed to ${to}${n ? `. Updated ${n} ${n === 1 ? 'reference' : 'references'}.` : '.'}`, err: false });
   }
@@ -887,8 +897,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     for (const f of project.files.map((x) => x.path).filter((p) => /\.(raml|ya?ml)$/i.test(p) && p !== path)) {
       if ((await readAny(f)).includes(base(path))) refs.push(f);
     }
-    setDialog(<ConfirmDialog title={`Delete ${base(path)}?`} danger okLabel="Move to Recycle Bin"
-      body={<>It goes to the Recycle Bin, so you can get it back.{refs.length ? <> These files mention it and may break: <span className="font-mono text-[11.5px]">{refs.join(', ')}</span></> : null}</>}
+    setDialog(<ConfirmDialog title={`Delete ${base(path)}?`} danger okLabel={`Move to ${TRASH}`}
+      body={<>It goes to the {TRASH}, so you can get it back.{refs.length ? <> These files mention it and may break: <span className="font-mono text-[11.5px]">{refs.join(', ')}</span></> : null}</>}
       onCancel={() => setDialog(null)}
       onOk={async () => {
         setDialog(null);
@@ -900,7 +910,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
 
   function closeTabQuiet(path: string) {
     const rest = tabs.filter((t) => t !== path), i = tabs.indexOf(path);
-    files.current.delete(path); setTabs(rest);
+    files.current.delete(path); forget(path); setTabs(rest);
     if (activeRef.current === path) { activeRef.current = null; const next = rest[Math.min(i, rest.length - 1)]; if (next) show(next); else { setActive(null); view.current!.setState(EditorState.create({ doc: '' })); } }
   }
 
@@ -1002,20 +1012,21 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const un = listen<{ paths: string[] }>('fs-change', (e) => {
       e.payload.paths.forEach((p) => fsPending.current.add(p));
       clearTimeout(fsTimer.current);
-      fsTimer.current = window.setTimeout(() => { const ps = [...fsPending.current]; fsPending.current.clear(); onDiskChange(ps); }, 250);
+      fsTimer.current = window.setTimeout(() => { const ps = [...fsPending.current]; fsPending.current.clear(); live.current.onDiskChange(ps); }, 250);
     });
     // Unsaved text found from last time: offer it back.
     invoke<{ path: string; text: string }[]>('list_recovery', { root: project.root }).then(async (list) => {
       const real: { path: string; text: string }[] = [];
       for (const r of list) {
         try { const disk = (await invoke<string>('read_text_file', { root: project.root, path: r.path })).replace(/\r\n/g, '\n'); if (disk !== r.text) real.push(r); else invoke('clear_recovery', { root: project.root, path: r.path }); }
-        catch { real.push(r); }
+        catch { invoke('clear_recovery', { root: project.root, path: r.path }); } // the file is gone: nothing to restore into
       }
       if (!real.length) return;
       setNotice({ text: `Unsaved changes from last time were kept for ${real.length === 1 ? base(real[0].path) : real.length + ' files'}.`, err: false, actions: [
         ['Restore', async () => {
           for (const r of real) {
             await openFile(r.path);
+            if (activeRef.current !== r.path) continue; // it couldn't be opened, so don't write into another file
             const v = view.current!; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: r.text } });
           }
           setNotice(null);
@@ -1037,6 +1048,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   // ---------- Live errors from amf-server: a quick parse after edits, a full check when idle or on save ----------
   const amf = (op: string, args: Record<string, unknown>) => invoke<any>('amf', { op, args }); // eslint-disable-line @typescript-eslint/no-explicit-any
   const checkable = !!project.main && /\.(raml|ya?ml|json)$/i.test(project.main);
+  live.current = { main: project.main, checkable, updateCursorViews, rebuildOutline, runCheck, onDiskChange };
 
   async function syncOverlays() {
     const changed: Record<string, string | null> = {};
@@ -1122,7 +1134,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
 
   useEffect(() => {
     const un = listen<{ state: string; detail: string }>('amf-status', (e) => {
-      if (e.payload.state === 'ready') { setEngine({ state: 'ready', detail: '' }); if (checkable) amf('open', { root: project.root, main: project.main }).then(() => runCheck('validate')).catch(() => {}); }
+      const L = live.current;
+      if (e.payload.state === 'ready') { setEngine({ state: 'ready', detail: '' }); if (L.checkable) amf('open', { root: project.root, main: L.main }).then(() => L.runCheck('validate')).catch(() => {}); }
       else if (e.payload.state !== 'starting') setEngine({ state: e.payload.state, detail: e.payload.detail });
     });
     return () => { un.then((f) => f()); checkTimers.current.forEach(clearTimeout); };
@@ -1178,7 +1191,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   }
 
   async function save(path: string) {
-    const f = files.current.get(path); if (!f) return;
+    const f = files.current.get(path); if (!f) return true;
     const state = path === activeRef.current ? view.current!.state : f.state;
     const text = state.doc.toString();
     try {
@@ -1187,13 +1200,19 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
       runCheck('validate');
       invoke('clear_recovery', { root: project.root, path }).catch(() => {});
-    } catch (e) { fail(e); }
+      return true;
+    } catch (e) { fail(e); return false; }
+  }
+  // An editor is dropped (closed, deleted, renamed): forget its journal and its overlay in AMF too.
+  function forget(path: string) {
+    invoke('clear_recovery', { root: project.root, path }).catch(() => {}); journaled.current.delete(path);
+    if (sentOverlay.current.delete(path)) amf('overlay', { files: { [path]: null } }).catch(() => {});
   }
 
   async function closeTab(path: string) {
     if (dirty.has(path) && !(await ask(`${base(path)} has unsaved changes. Close it anyway?`))) return;
     const i = tabs.indexOf(path), rest = tabs.filter((t) => t !== path);
-    files.current.delete(path);
+    files.current.delete(path); forget(path);
     setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
     setTabs(rest);
     if (activeRef.current === path) {
@@ -1208,7 +1227,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const unsaved = paths.filter((p) => dirty.has(p));
     if (unsaved.length && !await ask(`${unsaved.length === 1 ? base(unsaved[0]) + ' has' : unsaved.length + ' of them have'} unsaved changes. Close anyway?`)) return;
     const gone = new Set(paths), rest = tabs.filter((t) => !gone.has(t));
-    for (const p of paths) files.current.delete(p);
+    for (const p of paths) { files.current.delete(p); forget(p); }
     setDirty((d) => { const n = new Set(d); paths.forEach((p) => n.delete(p)); return n; });
     setTabs(rest);
     if (activeRef.current && gone.has(activeRef.current)) {

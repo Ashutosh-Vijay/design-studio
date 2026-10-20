@@ -163,13 +163,17 @@ export async function push(root: string, l: Link, paths: string[]) {
   for (const p of [...ch.added, ...ch.modified]) if ((await readLocal(root, p))?.includes(MARK)) throw new Error(`${p} still has conflict markers from the last pull. Sort them out, then push.`);
   await invoke('anypoint_hold_lock', { project: l.projectId, branch: l.branch });
   try {
+    // Someone may have committed between the check above and taking the lock.
+    if ((await head(l)) !== l.baseCommit) throw new Error("Design Center has changes you don't have yet. Pull first, then push.");
     const texts = new Map<string, string>();
     for (const p of [...ch.added, ...ch.modified]) texts.set(p, (await readLocal(root, p))!);
     // A file deleted here whose text reappears under a new name is a move (Design Center keeps its history).
     const moves: [string, string][] = [];
     for (const d of ch.deleted) {
-      const a = ch.added.find((p) => !moves.some((m) => m[1] === p) && l.files[d] && texts.get(p) != null);
-      if (a && (await sha(texts.get(a)!)) === l.files[d]) moves.push([d, a]);
+      for (const a of ch.added) {
+        if (moves.some((m) => m[1] === a) || !l.files[d] || texts.get(a) == null) continue;
+        if ((await sha(texts.get(a)!)) === l.files[d]) { moves.push([d, a]); break; }
+      }
     }
     for (const [from, to] of moves) must(await api('POST', `${branchPath(l)}/files/${filePath(from)}/move`, { path: to }), `Moving ${from}`);
     for (const d of ch.deleted.filter((x) => !moves.some((m) => m[0] === x))) must(await api('DELETE', `${branchPath(l)}/files/${filePath(d)}`), `Deleting ${d}`);

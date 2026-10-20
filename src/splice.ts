@@ -111,10 +111,15 @@ export function scalar(text: string, path: Path): string | null {
 export function list(text: string, path: Path): string[] | null {
   const E = entries(text), k = find(E, path); if (k < 0) return null;
   const v = E[k].val;
-  if (v.startsWith('[')) return v.replace(/^\[|\]$/g, '').split(',').map((s) => unquote(s.trim())).filter(Boolean);
+  if (v.startsWith('[')) return flowItems(v).map(unquote);
   if (v) return [unquote(v)];
   const L = text.split('\n');
   return L.slice(E[k].line + 1, blockEnd(E, L, k)).map((l) => l.match(/^\s*-\s+(.*)$/)?.[1]).filter((x): x is string => !!x).map((s) => unquote(s.trim()));
+}
+
+// A one-line flow list's items as written, quotes kept; a comma inside quotes doesn't split.
+function flowItems(v: string): string[] {
+  return (v.replace(/^\[|\]\s*$/g, '').match(/"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^,]+/g) ?? []).map((s) => s.trim()).filter(Boolean);
 }
 
 // ---------- Edits ----------
@@ -123,6 +128,14 @@ export function ensure(text: string, path: Path): string {
   for (let n = 1; n <= path.length; n++) {
     const E = entries(text);
     if (find(E, path.slice(0, n)) >= 0) continue;
+    // A new key in a list item ("- name: id"): it goes at the end of the item, lined up with the item's keys.
+    if (n >= 2 && path[n - 2].startsWith('#')) {
+      const seq = find(E, path.slice(0, n - 2)), i = +path[n - 2].slice(1), L = text.split('\n');
+      const it = items(E, seq)[i]; if (it == null) return text;
+      L.splice(itemLines(E, L, seq, i)[1], 0, ' '.repeat(L[E[it].line].match(/^\s*-\s+/)![0].length) + path[n - 1] + ':');
+      text = L.join('\n');
+      continue;
+    }
     const parent = n === 1 ? -1 : find(E, path.slice(0, n - 1));
     text = insertLines(text, E, parent, [path[n - 1] + ':'], false, path[n - 1]);
   }
@@ -219,7 +232,7 @@ export function renameKey(text: string, path: Path, nu: string): string {
   const L = text.split('\n'), l = L[E[k].line];
   const lead = l.match(/^\s*(- )?/)![0];
   // A quoted key stays quoted the same way.
-  L[E[k].line] = lead + l.slice(lead.length).replace(/^("[^"]*"|'[^']*'|[^\s#:](?:[^:\s]|[ \t]+(?=[^\s#:]))*?)(\s*:)/, (_m, old: string, colon) => (/^["']/.test(old) ? old[0] + nu + old[0] : nu) + colon);
+  L[E[k].line] = lead + l.slice(lead.length).replace(/^("[^"]*"|'[^']*'|[^\s#:](?:[^:\s]|[ \t]+(?=[^\s#:]))*?)(\s*:)/, (_m, old: string, colon) => (/^["']/.test(old) ? old[0] + nu + old[0] : /^\d+\??$/.test(nu) ? nu : quote(nu)) + colon);
   return L.join('\n');
 }
 
@@ -258,7 +271,7 @@ export function setList(text: string, path: Path, items: string[]): string {
   const parent = path.slice(0, -1), key = path[path.length - 1];
   if (!items.length) return k >= 0 ? remove(text, path, false) : text;
   if (k < 0) {
-    const flow = `${key}: [ ${items.join(', ')} ]`;
+    const flow = `${key}: [ ${items.map(quote).join(', ')} ]`;
     if (!parent.length) return insertLines(text, E, -1, [flow]);
     text = ensure(text, parent);
     const E2 = entries(text);
@@ -274,12 +287,15 @@ export function setList(text: string, path: Path, items: string[]): string {
     const kept = body.filter((l) => { const i = itemOf(l); return i == null || items.includes(i); });
     const have = kept.map(itemOf);
     const last = kept.reduce((a, l, i) => (itemOf(l) != null ? i : a), -1);
-    kept.splice(last + 1, 0, ...items.filter((i) => !have.includes(i)).map((i) => `${ind}- ${i}`));
+    kept.splice(last + 1, 0, ...items.filter((i) => !have.includes(i)).map((i) => `${ind}- ${quote(i)}`));
     L.splice(E[k].line + 1, end - E[k].line - 1, ...kept);
     return L.join('\n');
   }
   const spaced = /^\[\s/.test(v) || v === '[]';
-  const flow = spaced ? `[ ${items.join(', ')} ]` : `[${items.join(', ')}]`;
+  // Items that stay keep their text as written (quotes and all); new ones are quoted when YAML needs it.
+  const was = new Map(flowItems(v).map((t) => [unquote(t), t]));
+  const out = items.map((i) => was.get(i) ?? quote(i));
+  const flow = spaced ? `[ ${out.join(', ')} ]` : `[${out.join(', ')}]`;
   L[E[k].line] = L[E[k].line].replace(/:\s.*?(\s+#.*|\s*)$/, (_m, c) => ': ' + flow + c);
   return L.join('\n');
 }
@@ -374,6 +390,8 @@ export function dropRefs(text: string, ref: string, kind: 'type' | 'trait' | 'rt
       } else if (kind === 'type' && v && !/^[|>!]/.test(v)) {
         const p = pathOf(text, e.line);
         if (p.length >= 2 && p[p.length - 2].startsWith('/') && e.key === 'type') continue; // a resource's type: is a resource type
+        // Words in prose and example data aren't uses, even when they equal the type's name.
+        if (/^(description|displayName|usage|title|example|examples|pattern|default|enum)$/.test(e.key) || p.some((x) => x === 'example' || x === 'examples')) continue;
         if (whole.test(v)) {
           text = e.key === 'type' || e.key === 'items' ? remove(text, p, false) : setType(text, p, 'any');
           changed = true; break;

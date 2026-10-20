@@ -525,6 +525,8 @@ pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: Stri
 // Take the branch's lock and keep it alive (locks lapse after about a minute) until released.
 #[tauri::command]
 pub async fn anypoint_hold_lock(app: AppHandle, project: String, branch: String) -> Result<(), String> {
+  // Encoded once, as sync.ts does for its calls: a branch can have / or spaces in its name.
+  let branch: String = branch.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{:02X}", b) }).collect();
   tauri::async_runtime::spawn_blocking(move || {
     // Already held (Lock while I edit, then Push): nothing to do. Held on another branch: let that one go first.
     let held = app.state::<Arc<Anypoint>>().lock.lock().unwrap().take();

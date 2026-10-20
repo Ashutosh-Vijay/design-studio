@@ -361,6 +361,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
   const [behind, setBehind] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; branches: string[] } | null>(null);
+  useEffect(() => { if (!menu) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [menu]);
   const [asking, setAsking] = useState(false);
   const [readOnly, setReadOnly] = useState<boolean | null>(null);
   const [conflicts, setConflicts] = useState(0);
@@ -395,7 +396,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     const t = window.setInterval(() => refresh(), 60000);
     const f = () => refresh();
     const local = () => refresh(false);
-    const pub = (e: Event) => { publishing.current = (e as CustomEvent<boolean>).detail; if (!publishing.current) { setBehind(false); refresh(); } };
+    const pub = (e: Event) => { publishing.current = (e as CustomEvent<boolean>).detail; if (!publishing.current) { setBehind(false); setHolding(false); lockTried.current = 0; refresh(); } }; // publish lets the lock go too
     window.addEventListener('focus', f); window.addEventListener('ads-files-changed', local); window.addEventListener('ads-publishing', pub);
     return () => { clearInterval(t); window.removeEventListener('focus', f); window.removeEventListener('ads-files-changed', local); window.removeEventListener('ads-publishing', pub); };
   }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -416,8 +417,8 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     finally { setBusy(null); await refresh(); }
   };
   const push = () => run('Pushing…', async () => {
-    const r = await S.push(root, (await S.readLink(root))!, await listFiles());
-    setHolding(false); lockTried.current = 0;
+    // Push lets the lock go whether it works or not, so the lock mark goes either way.
+    const r = await S.push(root, (await S.readLink(root))!, await listFiles()).finally(() => { setHolding(false); lockTried.current = 0; });
     onNotice(r.sent ? `Pushed ${r.sent} ${r.sent === 1 ? 'change' : 'changes'} to Design Center.` : 'Nothing to push.', false);
   });
   const pull = () => run('Pulling…', async () => {
@@ -486,6 +487,7 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
   root: string; name: string; onNotice: (text: string, err: boolean) => void; onOpen: (root: string) => void; onGone: () => void; onChanged: () => void;
 }) {
   const [at, setAt] = useState<DOMRect | null>(null);
+  useEffect(() => { if (!at) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setAt(null); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [at]);
   const [st, setSt] = useState<{ link: S.Link | null; me: Me | null; perms: S.Perms } | null>(null);
   const [dlg, setDlg] = useState<ReactNode>(null);
   const open = async (r: DOMRect) => {
@@ -514,6 +516,11 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
     ['Import file or zip…', null, importFiles],
     ['Import from URL…', null, () => setDlg(<UrlImport root={root} onClose={() => setDlg(null)} onDone={(t) => { setDlg(null); onChanged(); onNotice(t, false); }} />)],
     ['Import from Exchange…', me ? null : 'Sign in to Anypoint first.', () => setDlg(<AddDependency importing onClose={() => setDlg(null)} onAdd={(d) => { setDlg(null); run(async () => {
+      // A folder with that name is already here: ask, and send the old one to the trash rather than deleting it.
+      if (await invoke('open_project', { root: `${root}/${d.assetId}` }).then(() => true, () => false)) {
+        if (!(await ask(`The project already has a ${d.assetId} folder. Replace it? The old one goes to the ${TRASH}.`))) return '';
+        await invoke('delete_file', { root, path: d.assetId });
+      }
       onNotice(`Importing ${d.assetId} ${d.version}…`, false);
       const n = await invoke<number>('anypoint_fetch_dependency', { root, group: d.groupId, asset: d.assetId, version: d.version, published: null, into: d.assetId });
       onChanged();
@@ -568,7 +575,7 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
     </>
   );
 }
-const TRASH = /Windows/.test(navigator.userAgent) ? 'Recycle Bin' : 'Trash';
+export const TRASH = /Windows/.test(navigator.userAgent) ? 'Recycle Bin' : 'Trash';
 
 // Import from URL: one file, named after the address unless renamed.
 function UrlImport({ root, onClose, onDone }: { root: string; onClose: () => void; onDone: (text: string) => void }) {

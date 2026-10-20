@@ -47,7 +47,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<ProjectFile>, dirs: &mut Vec<Stri
 // Otherwise the first top-level spec (a RAML 1.0 API, not a fragment, or an OAS file).
 fn find_main(root: &Path, files: &[ProjectFile]) -> Option<String> {
   if let Ok(text) = fs::read_to_string(root.join("exchange.json")) {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')) {
       if let Some(main) = json.get("main").and_then(|m| m.as_str()) {
         let main = main.trim_start_matches('/').to_string();
         if files.iter().any(|f| f.path == main) {
@@ -63,7 +63,7 @@ fn find_main(root: &Path, files: &[ProjectFile]) -> Option<String> {
       continue;
     }
     let head: String = fs::read_to_string(root.join(&f.path)).unwrap_or_default().chars().take(400).collect();
-    let first = head.lines().next().unwrap_or("").trim();
+    let first = head.lines().next().unwrap_or("").trim_start_matches('\u{feff}').trim();
     if first == "#%RAML 1.0" || first == "#%RAML 0.8" || head.contains("openapi:") || head.contains("swagger:") || head.contains("\"openapi\"") || head.contains("\"swagger\"") {
       return Some(f.path.clone());
     }
@@ -103,6 +103,7 @@ fn read_text_file(root: String, path: String) -> Result<String, String> {
 // gets CRLF back, so a save never turns every line into a diff. New files are LF.
 #[tauri::command]
 fn save_text_file(root: String, path: String, text: String) -> Result<(), String> {
+  plain_rel(&path)?;
   let root_path = PathBuf::from(&root).canonicalize().map_err(|e| e.to_string())?;
   let full = root_path.join(&path);
   let parent = full.parent().ok_or("Bad path")?;
@@ -110,14 +111,25 @@ fn save_text_file(root: String, path: String, text: String) -> Result<(), String
   if !parent.canonicalize().map_err(|e| e.to_string())?.starts_with(&root_path) {
     return Err(format!("{} is outside the project.", path));
   }
-  let crlf = fs::read(&full).map(|b| b.windows(2).any(|w| w == b"\r\n")).unwrap_or(false);
+  // A mixed file keeps the ending most of its lines use.
+  let crlf = fs::read(&full).map(|b| { let n = b.windows(2).filter(|w| *w == b"\r\n").count(); n > 0 && n * 2 >= b.iter().filter(|&&c| c == b'\n').count() }).unwrap_or(false);
   let lf = text.replace("\r\n", "\n");
   let out = if crlf { lf.replace('\n', "\r\n") } else { lf };
   fs::write(&full, out).map_err(|e| format!("Couldn't save {}: {}", path, e))
 }
 
+// A path relative to the project made of plain names only: no .., no drive or leading slash. Checked before
+// any folder is made, so nothing is ever created outside the project.
+fn plain_rel(path: &str) -> Result<(), String> {
+  if path.is_empty() || !Path::new(path).components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir)) {
+    return Err(format!("{} is outside the project.", path));
+  }
+  Ok(())
+}
+
 // Inside the project, or an error. The file itself may not exist yet.
 fn inside(root: &str, path: &str) -> Result<PathBuf, String> {
+  plain_rel(path)?;
   let root_path = PathBuf::from(root).canonicalize().map_err(|e| e.to_string())?;
   let full = root_path.join(path);
   let parent = full.parent().ok_or("Bad path")?.canonicalize().map_err(|_| format!("The folder for {} doesn't exist.", path))?;
@@ -130,12 +142,14 @@ fn inside(root: &str, path: &str) -> Result<PathBuf, String> {
 #[tauri::command]
 fn rename_file(root: String, from: String, to: String) -> Result<(), String> {
   let src = inside(&root, &from)?;
-  let dst_rel = PathBuf::from(&root).join(&to);
-  if let Some(dir) = dst_rel.parent() {
+  plain_rel(&to)?;
+  if let Some(dir) = PathBuf::from(&root).join(&to).parent() {
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
   }
   let dst = inside(&root, &to)?;
-  if dst.exists() {
+  // Only the letter case changes: on Windows and macOS that's the same file, not a clash.
+  let same = dst.exists() && src.canonicalize().ok() == dst.canonicalize().ok();
+  if dst.exists() && !same {
     return Err(format!("{} already exists.", to));
   }
   fs::rename(&src, &dst).map_err(|e| format!("Couldn't rename {}: {}", from, e))
@@ -144,7 +158,7 @@ fn rename_file(root: String, from: String, to: String) -> Result<(), String> {
 #[tauri::command]
 fn delete_file(root: String, path: String) -> Result<(), String> {
   let full = inside(&root, &path)?;
-  trash::delete(&full).map_err(|e| format!("Couldn't move {} to the Recycle Bin: {}", path, e))
+  trash::delete(&full).map_err(|e| format!("Couldn't move {} to the {}: {}", path, if cfg!(windows) { "Recycle Bin" } else { "Trash" }, e))
 }
 
 // Download as zip (the project menu): every file, Exchange dependencies included, as Design Center's
@@ -154,6 +168,9 @@ fn export_zip(root: String, dest: String) -> Result<usize, String> {
   let root_path = PathBuf::from(&root);
   let (mut files, mut dirs) = (Vec::new(), Vec::new());
   walk(&root_path, &root_path, &mut files, &mut dirs).map_err(|e| e.to_string())?;
+  // The zip itself may be inside the project (an earlier download): never pack it into itself.
+  let dest_abs = PathBuf::from(&dest).canonicalize().ok();
+  files.retain(|f| dest_abs.is_none() || root_path.join(&f.path).canonicalize().ok() != dest_abs);
   let mut zw = zip::ZipWriter::new(fs::File::create(&dest).map_err(|e| format!("Couldn't write {}: {}", dest, e))?);
   let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
   for f in &files {
@@ -251,7 +268,11 @@ fn import_into(root: String, folder: String, sources: Vec<String>, overwrite: bo
   fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
   for s in &sources {
     if s.to_lowercase().ends_with(".zip") { unzip_into(fs::File::open(s).map_err(|e| e.to_string())?, &dest)?; }
-    else { fs::copy(s, dest.join(Path::new(s).file_name().unwrap())).map_err(|e| format!("Couldn't copy {}: {}", s, e))?; }
+    else {
+      let to = dest.join(Path::new(s).file_name().unwrap());
+      if to.exists() && Path::new(s).canonicalize().ok() == to.canonicalize().ok() { continue; } // already that file: copying would empty it
+      fs::copy(s, &to).map_err(|e| format!("Couldn't copy {}: {}", s, e))?;
+    }
   }
   Ok(Imported { written: targets.iter().map(|t| rel(t)).collect(), existing })
 }
@@ -264,6 +285,7 @@ async fn fetch_url(url: String) -> Result<String, String> {
     let r = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(30)).build().map_err(|e| e.to_string())?
       .get(&url).send().map_err(|e| format!("Couldn't fetch it: {e}"))?;
     if !r.status().is_success() { return Err(format!("The server answered {}.", r.status())); }
+    if r.content_length().unwrap_or(0) > 10 * 1024 * 1024 { return Err("That file is over 10 MB.".into()); }
     let b = r.bytes().map_err(|e| e.to_string())?;
     if b.len() > 10 * 1024 * 1024 { return Err("That file is over 10 MB.".into()); }
     Ok(String::from_utf8_lossy(&b).to_string())
@@ -276,6 +298,7 @@ async fn fetch_url(url: String) -> Result<String, String> {
 fn write_file_exact(root: String, path: String, text: String) -> Result<(), String> {
   let root_path = PathBuf::from(&root);
   fs::create_dir_all(&root_path).map_err(|e| format!("Couldn't create {}: {}", root, e))?;
+  plain_rel(&path)?;
   let root_path = root_path.canonicalize().map_err(|e| e.to_string())?;
   let full = root_path.join(&path);
   let parent = full.parent().ok_or("Bad path")?;

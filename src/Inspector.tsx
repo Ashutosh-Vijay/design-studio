@@ -50,7 +50,7 @@ export function Field({ value, onCommit, placeholder, mono, multiline, options, 
   useEffect(() => setV(value), [value]);
   const cls = `w-full min-w-0 px-2 rounded border border-line bg-surface-input text-content outline-none focus:border-accent placeholder:text-content-ghost ${mono ? 'font-mono text-[11.5px]' : 'text-[12.5px]'} ${className}`;
   // The box's own value, not state: a change and a blur can arrive before React has re-rendered.
-  const onBlur = (e: { currentTarget: HTMLInputElement | HTMLTextAreaElement }) => { if (skip.current) { skip.current = false; return; } const nv = e.currentTarget.value; if (nv !== value) onCommit(nv); };
+  const onBlur = (e: { currentTarget: HTMLInputElement | HTMLTextAreaElement }) => { if (skip.current) { skip.current = false; return; } const nv = e.currentTarget.value; if (nv !== value) { onCommit(nv); if (value === '') setV(''); } }; // an "add" box empties after adding
   const esc = (e: { key: string; currentTarget: HTMLElement }) => { if (e.key === 'Escape') { skip.current = true; setV(value); e.currentTarget.blur(); } };
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -60,7 +60,7 @@ export function Field({ value, onCommit, placeholder, mono, multiline, options, 
     ? <textarea value={v} placeholder={placeholder} spellCheck={false} rows={Math.min(8, Math.max(2, v.split('\n').length))} onChange={(e) => setV(e.target.value)} onBlur={onBlur}
         onKeyDown={(e) => { esc(e); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.blur(); }} className={cls + ' py-1 resize-y leading-snug'} />
     : <>
-        <input ref={ref} value={v} placeholder={placeholder} spellCheck={false} onChange={(e) => { setV(e.target.value); setOpen(true); setActive(0); }}
+        <input ref={ref} value={v} placeholder={placeholder} spellCheck={false} onChange={(e) => { setV(e.target.value); setOpen(true); setActive(options?.includes(e.target.value.trim()) ? -1 : 0); }}
           onBlur={(e) => { setOpen(false); onBlur(e); }} onMouseDown={() => { if (options) { setOpen(true); setActive(-1); } }}
           onKeyDown={(e) => {
             if (shown.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setActive(e.key === 'ArrowDown' ? (active + 1) % shown.length : active <= 0 ? shown.length - 1 : active - 1); return; }
