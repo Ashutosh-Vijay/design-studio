@@ -1107,7 +1107,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       // checker. (A dead or blocked checker is reported through the amf-status event instead.)
       const msg = String(e).replace(/^amf\.[\w.]+:\s*/, '');
       if (/didn't answer|isn't running|Couldn't start Java|didn't start/.test(msg)) { setEngine({ state: 'failed', detail: msg }); return; }
-      setProblems([{ severity: 'error', message: `Couldn't check the spec: ${msg}`, file: project.main ?? '', line: 1, col: 0, endLine: 1, endCol: 0, phase: 'parse', code: '' }]);
+      // AMF itself failing (a Java exception, seen on some malformed specs) says nothing useful to a user.
+      const internal = /Exception|Error:|None\.get/.test(msg);
+      setProblems([{ severity: 'error', message: internal
+        ? `The AMF engine couldn't read this spec: it hit an internal error instead of reporting the mistake (${msg.replace(/^.*?(\w+(Exception|Error))/, '$1').slice(0, 80)}). Look at the most recent change, often an annotation or a value with nothing after its colon.`
+        : `Couldn't check the spec: ${msg}`, file: project.main ?? '', line: 1, col: 0, endLine: 1, endCol: 0, phase: 'parse', code: '' }]);
       setEngine({ state: 'ready', detail: '' });
     }
   }

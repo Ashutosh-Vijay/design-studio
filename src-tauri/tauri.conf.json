@@ -61,5 +61,6 @@
         "installMode": "quiet"
       }
     }
-  }
+  },
+  "mainBinaryName": "Design Studio"
 }

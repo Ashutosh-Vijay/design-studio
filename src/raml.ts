@@ -5,7 +5,9 @@ export const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'option
 export const BUILTIN_TYPES = ['string', 'number', 'integer', 'boolean', 'date-only', 'time-only', 'datetime', 'datetime-only', 'file', 'object', 'array', 'any', 'nil'];
 
 // One "key:" line. Handles "key : value" (a corpus quirk) and "- key:" list items.
-const KEY_RE = /^(\s*)(- )?("[^"]*"|'[^']*'|[^\s#:][^:#]*?)\s*:(?:\s+(.*))?$/;
+// A YAML key: quoted, or plain. In YAML a # starts a comment only after whitespace, so keys like
+// /#X-Amz-Target=... (AWS's OpenAPI specs) are keys, not comments (seen 2026-10-20 in the public corpus).
+const KEY_RE = /^(\s*)(- )?("[^"]*"|'[^']*'|[^\s#:](?:[^:\s]|[ \t]+(?=[^\s#:]))*?)\s*:(?:\s+(.*))?$/;
 export type Entry = { line: number; ind: number; key: string; val: string; from: number; dash: boolean }; // dash: the key opens a "- " list item
 
 // The shelf, breadcrumb, tree selection and Inspector all read the same text after each keystroke: parse it once.

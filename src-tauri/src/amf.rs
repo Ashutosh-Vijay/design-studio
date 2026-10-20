@@ -32,10 +32,16 @@ fn status(app: &AppHandle, state: &str, detail: &str) {
   let _ = app.emit("amf-status", json!({ "state": state, "detail": detail }));
 }
 
+// Windows hands back install paths in the verbatim form (\\?\C:\...). Java opens the jar from it but its class
+// loader can't, which surfaced as "Could not find or load main class amfserver.Main" in the installed app.
+fn plain(p: PathBuf) -> PathBuf {
+  p.to_str().and_then(|s| s.strip_prefix(r"\\?\")).map(PathBuf::from).unwrap_or(p)
+}
+
 fn find_jar(app: &AppHandle) -> Option<PathBuf> {
   // Release: bundled next to the app. Dev: the Maven build output.
   if let Ok(dir) = app.path().resource_dir() {
-    let p = dir.join("resources").join("amf-server").join("amf-server.jar");
+    let p = plain(dir.join("resources").join("amf-server").join("amf-server.jar"));
     if p.exists() {
       return Some(p);
     }
@@ -47,7 +53,7 @@ fn find_jar(app: &AppHandle) -> Option<PathBuf> {
 fn find_java(app: &AppHandle) -> PathBuf {
   let exe = if cfg!(windows) { "java.exe" } else { "java" };
   if let Ok(dir) = app.path().resource_dir() {
-    let p = dir.join("resources").join("jre").join("bin").join(exe);
+    let p = plain(dir.join("resources").join("jre").join("bin").join(exe));
     if p.exists() {
       return p;
     }

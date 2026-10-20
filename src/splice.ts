@@ -204,7 +204,7 @@ export function setScalar(text: string, path: Path, key: string, value: string |
   if (scalar(text, [...path, key]) === value) return text;
   const L = text.split('\n'), end = blockEnd(E, L, k);
   const lead = L[E[k].line].match(/^\s*(- )?/)![0];
-  const keyText = L[E[k].line].slice(lead.length).match(/^("[^"]*"|'[^']*'|[^:#]*?)\s*:/)![0];
+  const keyText = L[E[k].line].slice(lead.length).match(/^("[^"]*"|'[^']*'|[^\s#:](?:[^:\s]|[ \t]+(?=[^\s#:]))*?)\s*:/)![0];
   // A one-line value keeps whatever followed it: a comment, or trailing spaces.
   const comment = !multi && !/^[|>]/.test(E[k].val) ? (L[E[k].line].match(/\s+#.*$|[ \t]+$/)?.[0] ?? '') : '';
   const sep = (!/^[|>]/.test(E[k].val) && L[E[k].line].slice(lead.length + keyText.length).match(/^[ \t]+/)?.[0]) || ' ';
@@ -219,7 +219,7 @@ export function renameKey(text: string, path: Path, nu: string): string {
   const L = text.split('\n'), l = L[E[k].line];
   const lead = l.match(/^\s*(- )?/)![0];
   // A quoted key stays quoted the same way.
-  L[E[k].line] = lead + l.slice(lead.length).replace(/^("[^"]*"|'[^']*'|[^:#]*?)(\s*:)/, (_m, old: string, colon) => (/^["']/.test(old) ? old[0] + nu + old[0] : nu) + colon);
+  L[E[k].line] = lead + l.slice(lead.length).replace(/^("[^"]*"|'[^']*'|[^\s#:](?:[^:\s]|[ \t]+(?=[^\s#:]))*?)(\s*:)/, (_m, old: string, colon) => (/^["']/.test(old) ? old[0] + nu + old[0] : nu) + colon);
   return L.join('\n');
 }
 
