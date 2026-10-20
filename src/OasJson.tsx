@@ -102,7 +102,7 @@ export function oasJsonSelection(text: string, offset: number): string | null {
 }
 
 export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, onGoOffset, onOpenAt, onJsonSchema }: {
-  file: string; text: string; line: number; readOnly: boolean; model: AmfModel | null;
+  file: string; text: string; line: number; readOnly: boolean | string; model: AmfModel | null;
   onEdit: (fn: (t: string) => string) => void; onGoOffset: (offset: number) => void; onOpenAt: (at: At) => void; onJsonSchema: (name: string, file: string) => void;
 }) {
   const tree = useMemo(() => parseTree(text), [text]);
@@ -299,8 +299,8 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
 
   return (
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
-      {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />Read-only: managed by Exchange</div>}
-      <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
+      {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />{typeof readOnly === 'string' ? readOnly : 'Read-only: managed by Exchange'}</div>}
+      <fieldset disabled={!!readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
     </div>
   );
 }

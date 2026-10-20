@@ -148,7 +148,7 @@ export const BTN = 'h-[26px] px-2.5 rounded-md text-[12px] border border-line bg
 const TRAIT_PARTS = ['queryParameters', 'queryString', 'headers', 'securedBy', 'body', 'responses'];
 
 export function Inspector({ file, text, line, isMain, readOnly, outline, model, onEdit, onGoLine, onOpen, onOpenAt, onRename, onMove, onDelete, onJsonSchema }: {
-  file: string; text: string; line: number; isMain: boolean; readOnly: boolean; outline: Outline | null; model: AmfModel | null;
+  file: string; text: string; line: number; isMain: boolean; readOnly: boolean | string; outline: Outline | null; model: AmfModel | null;
   onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void; onOpen: (file: string, from: number) => void;
   onRename: (from: number) => void; onMove: (d: Decl) => void; onDelete: (d: Decl) => void;
   onOpenAt: (at: At) => void; onJsonSchema: (name: string, file: string) => void;
@@ -537,9 +537,9 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
 
   return (
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
-      {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />Read-only: managed by Exchange</div>}
+      {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />{typeof readOnly === 'string' ? readOnly : 'Read-only: managed by Exchange'}</div>}
       {/* A disabled fieldset turns every box, button and picker inside it off at once. */}
-      <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
+      <fieldset disabled={!!readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
       {lists}
     </div>
   );
@@ -569,7 +569,7 @@ function setOasType(text: string, p: string[], t: string): string {
 }
 
 export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLine, onOpenAt, onJsonSchema }: {
-  file: string; text: string; line: number; readOnly: boolean; model: AmfModel | null;
+  file: string; text: string; line: number; readOnly: boolean | string; model: AmfModel | null;
   onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void; onOpenAt: (at: At) => void; onJsonSchema: (name: string, file: string) => void;
 }) {
   const E = useMemo(() => entries(text), [text]);
@@ -764,8 +764,8 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
 
   return (
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
-      {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />Read-only: managed by Exchange</div>}
-      <fieldset disabled={readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
+      {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />{typeof readOnly === 'string' ? readOnly : 'Read-only: managed by Exchange'}</div>}
+      <fieldset disabled={!!readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
     </div>
   );
 }

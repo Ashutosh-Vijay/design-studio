@@ -1,5 +1,5 @@
 import { Component, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
-import { EditorState, type Extension } from '@codemirror/state';
+import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
@@ -20,7 +20,7 @@ import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu } from './SyncUI';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
-import { projectsDir } from './sync';
+import { projectsDir, readLink, projectPermissions } from './sync';
 import { DocsPanel } from './Docs';
 import { ApiMap } from './ApiMap';
 import { CreateDialog, NewFileDialog } from './Create';
@@ -48,7 +48,12 @@ function ago(t: number) {
   const d = Math.round(h / 24); return d === 1 ? 'Yesterday' : `${d} days ago`;
 }
 const base = (p: string) => p.split('/').pop() || p;
-const isReadOnly = (p: string) => p === 'exchange.json' || p.startsWith('exchange_modules/');
+// Exchange's files are never edited here; and with a Viewer role in Design Center, nothing is (viewerOnly).
+let viewerOnly = false;
+const isExchangeFile = (p: string) => p === 'exchange.json' || p.startsWith('exchange_modules/');
+const isReadOnly = (p: string) => viewerOnly || isExchangeFile(p);
+const roCompartment = new Compartment();
+const roExtensions = (ro: boolean) => [EditorState.readOnly.of(ro), EditorView.editable.of(!ro)];
 // An OpenAPI 3 file written in YAML: the forms, tree and outline read it with the same line parser as RAML.
 const isOasYaml = (p: string, text: string) => /\.ya?ml$/i.test(p) && /^\s*openapi\s*:\s*['"]?3\./m.test(text);
 const isOasJson = (p: string, text: string) => /\.json$/i.test(p) && /"openapi"\s*:\s*"3\./.test(text);
@@ -356,6 +361,25 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const [amfModel, setAmfModel] = useState<AmfModel | null>(null);
   const [problemsOpen, setProblemsOpen] = useState(false);
   const [engine, setEngine] = useState<{ state: string; detail: string; ms?: string }>({ state: 'starting', detail: '' });
+  // A Viewer in Design Center can look but not edit: every file goes read-only, open ones too, with a banner.
+  const [viewOnly, setViewOnly] = useState(false);
+  useEffect(() => {
+    viewerOnly = false; setViewOnly(false);
+    let gone = false;
+    (async () => {
+      const l = await readLink(project.root); if (!l || gone) return;
+      const me = await invoke<{ read_only: boolean } | null>('anypoint_status').catch(() => null); if (!me || gone) return;
+      // __ADS_VIEWER (development only) acts as a Viewer, for testing without a second account.
+      const perms = import.meta.env.DEV && (window as unknown as { __ADS_VIEWER?: boolean }).__ADS_VIEWER ? { canModify: false }
+        : await projectPermissions(l.projectId).catch(() => ({} as { canModify?: boolean }));
+      if (gone || perms.canModify !== false) return;
+      viewerOnly = true; setViewOnly(true);
+      for (const f of files.current.values()) f.state = f.state.update({ effects: roCompartment.reconfigure(roExtensions(true)) }).state;
+      const v = view.current, a = activeRef.current;
+      if (v && a) { v.dispatch({ effects: roCompartment.reconfigure(roExtensions(true)) }); files.current.get(a)!.state = v.state; }
+    })();
+    return () => { gone = true; viewerOnly = false; };
+  }, [project.root]); // eslint-disable-line react-hooks/exhaustive-deps
   const gen = useRef(0), applied = useRef(0), sentOverlay = useRef(new Set<string>());
   const checkTimers = useRef<number[]>([]);
   const scheduleRef = useRef<() => void>(() => {});
@@ -503,7 +527,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       const ro = isReadOnly(path);
       files.current.set(path, {
         disk: text,
-        state: EditorState.create({ doc: text, extensions: [...baseExtensions(), languageFor(path), ...assist(path), listener, EditorState.readOnly.of(ro), EditorView.editable.of(!ro)] }),
+        state: EditorState.create({ doc: text, extensions: [...baseExtensions(), languageFor(path), ...assist(path), listener, roCompartment.of(roExtensions(ro))] }),
       });
     }
     setTabs((t) => (t.includes(path) ? t : [...t, path]));
@@ -1334,8 +1358,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                 </button>
               </span>
             ))}
-            {active && isReadOnly(active) && <span className="ml-auto flex items-center gap-1"><Icons.Lock size={11} />Read-only: managed by Exchange</span>}
+            {active && !viewOnly && isExchangeFile(active) && <span className="ml-auto flex items-center gap-1"><Icons.Lock size={11} />Read-only: managed by Exchange</span>}
           </div>
+          {viewOnly && <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-[color-mix(in_oklch,var(--warn)_40%,transparent)] bg-[color-mix(in_oklch,var(--warn)_10%,transparent)] text-[12px]">
+            <Icons.Lock size={13} /><span><b>View only.</b> Your Design Center role on this project lets you look, not edit. Ask an owner for Editor access to change it.</span></div>}
           <div ref={host} className="flex-1 min-h-0 select-text" style={{ display: active ? 'block' : 'none' }} />
           {active === project.main && shelf && (
             <Shelf ctx={shelf} open={shelfOpen} setOpen={setShelfOpen} onPick={shelfInsert}
@@ -1375,14 +1401,14 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
             <Boundary resetKey={doc ? doc.path + ":" + doc.line : ""} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {e}. The code editor still works; move the cursor to try again.</div>}>
             {doc && active === doc.path && /\.raml$/i.test(doc.path) ? (
-              <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={isReadOnly(doc.path)} outline={outline} model={amfModel}
+              <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} outline={outline} model={amfModel}
                 onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)} onOpenAt={revealAt} onJsonSchema={copyJsonSchema}
                 onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }}
                 onMove={openMove} onDelete={deleteDecl} />
             ) : doc && active === doc.path && isOasYaml(doc.path, doc.text) ? (
-              <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
+              <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
             ) : doc && active === doc.path && isOasJson(doc.path, doc.text) ? (
-              <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
+              <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
             ) : (
               <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.' : 'Forms are for RAML 1.0 and OAS 3.0 specs.'}</div>
             )}
