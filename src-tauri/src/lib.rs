@@ -1,5 +1,6 @@
 mod amf;
 mod anypoint;
+mod mcp;
 mod watch;
 
 use serde::Serialize;
@@ -320,6 +321,7 @@ pub fn run() {
     .manage(std::sync::Arc::new(amf::Amf::default()))
     .manage(watch::WatchState::default())
     .manage(std::sync::Arc::new(anypoint::Anypoint::default()))
+    .manage(mcp::Mcp::default())
     .setup(|app| {
       // The window starts hidden and the page shows it after its first frame; this is the safety net.
       let h = app.handle().clone();
@@ -329,7 +331,7 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, create_dir, export_zip, import_zip, import_into, fetch_url, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
       anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only, anypoint::anypoint_set_org, anypoint::anypoint_broker_regions,
-      anypoint::anypoint_dev_session])
+      anypoint::anypoint_dev_session, mcp::mcp_start, mcp::mcp_stop, mcp::mcp_status, mcp::mcp_reply])
     .build(tauri::generate_context!())
     .expect("error while building Design Studio")
     .run(|app, event| {

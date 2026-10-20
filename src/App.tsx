@@ -19,6 +19,7 @@ import { WindowControls, isTauri } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
+import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus } from './mcp';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
 import { projectsDir, readLink, projectPermissions } from './sync';
 import { DocsPanel } from './Docs';
@@ -86,6 +87,10 @@ export default function App() {
   // What the project view lends the title bar's sync controls: save everything, show a notice, reload.
   const syncRef = useRef<SyncHooks | null>(null);
   const openFileRef = useRef<(path: string) => void>(() => {});
+  // AI tools (MCP): the panel, and what the app lends the tools (open, close, recent projects).
+  const [mcpOpen, setMcpOpen] = useState(false);
+  const mcp = useMcpStatus();
+  useEffect(() => { if (isTauri) startDispatcher(); }, []);
 
   useEffect(() => { applyTheme(theme.pref, theme.accent); }, [theme]);
 
@@ -104,6 +109,7 @@ export default function App() {
     return () => { un.then((f) => f()); };
   }, []);
 
+  mcpHost.app = { recent, open: (root) => openFolder(root), close: async () => { if (await okToLeave()) { setProject(null); setDirtyCount(0); } } };
   async function openFolder(root?: string) {
     if (project && !(await okToLeave())) return;
     setError(null);
@@ -198,6 +204,8 @@ export default function App() {
         <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title="Search files and commands (Ctrl K)" onClick={() => setPaletteOpen('')}>
           <Icons.Search size={15} />
         </button>
+        {mcp?.running && <button onClick={() => setMcpOpen(true)} title={`AI tools are connected at 127.0.0.1:${mcp.port} (${mcp.requests} ${mcp.requests === 1 ? 'call' : 'calls'}). Click for details.`}
+          className="h-7 px-2 flex items-center gap-1.5 rounded-md text-[11.5px] text-content-muted hover:bg-surface-2 hover:text-content"><Icons.Sparkle size={13} />AI tools</button>}
         {upd.state === 'ready' && <button onClick={restartToUpdate} title={`Version ${upd.version} is downloaded. Restart to use it (a few seconds).`}
           className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-[12px] font-medium text-accent border border-accent-border bg-accent-dim hover:brightness-110">
           <span className="w-1.5 h-1.5 rounded-full bg-accent" />Update ready</button>}
@@ -233,10 +241,11 @@ export default function App() {
       {creating && <CreateDialog what={creating} onClose={() => setCreating(null)} onCreated={(root) => { setCreating(null); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
       {about && <About version={version} onClose={() => setAbout(false)} onRestart={restartToUpdate} />}
+      {mcpOpen && <McpPanel onClose={() => setMcpOpen(false)} />}
       <Splash />
       {settingsAt && (
         <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)}
-          onConnect={() => { setSettingsAt(null); setConnectOpen(true); }} />
+          onConnect={() => { setSettingsAt(null); setConnectOpen(true); }} onMcp={() => { setSettingsAt(null); setMcpOpen(true); }} />
       )}
       {paletteOpen !== false && (
         <Palette project={project} recent={recent} start={paletteOpen} lent={project ? paletteRef.current : null} onClose={() => setPaletteOpen(false)}
@@ -575,6 +584,42 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       ];
     },
   };
+  // What the AI tools (mcp.tsx) can do in this project: the same functions the UI uses.
+  const declFor = (name: string, file?: string) => findDecl(file ?? project.main ?? '', name);
+  const lent: typeof mcpHost.project = {
+    root: project.root, name: project.name, main: project.main, files: project.files.map((f) => f.path), open: tabs, active, unsaved: [...dirty], viewOnly,
+    read: readAny,
+    write: async (path, text) => {
+      if (isReadOnly(path)) throw new Error(viewerOnly ? 'This project is view only.' : `${path} is an Exchange dependency, so it's read only.`);
+      if (!project.files.some((f) => f.path === path) && !files.current.has(path)) {
+        await invoke('save_text_file', { root: project.root, path, text }); await onRefresh(); await openFile(path); return;
+      }
+      await openFile(path); await writeAny(path, text);
+      if (!(await save(path))) throw new Error(`${path} couldn't be saved.`);
+    },
+    remove: async (path) => {
+      if (isReadOnly(path)) throw new Error(`${path} is read only.`);
+      await invoke('delete_file', { root: project.root, path });
+      if (files.current.has(path)) { setDirty((d) => { const n = new Set(d); n.delete(path); return n; }); closeTabQuiet(path); }
+      await onRefresh();
+    },
+    rename: async (from, to) => { if (isReadOnly(from)) throw new Error(`${from} is read only.`); await renameFile(from, to, true); },
+    setRoot: async (path) => { if (viewerOnly) throw new Error('This project is view only.'); await setRootFile(path); },
+    saveAll: async () => { for (const p of [...dirty]) if (!(await save(p))) throw new Error(`${p} couldn't be saved.`); },
+    // A check started meanwhile (typing, a save) can supersede this one: then it asks again.
+    check: async () => { if (!checkable) return undefined; for (let i = 0; i < 6; i++) { const r = await runCheck('validate'); if (r) return r; await new Promise((ok) => setTimeout(ok, 300)); } throw new Error(engine.state === 'failed' ? `The AMF engine isn't running: ${engine.detail}` : "The check didn't finish; try again."); },
+    governance: () => runGovernance(),
+    outline: () => outlineRef.current,
+    refs: async (name, file) => { const d = declFor(name, file); return d ? (await refsOf(d)).map((r) => ({ file: r.file, line: r.line, text: r.text, decl: r.decl })) : null; },
+    renameSymbol: async (name, nu, file) => { const d = declFor(name, file); if (!d) throw new Error(`${name} isn't a declared type, trait, resource type or security scheme.`); return doRename(d, nu); },
+    convert: async (path, to, syntax) => { await syncOverlays(); return (await amf('convert', { path, to, syntax })).text; },
+    jsonSchema: async (name, file) => { await syncOverlays(); return (await amf('jsonSchema', { name, file })).text; },
+    mockPort: async () => { await syncOverlays(); return (await amf('mock', { on: true })).port; },
+    show: async (path, line) => { await openFile(path); if (line) goLine(line - 1); },
+    reload: async () => { await syncRef.current?.reload(); },
+  };
+  // Lent after every render (and taken back on close); an effect, so a double mount in development can't leave it unset.
+  useEffect(() => { mcpHost.project = lent; return () => { if (mcpHost.project === lent) mcpHost.project = null; }; });
   // The title bar's sync controls: save every unsaved file first, show what happened, reload after a pull.
   syncRef.current = {
     saveAll: async () => { for (const p of [...dirty]) if (!(await save(p))) throw new Error(`${base(p)} couldn't be saved, so nothing was sent.`); },
@@ -714,6 +759,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   async function findReferences(path: string, state: EditorState, pos: number) {
     const w = wordAt(state, pos); const d = w.text ? findDecl(path, w.text) : null;
     if (!d) { fail('Put the cursor on a type, trait, resource type or security scheme name to find where it is used.'); return; }
+    const refs = await refsOf(d);
+    setDialog(<RefsDialog name={`${d.alias ? d.alias + '.' : ''}${d.name}`} refs={refs} onClose={() => setDialog(null)} onGo={(r) => { setDialog(null); reveal(r.file, r.from); }} />);
+  }
+  async function refsOf(d: Decl) {
     const refs: { file: string; from: number; line: number; text: string; decl?: boolean }[] = [];
     const at = (file: string, text: string, from: number, decl?: boolean) => { const before = text.slice(0, from); const line = before.split('\n').length; refs.push({ file, from, line, text: text.split('\n')[line - 1].trim(), decl }); };
     const declText = await readAny(d.file); at(d.file, declText, d.from, true);
@@ -721,7 +770,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       const text = f === d.file ? declText : await readAny(f);
       for (const [from] of usesInText(f, text, d)) at(f, text, from);
     }
-    setDialog(<RefsDialog name={`${d.alias ? d.alias + '.' : ''}${d.name}`} refs={refs} onClose={() => setDialog(null)} onGo={(r) => { setDialog(null); reveal(r.file, r.from); }} />);
+    return refs;
   }
 
   // Rename Symbol (F2), as Design Center's: the declaration and every use, never plain mentions in descriptions.
@@ -733,7 +782,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       hint="Changes the declaration and every place it's used, in every file." onCancel={() => setDialog(null)}
       onOk={async (nu) => {
         setDialog(null);
-        if (!/^[A-Za-z_][\w-]*$/.test(nu)) { fail(`${nu} isn't a valid name.`); return; }
+        try { setNotice({ text: await doRename(d, nu), err: false }); } catch (e) { fail(String(e).replace(/^Error: /, '')); }
+      }} />);
+  }
+  async function doRename(d: Decl, nu: string) {
+        if (isReadOnly(d.file)) throw new Error(viewerOnly ? 'This project is view only.' : `${d.name} comes from an Exchange dependency, so it can't be renamed here.`);
+        if (!/^[A-Za-z_][\w-]*$/.test(nu)) throw new Error(`${nu} isn't a valid name.`);
         const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         let uses = 0;
         for (const f of project.files.map((x) => x.path).filter((p) => /\.(raml|ya?ml)$/i.test(p))) {
@@ -748,9 +802,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           }
           if (text !== before) await writeAny(f, text);
         }
-        setNotice({ text: `Renamed ${d.name} to ${nu} and ${uses} ${uses === 1 ? 'use' : 'uses'}.`, err: false });
         rebuildOutline(); runCheck('validate');
-      }} />);
+        return `Renamed ${d.name} to ${nu} and ${uses} ${uses === 1 ? 'use' : 'uses'}.`;
   }
 
   // Delete (Cascade), from ALS's list: the declaration and every use of it, in every file that can see it.
@@ -875,9 +928,9 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     return count;
   }
 
-  async function renameFile(from: string, toName: string) {
+  async function renameFile(from: string, toName: string, whole = false) {
     const dir = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : '';
-    const to = dir + toName;
+    const to = whole ? toName : dir + toName;
     if (to === from) return;
     await invoke('rename_file', { root: project.root, from, to });
     const n = await retargetReferences(from, to);
@@ -1089,7 +1142,9 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         w.postMessage({ profiles: rs.map((r) => ({ name: r.name, text: profileFor(r, st.off[r.key] ?? []) })), graph });
       });
       const at = (await amf('govLocate', { ids: [...new Set(found.map((f) => f.focus))] })).at as Record<string, At>;
-      setGov({ state: 'done', rulesets: rs.length, seconds: Math.round((performance.now() - t0) / 1000), results: found.map((f) => ({ ...f, file: at[f.focus]?.file, r: at[f.focus]?.r })) });
+      const results = found.map((f) => ({ ...f, file: at[f.focus]?.file, r: at[f.focus]?.r }));
+      setGov({ state: 'done', rulesets: rs.length, seconds: Math.round((performance.now() - t0) / 1000), results });
+      return results;
     } catch (e) {
       // A crashed WebAssembly engine stays broken: start a fresh worker next time.
       govWorker.current?.terminate(); govWorker.current = null;
@@ -1123,6 +1178,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       setEngine({ state: 'ready', detail: '', ms: mode === 'validate' ? `Checked in ${((r.parseMs + r.validateMs) / 1000).toFixed(1)} s` : `Read in ${(r.parseMs / 1000).toFixed(2)} s` });
       // Auto-validation (Design Center's governance setting): after each full check, when on.
       if (mode === 'validate' && govSettingsRef.current.auto) govRef.current();
+      return r.problems as Problem[];
     } catch (e) {
       // The checker answered but couldn't read the spec: that's a problem with the spec, not a dead
       // checker. (A dead or blocked checker is reported through the amf-status event instead.)
@@ -1130,10 +1186,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       if (/didn't answer|isn't running|Couldn't start Java|didn't start/.test(msg)) { setEngine({ state: 'failed', detail: msg }); return; }
       // AMF itself failing (a Java exception, seen on some malformed specs) says nothing useful to a user.
       const internal = /Exception|Error:|None\.get/.test(msg);
-      setProblems([{ severity: 'error', message: internal
+      const shown: Problem[] = [{ severity: 'error', message: internal
         ? `The AMF engine couldn't read this spec: it hit an internal error instead of reporting the mistake (${msg.replace(/^.*?(\w+(Exception|Error))/, '$1').slice(0, 80)}). Look at the most recent change, often an annotation or a value with nothing after its colon.`
-        : `Couldn't check the spec: ${msg}`, file: project.main ?? '', line: 1, col: 0, endLine: 1, endCol: 0, phase: 'parse', code: '' }]);
+        : `Couldn't check the spec: ${msg}`, file: project.main ?? '', line: 1, col: 0, endLine: 1, endCol: 0, phase: 'parse', code: '' }];
+      setProblems(shown);
       setEngine({ state: 'ready', detail: '' });
+      return shown;
     }
   }
   scheduleRef.current = () => {
@@ -1952,8 +2010,8 @@ export function setZoom(z: number) {
   window.dispatchEvent(new Event('ads-zoom'));
 }
 if (isTauri && savedZoom() !== 1) getCurrentWebview().setZoom(savedZoom()).catch(() => {});
-function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect }: {
-  at: DOMRect; pref: ThemePref; accent: string; onChange: (p: ThemePref, a: string) => void; onClose: () => void; onConnect: () => void;
+function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect, onMcp }: {
+  at: DOMRect; pref: ThemePref; accent: string; onChange: (p: ThemePref, a: string) => void; onClose: () => void; onConnect: () => void; onMcp: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [ed, setEdState] = useState(editorPrefs);
@@ -2027,6 +2085,13 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect }: {
         {custom && <button className="mt-1 text-[11.5px] text-accent hover:underline" onClick={async () => { try { localStorage.removeItem('ads.projectsDir'); } catch { /* ignore */ } setHome(await projectsDir()); }}>Use the default</button>}
       </>}
       {isTauri && <AnypointSettings onConnect={onConnect} />}
+      {isTauri && <>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">AI tools</div>
+        <div className="flex items-center gap-1.5">
+          <span className="flex-1 text-[11.5px] text-content-faint leading-snug">Let agents like Claude, Copilot and Cursor work here (MCP).</span>
+          <button className={btn + ' !h-6 !px-2 !text-[11.5px]'} onClick={onMcp}>Set up…</button>
+        </div>
+      </>}
       {isTauri && import.meta.env.VITE_STORE_BUILD !== '1' && <label className="mt-3.5 flex items-center gap-2 text-[12px] cursor-pointer" title="Asks GitHub for a newer version a few seconds after the app starts, and downloads it quietly">
         <input type="checkbox" defaultChecked={autoUpdates()} onChange={(e) => { try { localStorage.setItem('ads.updateCheck', e.target.checked ? '1' : '0'); } catch { /* ignore */ } }} className="accent-[var(--accent)]" />Check for updates automatically
       </label>}

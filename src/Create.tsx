@@ -35,6 +35,39 @@ const fileName = (k: Kind, name: string) => (KINDS[k].ext && !name.toLowerCase()
 const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input text-[12.5px] outline-none focus:border-accent';
 
 // ---------- Create: a new project, in Design Center and here, or only here ----------
+// The work itself, shared by the dialog and the AI tools (create_project). Returns the new folder.
+export async function makeProject(n: string, kind: Kind, dc: boolean, me: Me | null, busy: (s: string) => void = () => {}) {
+  if (dc) {
+    busy('Creating it in Design Center…');
+    const id = await S.createProject(n, KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment', (KINDS[kind] as { sub?: string }).sub);
+    const root = await S.projectFolder(me!.org_name || 'Anypoint', n, id);
+    busy('Pulling it here…');
+    await S.clone(root, id, n, 'master');
+    // Design Center starts every OAS project as OAS 2.0 JSON: another flavour is written here and pushed.
+    if (kind !== 'oas2json' && kind.startsWith('oas')) {
+      const x = (await S.readDescriptor(root))!;
+      const file = fileName(kind, n), old = x.d.main;
+      await invoke('write_file_exact', { root, path: file, text: starter(kind, n) });
+      if (old && old !== file) await invoke('delete_file', { root, path: old });
+      await S.writeDescriptor(root, x.text, (d) => { d.main = file; });
+      busy('Sending the starter file…');
+      const paths = (await invoke<{ files: { path: string }[] }>('open_project', { root })).files.map((f) => f.path);
+      await S.push(root, (await S.readLink(root))!, paths);
+    }
+    return root;
+  }
+  busy('Creating it…');
+  const home = (await S.projectsDir()) + '/On this computer/';
+  let root = home + n.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-');
+  if ((await invoke<{ files: unknown[] }>('open_project', { root }).then((p) => p.files.length, () => 0))) root += ` (${Date.now().toString(36)})`;
+  const file = fileName(kind, n.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-'));
+  await invoke('write_file_exact', { root, path: file, text: starter(kind, n) });
+  // Design Center's descriptor, so the root file, Publish and Exchange see it the same way later.
+  const classifier = KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment';
+  await invoke('write_file_exact', { root, path: 'exchange.json', text: JSON.stringify({ main: file, name: n, classifier, tags: [], version: '1.0.0', dependencies: [] }, null, 2) + '\n' });
+  return root;
+}
+
 export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'fragment'; onClose: () => void; onCreated: (root: string, note: string | null) => void }) {
   const [name, setName] = useState('');
   const [kind, setKind] = useState<Kind>(what === 'api' ? 'raml' : 'library');
@@ -46,38 +79,8 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
   const dc = dcOk && inDc;
   const go = async () => {
     const n = name.trim(); setErr(null);
-    try {
-      if (dc) {
-        setBusy('Creating it in Design Center…');
-        const id = await S.createProject(n, KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment', (KINDS[kind] as { sub?: string }).sub);
-        const root = await S.projectFolder(me!.org_name || 'Anypoint', n, id);
-        setBusy('Pulling it here…');
-        await S.clone(root, id, n, 'master');
-        // Design Center starts every OAS project as OAS 2.0 JSON: another flavour is written here and pushed.
-        if (kind !== 'oas2json' && kind.startsWith('oas')) {
-          const x = (await S.readDescriptor(root))!;
-          const file = fileName(kind, n), old = x.d.main;
-          await invoke('write_file_exact', { root, path: file, text: starter(kind, n) });
-          if (old && old !== file) await invoke('delete_file', { root, path: old });
-          await S.writeDescriptor(root, x.text, (d) => { d.main = file; });
-          setBusy('Sending the starter file…');
-          const paths = (await invoke<{ files: { path: string }[] }>('open_project', { root })).files.map((f) => f.path);
-          await S.push(root, (await S.readLink(root))!, paths);
-        }
-        onCreated(root, null);
-      } else {
-        setBusy('Creating it…');
-        const home = (await S.projectsDir()) + '/On this computer/';
-        let root = home + n.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-');
-        if ((await invoke<{ files: unknown[] }>('open_project', { root }).then((p) => p.files.length, () => 0))) root += ` (${Date.now().toString(36)})`;
-        const file = fileName(kind, n.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-'));
-        await invoke('write_file_exact', { root, path: file, text: starter(kind, n) });
-        // Design Center's descriptor, so the root file, Publish and Exchange see it the same way later.
-        const classifier = KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment';
-        await invoke('write_file_exact', { root, path: 'exchange.json', text: JSON.stringify({ main: file, name: n, classifier, tags: [], version: '1.0.0', dependencies: [] }, null, 2) + '\n' });
-        onCreated(root, null);
-      }
-    } catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(null); }
+    try { onCreated(await makeProject(n, kind, dc, me ?? null, setBusy), null); }
+    catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(null); }
   };
   const list = what === 'api' ? API_KINDS : FRAGMENTS;
   return (
