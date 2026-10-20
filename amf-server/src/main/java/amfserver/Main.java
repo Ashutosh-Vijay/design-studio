@@ -154,6 +154,7 @@ public class Main {
       }
       case "convert" -> send(convert(req));
       case "jsonSchema" -> send(jsonSchema(req));
+      case "lesson" -> send(lesson(req));
       default -> send(JSON.createObjectNode().put("id", req.path("id").asLong()).put("ok", false).put("error", "unknown op"));
     }
   }
@@ -248,6 +249,45 @@ public class Main {
     problems.forEach(arr::add);
     if (model != null) res.set("model", model);
     return res;
+  }
+
+  // The Academy's checks: a few files held in memory (never on disk, never the open project's), parsed and
+  // validated like a project, with the model the lesson's goals are checked against. Requests run one at a
+  // time, so the open project's root is borrowed for the paths and put back.
+  static final Map<String, String> lessonFiles = new ConcurrentHashMap<>();
+  static final ResourceLoader LESSON = new ResourceLoader() {
+    @Override public CompletableFuture<Content> fetch(String resource) {
+      String t = lessonFiles.get(pathOf(resource));
+      return t == null ? CompletableFuture.failedFuture(new java.io.FileNotFoundException(rel(resource) + " isn't one of this lesson's files")) : CompletableFuture.completedFuture(new Content(t, resource));
+    }
+    @Override public boolean accepts(String resource) { return resource.startsWith("file:"); }
+  };
+  static ObjectNode lesson(JsonNode req) throws Exception {
+    Path keepRoot = root; String keepMain = main;
+    root = Paths.get(System.getProperty("java.io.tmpdir"), "design-studio-academy").toAbsolutePath().normalize();
+    main = req.path("main").asText();
+    try {
+      lessonFiles.clear();
+      req.path("files").fields().forEachRemaining(e -> lessonFiles.put(pathOf(fileUrl(root.resolve(e.getKey()))), e.getValue().asText()));
+      List<ResourceLoader> only = List.of(LESSON);
+      AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(only).baseUnitClient().parse(fileUrl(root.resolve(main))).get();
+      List<ObjectNode> problems = new ArrayList<>();
+      for (AMFValidationResult r : parsed.results()) problems.add(problem(r, "parse"));
+      ObjectNode model = model(parsed.baseUnit());
+      if (parsed.sourceSpec() != null) {
+        AMFValidationReport report = APIConfiguration.fromSpec(parsed.sourceSpec()).withResourceLoaders(only).baseUnitClient().validate(parsed.baseUnit().cloneUnit()).get();
+        Set<String> seen = new HashSet<>();
+        for (ObjectNode p : problems) seen.add(key(p));
+        for (AMFValidationResult r : report.results()) { ObjectNode p = problem(r, "validate"); if (seen.add(key(p))) problems.add(p); }
+      }
+      ObjectNode res = reply(req).put("spec", parsed.sourceSpec() == null ? "" : parsed.sourceSpec().id());
+      ArrayNode arr = res.putArray("problems");
+      problems.forEach(arr::add);
+      res.set("model", model);
+      return res;
+    } finally {
+      root = keepRoot; main = keepMain; lessonFiles.clear();
+    }
   }
 
   // A declared type as JSON Schema, by AMF (the Inspector's "Copy as JSON Schema"). Parsed without the unit

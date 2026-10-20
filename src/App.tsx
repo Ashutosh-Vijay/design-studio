@@ -20,6 +20,8 @@ import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
 import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus } from './mcp';
+import { AcademyScreen, academyDone } from './Academy';
+import { LESSONS } from './course';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
 import { projectsDir, readLink, projectPermissions } from './sync';
 import { DocsPanel } from './Docs';
@@ -89,6 +91,9 @@ export default function App() {
   const openFileRef = useRef<(path: string) => void>(() => {});
   // AI tools (MCP): the panel, and what the app lends the tools (open, close, recent projects).
   const [mcpOpen, setMcpOpen] = useState(false);
+  // API Design Academy: from the start screen, or the palette anywhere (a window event, since the project view has the palette).
+  const [academy, setAcademy] = useState(false);
+  useEffect(() => { const f = () => setAcademy(true); window.addEventListener('ads-academy', f); return () => window.removeEventListener('ads-academy', f); }, []);
   const mcp = useMcpStatus();
   useEffect(() => { if (isTauri) startDispatcher(); }, []);
 
@@ -233,7 +238,7 @@ export default function App() {
         />
         </Boundary>
       ) : (
-        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onOpenZip={openZip} onPull={() => setConnectOpen(true)} onCreate={setCreating}
+        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onOpenZip={openZip} onPull={() => setConnectOpen(true)} onCreate={setCreating} onAcademy={() => setAcademy(true)}
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
       )}
 
@@ -242,6 +247,7 @@ export default function App() {
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
       {about && <About version={version} onClose={() => setAbout(false)} onRestart={restartToUpdate} />}
       {mcpOpen && <McpPanel onClose={() => setMcpOpen(false)} />}
+      {academy && <AcademyScreen onClose={() => setAcademy(false)} onCreate={() => { setAcademy(false); if (project) setPendingNotice('Go back to all projects to create one.'); else setCreating('api'); }} />}
       <Splash />
       {settingsAt && (
         <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)}
@@ -255,10 +261,11 @@ export default function App() {
   );
 }
 
-function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate, onRemove }: {
+function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate, onRemove, onAcademy }: {
   recent: Recent[]; opening: string | null; error: string | null;
-  onOpen: (root?: string) => void; onOpenZip: () => void; onPull: () => void; onCreate: (what: 'api' | 'fragment') => void; onRemove: (root: string) => void;
+  onOpen: (root?: string) => void; onOpenZip: () => void; onPull: () => void; onCreate: (what: 'api' | 'fragment') => void; onRemove: (root: string) => void; onAcademy: () => void;
 }) {
+  const learned = academyDone();
   const [createMenu, setCreateMenu] = useState(false);
   return (
     <div className="flex-1 min-h-0 overflow-auto flex justify-center">
@@ -307,7 +314,12 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate
           {!isTauri && <p className="mt-3 text-[12px] text-warn">Running in a plain browser. Start the app with npm run tauri dev to open folders.</p>}
           {opening && <p className="mt-3 text-[12px] text-content-faint">Opening {opening}…</p>}
           {error && <p className="mt-3 text-[12px] text-err select-text">{error}</p>}
-          <p className="mt-5 flex gap-2 text-[12px] text-content-faint"><span className="text-accent"><Icons.Dot size={12} /></span>Works offline. You only sign in to pull, push and publish.</p>
+          <button onClick={onAcademy} className="mt-5 w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border border-dashed border-line text-left hover:border-accent-border">
+            <span className="w-9 h-9 rounded-lg flex items-center justify-center text-violet bg-violet-tint"><Icons.Book size={17} /></span>
+            <span className="flex-1"><span className="block font-semibold">{learned ? 'API Design Academy' : 'New to API design? Start here'}</span>
+              <span className="block text-[11.5px] text-content-faint">{learned ? `${learned} of ${LESSONS.length} lessons done` : `${LESSONS.length} short lessons, checked by AMF as you type`}</span></span>
+          </button>
+          <p className="mt-4 flex gap-2 text-[12px] text-content-faint"><span className="text-accent"><Icons.Dot size={12} /></span>Works offline. You only sign in to pull, push and publish.</p>
         </section>
         <section>
           <h2 className="text-[13px] font-semibold h-8 flex items-center">Recent projects</h2>
@@ -580,6 +592,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         c('Show Project errors', 'bottom', () => setProblemsOpen(true)), c('Publish to Exchange…', 'title bar', () => setPublishing('')),
         c('Grow selection', 'Ctrl Shift Right', () => { if (view.current) { growSelection(view.current); view.current.focus(); } }),
         c('Shrink selection', 'Ctrl Shift Left', () => { if (view.current) { shrinkSelection(view.current); view.current.focus(); } }),
+        c('API Design Academy', 'lessons', () => window.dispatchEvent(new Event('ads-academy'))),
         c('Go to symbol', 'Ctrl Shift O', () => setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'O', ctrlKey: true, shiftKey: true })), 0)),
       ];
     },

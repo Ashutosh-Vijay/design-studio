@@ -320,7 +320,7 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
       <div className="flex flex-col gap-3.5 text-[12.5px]">
         <p className="m-0 text-content-secondary leading-relaxed">An agent connected here can do what you can: open and create projects, read and edit files, run AMF's checks and governance, try the mock, pull, and work with Exchange. You see every change in the editor as it happens. It runs on this computer only.</p>
         <div className={`${box} flex items-center gap-2.5 px-3 py-2`}>
-          <span className={`w-2 h-2 rounded-full ${running ? 'bg-ok' : 'bg-content-ghost'}`} />
+          <span className="w-2 h-2 rounded-full" style={{ background: running ? 'var(--ok)' : 'var(--content-ghost)' }} />
           <span className="font-medium">{running ? 'Running' : 'Stopped'}</span>
           {running && <span className="text-content-faint">{st!.requests} {st!.requests === 1 ? 'call' : 'calls'}</span>}
           <span className="flex-1" />
@@ -349,7 +349,7 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
           <div className={`${box} max-h-[150px] overflow-auto`}>
             {rows.length ? rows.map((r, i) => (
               <div key={i} className="flex items-center gap-2 px-2.5 py-1 border-b border-line-subtle last:border-0 text-[11.5px]">
-                <span className={r.ok ? 'text-ok' : 'text-err'}>{r.ok ? '✓' : '✕'}</span>
+                <span style={{ color: r.ok ? 'var(--ok)' : 'var(--err)' }}>{r.ok ? '✓' : '✕'}</span>
                 <span className="font-mono">{r.tool}</span>
                 <span className="text-content-faint truncate flex-1" title={r.note}>{r.note}</span>
                 <span className="text-content-ghost font-mono">{r.ms} ms</span>
