@@ -6,7 +6,7 @@ import { parseTree, findNodeAtLocation, findNodeAtOffset, getNodePath, getNodeVa
 import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
 import { METHODS, type Outline, type Resource, type Decl } from './raml';
-import { Field, Sec, AddSelect, IconBtn, Badge, UsedBy, BTN, CODES, MEDIA, codeColor, type AmfModel, type At } from './Inspector';
+import { Field, Sec, AddSelect, IconBtn, ReadOnlyBox, Badge, UsedBy, BTN, CODES, MEDIA, codeColor, type AmfModel, type At } from './Inspector';
 
 const OAS_BUILTIN = ['string', 'integer', 'number', 'boolean', 'object', 'array'];
 const REF = '#/components/schemas/';
@@ -145,7 +145,7 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
     return (
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
         <Field value={t} mono options={[...schemaNames, ...OAS_BUILTIN]} placeholder="string" onCommit={(v) => onEdit((x) => setType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
-        {target && <IconBtn title={`Go to ${target[2]}`} onClick={() => go(target)}><Icons.ChevronRight size={12} /></IconBtn>}
+        {target && <IconBtn nav title={`Go to ${target[2]}`} onClick={() => go(target)}><Icons.ChevronRight size={12} /></IconBtn>}
       </span>
     );
   };
@@ -248,11 +248,17 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
       <>
         <span className="font-mono text-[13.5px] font-bold break-all">{name}</span>
         <div className="mt-1 text-[12.5px] text-content-secondary">Schema</div>
-        {amfSchema && <div className="mt-3"><button onClick={() => onJsonSchema(name, file)} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button></div>}
+        {amfSchema && <div className="mt-3"><button data-nav onClick={() => onJsonSchema(name, file)} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button></div>}
         <Sec title="Type">{typeCell(p)}</Sec>
         <div className="mt-3">{field(p, 'description', 'Description', false, true)}</div>
         {Array.isArray(val([...p, 'enum'])) ? (
-          <Sec title="Values"><Field mono value={(val([...p, 'enum']) as unknown[]).join(', ')} onCommit={(v) => onEdit((x) => set(x, [...p, 'enum'], v.split(',').map((s) => s.trim()).filter(Boolean)))} /></Sec>
+          <Sec title="Values"><Field mono value={(val([...p, 'enum']) as unknown[]).map(String).join(', ')} onCommit={(v) => onEdit((x) => {
+            // Values that stay keep their JSON type; new ones follow the schema's type (a number stays a number).
+            const old = val([...p, 'enum']) as unknown[], t = val([...p, 'type']);
+            const typed = (s: string): unknown => old.find((o) => String(o) === s) ?? (s === 'null' ? null
+              : (t === 'integer' || t === 'number') && s !== '' && !isNaN(+s) ? +s : t === 'boolean' && /^(true|false)$/.test(s) ? s === 'true' : s);
+            return set(x, [...p, 'enum'], v.split(',').map((s) => s.trim()).filter(Boolean).map(typed));
+          })} /></Sec>
         ) : (
           <Sec title="Properties" count={props.length || undefined}
             add={<button onClick={() => { let n = 'property', i = 2; while (props.includes(n)) n = 'property' + i++; onEdit((x) => set(x, [...p, 'properties', n], { type: 'string' })); }}
@@ -300,7 +306,7 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
   return (
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
       {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />{typeof readOnly === 'string' ? readOnly : 'Read-only: managed by Exchange'}</div>}
-      <fieldset disabled={!!readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
+      <ReadOnlyBox readOnly={!!readOnly}>{h}</ReadOnlyBox>
     </div>
   );
 }

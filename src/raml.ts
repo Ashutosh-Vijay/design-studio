@@ -26,7 +26,9 @@ function parseEntries(text: string): Entry[] {
     const m = l.match(KEY_RE);
     if (m && !l.trimStart().startsWith('#')) {
       const ind = m[1].length + (m[2] ? 2 : 0);
-      const val = (m[4] || '').replace(/\s+#.*$/, '').trim();
+      // A comment starts at " #", but not inside a quoted value ("Fixed in issue #42").
+      const raw = m[4] || '', q = raw.match(/^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*')/);
+      const val = (q ? q[1] : raw.replace(/\s+#.*$/, '')).trim();
       out.push({ line: i, ind, key: m[3].replace(/^["']|["']$/g, ''), val, from: pos + ind, dash: !!m[2] });
       if (/^[|>][-+0-9]*$/.test(val)) block = ind;
     }
@@ -189,6 +191,22 @@ export function shelfContext(text: string, line: number, col: number): ShelfCtx 
 export function shelfEdit(text: string, line: number, ctx: ShelfCtx, item: string): { from: number; to: number; insert: string; cursor: number } | null {
   const L = text.split('\n');
   const lineStart = (n: number) => L.slice(0, n).reduce((a, l) => a + l.length + 1, 0);
+  // The key may already have a block under it (is: with "- x" lines, items: with properties).
+  const indOf = (l: string) => l.match(/^\s*/)![0].length;
+  let below = line + 1; while (below < L.length && !L[below].trim()) below++;
+  const hasBlock = below < L.length && indOf(L[below]) > indOf(L[line]) && (ctx.kind === 'type' || ctx.kind === 'is');
+  if (hasBlock && ctx.kind === 'type') return null; // a block type stays as written; edit it in the code or the form
+  if (hasBlock && ctx.kind === 'is') {
+    // A "- trait" list: add a line after its last item, at the items' indent.
+    let end = below; while (end + 1 < L.length && (!L[end + 1].trim() || indOf(L[end + 1]) > indOf(L[line]))) end++;
+    while (end > below && !L[end].trim()) end--;
+    const have = L.slice(below, end + 1).map((l) => l.match(/^\s*-\s+([^\s:]+)/)?.[1]).filter(Boolean);
+    if (have.includes(item)) return null;
+    const dash = L[below].match(/^\s*-\s+/)?.[0] ?? ' '.repeat(indOf(L[line]) + 2) + '- ';
+    const s = lineStart(end + 1), insert = dash + item + '\n';
+    if (end + 1 >= L.length) { const e = lineStart(end) + L[end].length, ins = '\n' + dash + item; return { from: e, to: e, insert: ins, cursor: e + ins.length }; }
+    return { from: s, to: s, insert, cursor: s + insert.length - 1 };
+  }
   if (ctx.kind === 'type') {
     const s = lineStart(line), l = L[line], c = l.indexOf(':') + 1;
     const insert = ' ' + item;

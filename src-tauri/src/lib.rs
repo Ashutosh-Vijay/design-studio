@@ -96,7 +96,8 @@ fn read_text_file(root: String, path: String) -> Result<String, String> {
     return Err(format!("{} is outside the project.", path));
   }
   let bytes = fs::read(&full).map_err(|e| format!("Couldn't read {}: {}", path, e))?;
-  Ok(String::from_utf8_lossy(&bytes).to_string())
+  // Not UTF-8 (a Latin-1 file, an image): refused, since saving the decoded text back would replace characters.
+  String::from_utf8(bytes).map_err(|_| format!("{} isn't UTF-8 text, so it can't be opened here.", path))
 }
 
 // Saves what the editor holds. The editor always works in LF; a file that used CRLF on disk

@@ -146,3 +146,6 @@ code, pre, .font-mono { font-family: var(--font-mono); }
 @keyframes ds-spin { from { transform: rotate(var(--from)); } to { transform: rotate(var(--to)); } }
 @keyframes ds-swing { 0%, 100% { transform: rotate(-32deg); } 50% { transform: rotate(32deg); } }
 @keyframes ds-pulse { 0%, 100% { r: 6px; stroke-opacity: 0.4; } 50% { r: 14px; stroke-opacity: 0; } }
+
+/* Read-only forms (ReadOnlyBox): edit controls look and act off; navigation buttons stay live. */
+.ads-ro :is(input, textarea, select, button:not([data-nav])) { pointer-events: none; opacity: 0.55; }

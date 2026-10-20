@@ -101,16 +101,19 @@ export async function clone(root: string, projectId: string, projectName: string
   return { files: files.size, deps: await fetchDependencies(root) };
 }
 
+const JUNK = /(^|\/)(\.DS_Store|Thumbs\.db|desktop\.ini)$/i;
+const SKIPPED = /(^|\/)(\.git|node_modules|\.apidesigner|target|\.idea)\//; // lib.rs SKIP_DIRS
 // What changed here since the last sync, by comparing each file with its hash then.
 export async function localChanges(root: string, l: Link, paths: string[]) {
   const added: string[] = [], modified: string[] = [], deleted: string[] = [];
-  const now = new Set(paths.filter((p) => !p.startsWith('exchange_modules/')));
+  // OS clutter is never sent; files under folders the app doesn't list (target, .idea, ...) are never seen as deleted.
+  const now = new Set(paths.filter((p) => !p.startsWith('exchange_modules/') && !JUNK.test(p)));
   for (const p of now) {
     const t = await readLocal(root, p); if (t == null) continue;
     if (!(p in l.files)) added.push(p); else if ((await sha(t)) !== l.files[p]) modified.push(p);
   }
   // Dependencies are Design Center's to manage (from exchange.json): never sent, never deleted there.
-  for (const p of Object.keys(l.files)) if (!p.startsWith('exchange_modules/') && !now.has(p)) deleted.push(p);
+  for (const p of Object.keys(l.files)) if (!p.startsWith('exchange_modules/') && !now.has(p) && !SKIPPED.test(p)) deleted.push(p);
   return { added, modified, deleted, count: added.length + modified.length + deleted.length };
 }
 // Design Center's side: has the branch moved since the last sync, and who holds its lock.
@@ -130,6 +133,8 @@ export async function pull(root: string, l: Link) {
   if (h === l.baseCommit) return { updated: [] as string[], removed: [] as string[], conflicts: [] as Conflict[], upToDate: true, deps: { fetched: [] as string[], failed: [] as string[] } };
   const theirs = await remoteFiles(l);
   const updated: string[] = [], removed: string[] = [], conflicts: Conflict[] = [];
+  // Every merge is worked out first and written after, so a failure part way leaves no file half pulled.
+  const writes: [string, string | null][] = [];
   for (const p of new Set([...theirs.keys(), ...Object.keys(l.files)])) {
     if (p.startsWith('exchange_modules/')) continue; // fetched from exchange.json below, not merged
     const base = p in l.files ? await readLocal(root, BASE + p) : null;
@@ -138,16 +143,17 @@ export async function pull(root: string, l: Link) {
     if (th === mine) continue;
     if (mine === base) {
       // Unchanged here: take theirs (a deletion there removes it here).
-      if (th == null) { await invoke('delete_file', { root, path: p }); removed.push(p); } else { await invoke('write_file_exact', { root, path: p, text: th }); updated.push(p); }
+      if (th == null) { writes.push([p, null]); removed.push(p); } else { writes.push([p, th]); updated.push(p); }
       continue;
     }
     if (th === base) continue; // changed only here: keep mine
-    if (mine == null) { await invoke('write_file_exact', { root, path: p, text: th! }); updated.push(p); conflicts.push({ path: p, kind: 'deleted here' }); continue; }
+    if (mine == null) { writes.push([p, th!]); updated.push(p); conflicts.push({ path: p, kind: 'deleted here' }); continue; }
     if (th == null) { conflicts.push({ path: p, kind: 'deleted there' }); continue; }
     const m = merge3(base ?? '', mine, th);
-    await invoke('write_file_exact', { root, path: p, text: m.text }); updated.push(p);
+    writes.push([p, m.text]); updated.push(p);
     if (!m.clean) conflicts.push({ path: p, kind: 'lines' });
   }
+  for (const [p, t] of writes) await (t == null ? invoke('delete_file', { root, path: p }) : invoke('write_file_exact', { root, path: p, text: t }));
   // In step with Design Center's commit now: what's left different here is yours to push.
   await writeBase(root, { ...l, baseCommit: h }, theirs);
   return { updated, removed, conflicts, upToDate: false, deps: await fetchDependencies(root) };
@@ -239,7 +245,10 @@ function lcsPairs(a: string[], b: string[]): [number, number][] {
   let s = 0; while (s < a.length && s < b.length && a[s] === b[s]) s++;
   let e = 0; while (e < a.length - s && e < b.length - s && a[a.length - 1 - e] === b[b.length - 1 - e]) e++;
   const A = a.slice(s, a.length - e), B = b.slice(s, b.length - e);
-  const n = A.length, m = B.length, dp = new Int32Array((n + 1) * (m + 1));
+  // A huge changed middle would need gigabytes: then only the common start and end are matched, and the
+  // middle merges as one chunk (a conflict when both sides changed it).
+  const big = A.length * B.length > 20_000_000;
+  const n = big ? 0 : A.length, m = big ? 0 : B.length, dp = new Int32Array((n + 1) * (m + 1));
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i * (m + 1) + j] = A[i] === B[j] ? dp[(i + 1) * (m + 1) + j + 1] + 1 : Math.max(dp[(i + 1) * (m + 1) + j], dp[i * (m + 1) + j + 1]);
   const out: [number, number][] = [];
   for (let i = 0; i < s; i++) out.push([i, i]);

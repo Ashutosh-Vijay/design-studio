@@ -1,6 +1,7 @@
 // Form edits as minimal text changes (PLAN 3.1): every function takes the file's text and returns the
 // new text, touching only the lines it must. Nodes are found by their key path from the top of the file,
 // so an edit never depends on stale positions. The caller turns old and new text into one small change.
+import { parse, stringify } from 'yaml';
 import { entries, kids, kid, type Entry } from './raml';
 
 export type Path = string[];
@@ -111,13 +112,19 @@ export function scalar(text: string, path: Path): string | null {
 export function list(text: string, path: Path): string[] | null {
   const E = entries(text), k = find(E, path); if (k < 0) return null;
   const v = E[k].val;
-  if (v.startsWith('[')) return flowItems(v).map(unquote);
-  if (v) return [unquote(v)];
   const L = text.split('\n');
+  if (v.startsWith('[')) return flowItems(flowSpan(L, E[k].line, v).text).map(unquote);
+  if (v) return [unquote(v)];
   return L.slice(E[k].line + 1, blockEnd(E, L, k)).map((l) => l.match(/^\s*-\s+(.*)$/)?.[1]).filter((x): x is string => !!x).map((s) => unquote(s.trim()));
 }
 
-// A one-line flow list's items as written, quotes kept; a comma inside quotes doesn't split.
+// A flow list can run over several lines (enum: [ then items, then ]): its whole text and its last line.
+function flowSpan(L: string[], line: number, v: string): { text: string; last: number } {
+  let text = v, last = line;
+  while (!/\]\s*(#.*)?$/.test(text) && last + 1 < L.length) text += ' ' + L[++last].trim();
+  return { text: text.replace(/\s+#[^\]]*$/, ''), last };
+}
+// A flow list's items as written, quotes kept; a comma inside quotes doesn't split.
 function flowItems(v: string): string[] {
   return (v.replace(/^\[|\]\s*$/g, '').match(/"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^,]+/g) ?? []).map((s) => s.trim()).filter(Boolean);
 }
@@ -171,8 +178,21 @@ function insertLines(text: string, E: Entry[], parent: number, lines: string[], 
   // form of a type, so the type moves into the block as type: Type and nothing is lost.
   if (parent >= 0 && E[parent].val && !/^[|>]/.test(E[parent].val)) {
     const v = E[parent].val;
+    // A non-empty flow map ({ type: integer, default: 10 }) is written out as a block, so nothing in it is lost;
+    // a key the edit sets itself is left to the edit.
+    let flow: string[] = [];
+    if (/^\{.*\S.*\}$/.test(v)) {
+      let y: unknown; try { y = parse(v); } catch { return text; }
+      const own = new Set(lines.map((l) => l.match(/^([^\s:]+)\s*:/)?.[1]));
+      let skip = false;
+      for (const l of stringify(y, { lineWidth: 0 }).trimEnd().split('\n')) {
+        if (!/^\s/.test(l)) skip = own.has(l.match(/^([^:]+):/)?.[1].replace(/^["']|["']$/g, ''));
+        if (!skip) flow.push(ind + l);
+      }
+    }
     L[E[parent].line] = L[E[parent].line].replace(/:\s.*$/, ':');
-    if (!/^(\{\s*\}|\[\s*\]|null|~)$/.test(v) && !lines.some((l) => /^type\s*:/.test(l))) add.unshift(ind + 'type: ' + v);
+    add.unshift(...flow);
+    if (!flow.length && !/^(\{.*\}|\[\s*\]|null|~)$/.test(v) && !lines.some((l) => /^type\s*:/.test(l))) add.unshift(ind + 'type: ' + v);
   }
   L.splice(at, 0, ...add);
   return L.join('\n');
@@ -219,7 +239,8 @@ export function setScalar(text: string, path: Path, key: string, value: string |
   const lead = L[E[k].line].match(/^\s*(- )?/)![0];
   const keyText = L[E[k].line].slice(lead.length).match(/^("[^"]*"|'[^']*'|[^\s#:](?:[^:\s]|[ \t]+(?=[^\s#:]))*?)\s*:/)![0];
   // A one-line value keeps whatever followed it: a comment, or trailing spaces.
-  const comment = !multi && !/^[|>]/.test(E[k].val) ? (L[E[k].line].match(/\s+#.*$|[ \t]+$/)?.[0] ?? '') : '';
+  const rest = L[E[k].line].slice(lead.length + keyText.length), at = rest.indexOf(E[k].val);
+  const comment = !multi && !/^[|>]/.test(E[k].val) && at >= 0 ? (rest.slice(at + E[k].val.length).match(/^\s+#.*$|^[ \t]+$/)?.[0] ?? '') : '';
   const sep = (!/^[|>]/.test(E[k].val) && L[E[k].line].slice(lead.length + keyText.length).match(/^[ \t]+/)?.[0]) || ' ';
   const lines = multi ? [lead + keyText + ' |', ...value.split('\n').map((l) => (l ? ' '.repeat(E[k].ind + step(E)) + l : ''))] : [lead + keyText + sep + q(value) + comment];
   L.splice(E[k].line, end - E[k].line, ...lines);
@@ -291,12 +312,14 @@ export function setList(text: string, path: Path, items: string[]): string {
     L.splice(E[k].line + 1, end - E[k].line - 1, ...kept);
     return L.join('\n');
   }
+  const span = flowSpan(L, E[k].line, v);
   const spaced = /^\[\s/.test(v) || v === '[]';
   // Items that stay keep their text as written (quotes and all); new ones are quoted when YAML needs it.
-  const was = new Map(flowItems(v).map((t) => [unquote(t), t]));
+  const was = new Map(flowItems(span.text).map((t) => [unquote(t), t]));
   const out = items.map((i) => was.get(i) ?? quote(i));
   const flow = spaced ? `[ ${out.join(', ')} ]` : `[${out.join(', ')}]`;
   L[E[k].line] = L[E[k].line].replace(/:\s.*?(\s+#.*|\s*)$/, (_m, c) => ': ' + flow + c);
+  if (span.last > E[k].line) L.splice(E[k].line + 1, span.last - E[k].line); // a list that ran over several lines is now one
   return L.join('\n');
 }
 

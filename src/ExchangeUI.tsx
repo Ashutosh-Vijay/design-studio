@@ -282,7 +282,8 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
     return dir + ((await S.readDescriptor(`${root}/${dir}`))?.d.main ?? 'ruleset.yaml');
   };
   const setOff = async (key: string, off: string[]) => {
-    const next = { ...gs, off: { ...gs.off, [key]: off } };
+    const cur = await G.readSettings(root); // the Governance tab may have changed Auto since this panel loaded
+    const next = { ...cur, off: { ...cur.off, [key]: off } };
     if (!off.length) delete next.off[key];
     setGs(next); await G.writeSettings(root, next);
     window.dispatchEvent(new Event('ads-governance-changed'));

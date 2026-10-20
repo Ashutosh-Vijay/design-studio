@@ -979,6 +979,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
 
   async function onDiskChange(paths: string[]) {
     let listChanged = false, outlineChanged = false;
+    const clashes: { path: string; keep: () => void; load: () => void }[] = []; // asked about together, not one over another
     for (const path of paths) {
       if (!project.files.some((f) => f.path === path)) { listChanged = true; continue; }
       let disk: string;
@@ -996,11 +997,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
       };
       if (current === f.disk) load(); // no edits of yours: take the new version quietly
-      else setNotice({ text: `${base(path)} changed on disk, and you have unsaved edits in it.`, err: true, actions: [
-        ['Keep mine', () => { f.disk = disk; setNotice(null); }],
-        ['Load from disk', () => { load(); setNotice(null); }],
-      ] });
+      else clashes.push({ path, keep: () => { f.disk = disk; }, load });
     }
+    if (clashes.length) setNotice({ text: `${clashes.length === 1 ? base(clashes[0].path) + ' changed' : clashes.map((c) => base(c.path)).join(', ') + ' changed'} on disk, and you have unsaved edits in ${clashes.length === 1 ? 'it' : 'them'}.`, err: true, actions: [
+      ['Keep mine', () => { clashes.forEach((c) => c.keep()); setNotice(null); }],
+      ['Load from disk', () => { clashes.forEach((c) => c.load()); setNotice(null); }],
+    ] });
     if (listChanged) await onRefresh();
     if (outlineChanged) rebuildOutline();
     if (listChanged || outlineChanged) scheduleRef.current();
@@ -1063,7 +1065,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   type Gov = { state: 'idle' | 'running' | 'done' | 'none' | 'failed'; progress?: number; detail?: string; seconds?: number; rulesets?: number; results: Finding[] };
   const [gov, setGov] = useState<Gov>({ state: 'idle', results: [] });
   const [govSettings, setGovSettings] = useState<GovSettings>({ off: {}, auto: true });
-  const govWorker = useRef<Worker | null>(null), govBusy = useRef(false), govAgain = useRef(false);
+  const govWorker = useRef<Worker | null>(null), govBusy = useRef(false), govAgain = useRef(false), govAlive = useRef(true);
   async function runGovernance() {
     if (!checkable) return;
     if (govBusy.current) { govAgain.current = true; return; }
@@ -1077,13 +1079,20 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       await syncOverlays();
       const { graph } = await amf('governanceGraph', {});
       const w = govWorker.current ??= new Worker(new URL('./governance.worker.ts', import.meta.url), { type: 'module' });
+      if (!govAlive.current) { w.terminate(); govWorker.current = null; return; } // the project closed meanwhile
       const found = await new Promise<Finding[]>((res, rej) => {
-        w.onmessage = (e) => { if (e.data.progress != null) setGov((g) => ({ ...g, progress: e.data.progress })); else if (e.data.error) rej(new Error(e.data.error)); else res(e.data.results); };
+        // No word from the validator for three minutes: it's stuck (a failed start never answers).
+        let quiet = 0; const wait = () => { clearTimeout(quiet); quiet = window.setTimeout(() => rej(new Error('The validator stopped answering.')), 180000); };
+        wait();
+        w.onmessage = (e) => { wait(); if (e.data.progress != null) setGov((g) => ({ ...g, progress: e.data.progress })); else { clearTimeout(quiet); if (e.data.error) rej(new Error(e.data.error)); else res(e.data.results); } };
+        w.onerror = (e) => { clearTimeout(quiet); rej(new Error(e.message || 'The validator crashed.')); };
         w.postMessage({ profiles: rs.map((r) => ({ name: r.name, text: profileFor(r, st.off[r.key] ?? []) })), graph });
       });
       const at = (await amf('govLocate', { ids: [...new Set(found.map((f) => f.focus))] })).at as Record<string, At>;
       setGov({ state: 'done', rulesets: rs.length, seconds: Math.round((performance.now() - t0) / 1000), results: found.map((f) => ({ ...f, file: at[f.focus]?.file, r: at[f.focus]?.r })) });
     } catch (e) {
+      // A crashed WebAssembly engine stays broken: start a fresh worker next time.
+      govWorker.current?.terminate(); govWorker.current = null;
       setGov((g) => ({ ...g, state: 'failed', detail: String(e).replace(/^Error: /, '') }));
     } finally {
       govBusy.current = false;
@@ -1098,7 +1107,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     window.addEventListener('ads-governance-changed', f);
     return () => window.removeEventListener('ads-governance-changed', f);
   }, [project.root]);
-  useEffect(() => () => { govWorker.current?.terminate(); }, []);
+  useEffect(() => { readGovSettings(project.root).then(setGovSettings, () => {}); return () => { govAlive.current = false; govWorker.current?.terminate(); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function runCheck(mode: 'parse' | 'validate') {
     if (!checkable) return;
@@ -1404,7 +1413,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           )}
           {checkable && <ProblemsPanel problems={problems} open={problemsOpen} setOpen={setProblemsOpen} engine={engine} onGo={goToProblem}
             gov={gov} govAuto={govSettings.auto} onGovRun={() => runGovernance()} onGovGo={(f) => f.file && f.r && revealAt({ file: f.file, r: f.r })}
-            onGovAuto={async (auto) => { const st = { ...govSettings, auto }; setGovSettings(st); await writeGovSettings(project.root, st); if (auto) runGovernance(); }}
+            onGovAuto={async (auto) => { const st = { ...(await readGovSettings(project.root)), auto }; setGovSettings(st); await writeGovSettings(project.root, st); if (auto) runGovernance(); }}
             onAddRuleset={() => setRail('deps')} />}
           {publishing != null && <PublishDialog root={project.root} main={project.main} paths={listPaths} model={amfModel} version={publishing || undefined}
             unsaved={dirty.size} saveAll={async () => { await syncRef.current?.saveAll(); }}
@@ -1435,7 +1444,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           <aside className="w-[330px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
             <Boundary resetKey={doc ? doc.path + ":" + doc.line : ""} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {e}. The code editor still works; move the cursor to try again.</div>}>
-            {doc && active === doc.path && /\.raml$/i.test(doc.path) ? (
+            {doc && active === doc.path && /\.raml$/i.test(doc.path) && !doc.text.startsWith('#%RAML 0.8') ? (
               <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} outline={outline} model={amfModel}
                 onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)} onOpenAt={revealAt} onJsonSchema={copyJsonSchema}
                 onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }}

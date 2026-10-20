@@ -73,8 +73,18 @@ export function Field({ value, onCommit, placeholder, mono, multiline, options, 
       </>;
 }
 
-export const IconBtn = ({ title, onClick, children }: { title: string; onClick: () => void; children: ReactNode }) => (
-  <button title={title} onClick={(e) => { e.stopPropagation(); onClick(); }} className="w-[22px] h-[22px] shrink-0 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">{children}</button>
+// Read-only forms: every box, picker and edit button is off, but buttons marked data-nav (Go to, file:line,
+// Copy as JSON Schema) still work. A disabled fieldset would turn those off too.
+export function ReadOnlyBox({ readOnly, children }: { readOnly: boolean; children: ReactNode }) {
+  const block = (e: { target: EventTarget; key?: string; preventDefault: () => void; stopPropagation: () => void }) => {
+    if (!readOnly || (e.target as HTMLElement).closest('[data-nav]') || e.key === 'Tab') return;
+    e.preventDefault(); e.stopPropagation();
+  };
+  return <div className={`min-w-0 ${readOnly ? 'ads-ro' : ''}`} onKeyDownCapture={block} onPasteCapture={block} onDropCapture={block}>{children}</div>;
+}
+
+export const IconBtn = ({ title, onClick, children, nav }: { title: string; onClick: () => void; children: ReactNode; nav?: boolean }) => (
+  <button title={title} data-nav={nav || undefined} onClick={(e) => { e.stopPropagation(); onClick(); }} className="w-[22px] h-[22px] shrink-0 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">{children}</button>
 );
 
 export function Sec({ title, count, add, children }: { title: string; count?: number; add?: ReactNode; children: ReactNode }) {
@@ -204,7 +214,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     return (
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
         <Field value={t} mono options={typeNames} placeholder="string" onCommit={(v) => onEdit((x) => S.setType(x, path, v))} className={known ? 'text-[var(--syn-type)]' : 'text-err'} />
-        {d && <IconBtn title={`Go to ${d.name}`} onClick={() => onOpen(d.file, d.from)}><Icons.ChevronRight size={12} /></IconBtn>}
+        {d && <IconBtn nav title={`Go to ${d.name}`} onClick={() => onOpen(d.file, d.from)}><Icons.ChevronRight size={12} /></IconBtn>}
         {isInline(path) && path.join('\0') !== (node.kind === 'decl' ? node.path.join('\0') : '') && (
           <IconBtn title="Extract to Declaration: make this a named type" onClick={() => onEdit((x) => S.extractType(x, path, extractName(path)))}><Icons.Braces size={12} /></IconBtn>
         )}
@@ -252,7 +262,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     if (!inc) return <div className="mt-1 text-[11px] text-content-faint">Example written inline</div>;
     const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/') + 1) : '';
     const target = inc[1].startsWith('/') ? inc[1].slice(1) : (dir + inc[1]).split('/').reduce<string[]>((a, s) => (s === '..' ? a.slice(0, -1) : s && s !== '.' ? [...a, s] : a), []).join('/');
-    return <button onClick={() => onOpen(target, 0)} title={target} className="mt-1 flex items-center gap-1.5 max-w-full text-[11px] text-[var(--syn-string)] hover:underline"><Icons.File size={11} /><span className="font-mono truncate">{inc[1].split('/').pop()}</span></button>;
+    return <button data-nav onClick={() => onOpen(target, 0)} title={target} className="mt-1 flex items-center gap-1.5 max-w-full text-[11px] text-[var(--syn-string)] hover:underline"><Icons.File size={11} /><span className="font-mono truncate">{inc[1].split('/').pop()}</span></button>;
   };
 
   // A body: one row per media type, or the default media type when the body names a type directly.
@@ -290,10 +300,10 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     const k = at([...parent, 'is']);
     const raw = k >= 0 ? E[k].val : '';
     const cur = S.list(text, [...parent, 'is']) ?? [];
-    const fixed = raw.includes('{'); // traits with parameters: edit those in the code
+    const fixed = raw.includes('{') || cur.some((t) => t.endsWith(':')); // traits with parameters (flow or block): edit those in the code
     return (
       <Sec title="Traits" count={cur.length || undefined} add={fixed ? null : <AddSelect label="Add" options={traitNames.filter((t) => !cur.includes(t))} onPick={(t) => onEdit((x) => S.setList(x, [...parent, 'is'], [...cur, t]))} />}>
-        {fixed ? <div className="font-mono text-[11.5px] text-content-secondary break-all">{raw}</div>
+        {fixed ? <div className="font-mono text-[11.5px] text-content-secondary break-all">{raw || cur.map((t) => t.replace(/:$/, '')).join(', ')} <span className="font-sans text-content-faint">(with parameters: edit them in the code)</span></div>
           : cur.length ? <div className="flex flex-wrap gap-[5px]">{cur.map((t) => {
             const d = outline?.traits.find((x) => (x.alias && x.alias !== own ? `${x.alias}.${x.name}` : x.name) === t);
             return (
@@ -343,7 +353,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     );
   };
 
-  const loc = (k: number) => <button onClick={() => onGoLine(E[k].line)} className="mt-0.5 block font-mono text-[11px] text-content-faint hover:text-accent">{file}:{E[k].line + 1}</button>;
+  const loc = (k: number) => <button data-nav onClick={() => onGoLine(E[k].line)} className="mt-0.5 block font-mono text-[11px] text-content-faint hover:text-accent">{file}:{E[k].line + 1}</button>;
   const title = (inner: ReactNode) => <div className="flex items-center gap-2 min-w-0">{inner}</div>;
   let h: ReactNode;
 
@@ -447,7 +457,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         <div className="mt-3 flex flex-wrap gap-1.5">
           {d && <button onClick={() => onRename(d.from)} className={BTN}>Rename…</button>}
           {d && isType && isMain && <button onClick={() => onMove(d)} className={BTN}>Move to library…</button>}
-          {isType && amfType && <button onClick={() => onJsonSchema(node.name, file)} className={BTN} title="AMF renders this type as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>}
+          {isType && amfType && <button data-nav onClick={() => onJsonSchema(node.name, file)} className={BTN} title="AMF renders this type as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>}
           {d && node.sect !== 'securitySchemes' && node.sect !== 'annotationTypes' && <button onClick={() => onDelete(d)} className={BTN + ' hover:!text-err'}>Delete…</button>}
         </div>
         {/* Declared in its own file (name: !include file.raml): the form for it is in that file. */}
@@ -538,8 +548,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
   return (
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
       {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />{typeof readOnly === 'string' ? readOnly : 'Read-only: managed by Exchange'}</div>}
-      {/* A disabled fieldset turns every box, button and picker inside it off at once. */}
-      <fieldset disabled={!!readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
+      <ReadOnlyBox readOnly={!!readOnly}>{h}</ReadOnlyBox>
       {lists}
     </div>
   );
@@ -590,7 +599,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
     return (
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
         <Field value={t} mono options={[...schemaNames, ...OAS_BUILTIN]} placeholder="string" onCommit={(v) => onEdit((x) => setOasType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
-        {target >= 0 && <IconBtn title={`Go to ${t.replace(/\[\]$/, '')}`} onClick={() => onGoLine(E[target].line)}><Icons.ChevronRight size={12} /></IconBtn>}
+        {target >= 0 && <IconBtn nav title={`Go to ${t.replace(/\[\]$/, '')}`} onClick={() => onGoLine(E[target].line)}><Icons.ChevronRight size={12} /></IconBtn>}
       </span>
     );
   };
@@ -614,7 +623,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
   const field = (p: string[], key: string, placeholder: string, mono = false, multiline = false) => (
     <Field value={S.scalar(text, [...p, key]) ?? ''} placeholder={placeholder} mono={mono} multiline={multiline} onCommit={(v) => onEdit((x) => S.setScalar(x, p, key, v || null))} />
   );
-  const loc = (k: number) => <button onClick={() => onGoLine(E[k].line)} className="mt-0.5 block font-mono text-[11px] text-content-faint hover:text-accent">{file}:{E[k].line + 1}</button>;
+  const loc = (k: number) => <button data-nav onClick={() => onGoLine(E[k].line)} className="mt-0.5 block font-mono text-[11px] text-content-faint hover:text-accent">{file}:{E[k].line + 1}</button>;
   let h: ReactNode;
 
   if (kp[0] === 'paths' && kp[1] && METHODS.includes(kp[2])) {
@@ -701,7 +710,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
         <span className="font-mono text-[13.5px] font-bold break-all">{kp[2]}</span>
         <div className="mt-1 text-[12.5px] text-content-secondary">Schema</div>
         {k >= 0 && loc(k)}
-        {amfSchema && <div className="mt-3"><button onClick={() => onJsonSchema(kp[2], file)} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button></div>}
+        {amfSchema && <div className="mt-3"><button data-nav onClick={() => onJsonSchema(kp[2], file)} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button></div>}
         <Sec title="Type">{typeCell(p)}</Sec>
         <div className="mt-3">{field(p, 'description', 'Description', false, true)}</div>
         {at([...p, 'enum']) >= 0 ? (
@@ -765,7 +774,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
   return (
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
       {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />{typeof readOnly === 'string' ? readOnly : 'Read-only: managed by Exchange'}</div>}
-      <fieldset disabled={!!readOnly} className="m-0 p-0 border-0 min-w-0">{h}</fieldset>
+      <ReadOnlyBox readOnly={!!readOnly}>{h}</ReadOnlyBox>
     </div>
   );
 }

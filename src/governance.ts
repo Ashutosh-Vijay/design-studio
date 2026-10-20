@@ -26,9 +26,10 @@ export async function rulesets(root: string): Promise<Ruleset[]> {
     const dir = `exchange_modules/${d.groupId}/${d.assetId}/${d.version}/`;
     let text: string;
     try { text = await invoke<string>('read_text_file', { root, path: dir + 'ruleset.yaml' }); } catch { continue; }
-    const y = parse(text) ?? {};
+    // A ruleset that doesn't read as YAML is skipped rather than breaking every other one.
+    let y; try { y = parse(text) ?? {}; } catch { continue; }
     const rules: Rule[] = [];
-    for (const level of ['violation', 'warning', 'info'] as const) for (const name of (y[level] ?? []) as string[]) rules.push({ name, level, message: y.validations?.[name]?.message ?? '' });
+    for (const level of ['violation', 'warning', 'info'] as const) for (const name of (Array.isArray(y[level]) ? y[level] : []) as string[]) rules.push({ name, level, message: y.validations?.[name]?.message ?? '' });
     out.push({ key: `${d.groupId}/${d.assetId}`, groupId: d.groupId, assetId: d.assetId, version: d.version, name: y.profile ?? d.assetId, description: y.description ?? '', text, rules });
   }
   return out;
