@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Design Studio",
   "version": "0.1.0",
-  "identifier": "com.apidesignerstudio.desktop",
+  "identifier": "com.designstudio.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -55,7 +55,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwOUQyODAyMjVENDQ0QTcKUldTblJOUWxBaWlkMEhnZFlYSTBhNDgyTUdwVCtvcjdqUnArYy82U2FZbENrdyt0NEM0MmUzOWQK",
       "endpoints": [
-        "https://github.com/Ashutosh-Vijay/api-designer-studio/releases/latest/download/latest.json"
+        "https://github.com/Ashutosh-Vijay/design-studio/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "quiet"

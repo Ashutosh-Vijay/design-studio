@@ -31,7 +31,7 @@ const TEMPLATE = {
   client_name: APP_NAME,
   client_uri: 'https://ashutosh-vijay.dev/design-center-studio',
   // The broker's callbacks, and the app's own: four loopback ports, so one busy port doesn't stop a sign-in.
-  redirect_uris: [...BROKER_SITES.map((h) => `${h}/api-designer-studio/auth/callback`), ...[8765, 8766, 8767, 8768].map((p) => `http://localhost:${p}/callback`)],
+  redirect_uris: [...BROKER_SITES.flatMap((h) => [`${h}/design-studio/auth/callback`, `${h}/api-designer-studio/auth/callback`]), ...[8765, 8766, 8767, 8768].map((p) => `http://localhost:${p}/callback`)],
   grant_types: ['authorization_code', 'refresh_token'],
   scopes: ['full', 'read:organization', 'openid', 'profile', 'email', 'offline_access', 'edit:design_center', 'edit:exchange'],
   audience: 'everyone',

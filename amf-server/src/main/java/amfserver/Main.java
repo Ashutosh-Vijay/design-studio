@@ -587,7 +587,7 @@ public class Main {
     return s;
   }
   // AMF's file loader doesn't decode %20, so Path.toUri() breaks on folders with spaces
-  // ("API Designer Studio"). Hand it a plain file:// URL with the path as it is.
+  // ("Design Studio"). Hand it a plain file:// URL with the path as it is.
   static String fileUrl(Path p) {
     String s = p.toAbsolutePath().normalize().toString().replace('\\', '/');
     return s.startsWith("/") ? "file://" + s : "file:///" + s;

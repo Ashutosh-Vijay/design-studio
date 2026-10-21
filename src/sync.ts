@@ -3,7 +3,7 @@
 // a hash of every file at that commit) and .apidesigner/base/, the files as they were then, which a
 // three-way merge needs when both sides changed a file.
 import { invoke } from '@tauri-apps/api/core';
-import { documentDir, homeDir } from '@tauri-apps/api/path';
+import { homeDir } from '@tauri-apps/api/path';
 
 const DC = '/designcenter/api-designer';
 const LINK = '.apidesigner/link.json', BASE = '.apidesigner/base/';
@@ -33,9 +33,6 @@ export async function projectsDir() {
 export async function projectHome(org: string, name: string, id: string) {
   const safe = (x: string) => x.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/, '') || 'project';
   const folders = (home: string) => [home + safe(name), `${home}${safe(name)} (${id.slice(0, 8)})`];
-  // Pulled before the folder moved here (Documents/API Designer Studio): found where it is, not pulled twice.
-  const docs = (await documentDir()).replace(/\\/g, '/').replace(/\/+$/, '');
-  for (const root of folders(`${docs}/API Designer Studio/${safe(org)}/`)) if ((await readLink(root))?.projectId === id) return { root, here: true };
   for (const root of folders((await projectsDir()) + `/${safe(org)}/`)) {
     const l = await readLink(root);
     if (l?.projectId === id) return { root, here: true };

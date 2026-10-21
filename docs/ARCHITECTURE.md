@@ -1,4 +1,4 @@
-# API Designer Studio: architecture
+# Design Studio: architecture
 
 Status: **agreed design before M1** (2026-10-05). Built on the facts proven in M0 (PLAN.md sections 10.2 to 10.4). Where this document and the code disagree later, update this document in the same change.
 
@@ -38,7 +38,7 @@ Status: **agreed design before M1** (2026-10-05). Built on the facts proven in M
 One repo, like DataWeave Studio:
 
 ```
-api-designer-studio/
+design-studio/
   src/                    React app
     app/                  App shell, layout, panes
     editor/               CodeMirror 6 setup, RAML/OAS language, completion, hover, markers

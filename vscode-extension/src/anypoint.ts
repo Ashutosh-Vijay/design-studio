@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import { unzipBuffer } from './files';
 
 const PORTS = [8765, 8766, 8767, 8768];
-const BROKERS = ['https://ashutosh-vijay.dev/api-designer-studio/auth', 'https://ashutosh-vijay.pages.dev/api-designer-studio/auth'];
+const BROKERS = ['https://ashutosh-vijay.dev/design-studio/auth', 'https://ashutosh-vijay.pages.dev/design-studio/auth'];
 const UNREACHABLE = "Couldn't reach the sign-in service";
 const CLIENTS_URLS = ['https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio-auth/main/clients.json', 'https://cdn.jsdelivr.net/gh/Ashutosh-Vijay/design-studio-auth@main/clients.json'];
 

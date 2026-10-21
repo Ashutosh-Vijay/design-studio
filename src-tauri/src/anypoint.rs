@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
-const SERVICE: &str = "API Designer Studio";
+const SERVICE: &str = "Design Studio";
 // What the user registers as the redirect URI in their Connected App (shown in the sign-in form).
 // Where a direct sign-in comes back. Our Connected Apps register all four ports, so one busy port doesn't
 // stop a sign-in; a user's own Connected App registers the first.
@@ -43,7 +43,7 @@ fn yes() -> bool { true }
 
 // The sign-in broker holds our Connected App's secret (PLAN 2.1). The same broker answers on Cloudflare's own
 // address too, for networks that block ashutosh-vijay.dev; whichever answers is used, and kept for refreshes.
-pub const BROKERS: [&str; 2] = ["https://ashutosh-vijay.dev/api-designer-studio/auth", "https://ashutosh-vijay.pages.dev/api-designer-studio/auth"];
+pub const BROKERS: [&str; 2] = ["https://ashutosh-vijay.dev/design-studio/auth", "https://ashutosh-vijay.pages.dev/design-studio/auth"];
 const UNREACHABLE: &str = "Couldn't reach the sign-in service";
 fn broker_post(broker: &str, action: &str, body: Value) -> Result<Value, String> {
   let res = client().post(format!("{broker}/{action}")).json(&body).send().map_err(|e| format!("{UNREACHABLE}: {e}"))?;
