@@ -170,7 +170,7 @@ jobs:
           Remove-Item -Recurse -Force "$dest\`$PLUGINSDIR" -ErrorAction SilentlyContinue
           Remove-Item -Force "$dest\uninstall.exe" -ErrorAction SilentlyContinue
           # 7-Zip keeps the cargo binary name; the installer would have renamed it to the product name.
-          if ((Test-Path "$dest\api-designer-studio.exe") -and -not (Test-Path "$dest\Design Studio.exe")) { Rename-Item "$dest\api-designer-studio.exe" "Design Studio.exe" }
+          if ((Test-Path "$dest\design-studio.exe") -and -not (Test-Path "$dest\Design Studio.exe")) { Rename-Item "$dest\design-studio.exe" "Design Studio.exe" }
           $appExe = Get-ChildItem -Recurse -Filter "Design Studio.exe" $dest -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $appExe) { Get-ChildItem -Recurse $dest | Select-Object -ExpandProperty FullName; Write-Error "The app's exe wasn't found"; exit 1 }
           $zip = "Design.Studio_${version}_x64_portable.zip"

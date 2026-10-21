@@ -21,7 +21,9 @@ export const HOSTS = {
   us: 'https://anypoint.mulesoft.com', eu: 'https://eu1.anypoint.mulesoft.com', ca: 'https://ca1.platform.mulesoft.com',
   gb: 'https://gb1.platform.mulesoft.com', jp: 'https://jp1.platform.mulesoft.com', in: 'https://in1.platform.mulesoft.com', au: 'https://au1.platform.mulesoft.com',
 };
-const APP_NAME = 'API Designer Studio';
+const APP_NAME = 'Design Studio for MuleSoft';
+// The name the apps had before the rename (2026-10-14): still found, and renamed on the next run.
+const ours = (a) => a.client_name === APP_NAME || a.client_name === 'API Designer Studio';
 
 // The Connected App every region gets (read from the US one with `inspect`, 2026-10-15).
 const BROKER_SITES = ['https://ashutosh-vijay.dev', 'https://ashutosh-vijay.pages.dev'];
@@ -132,7 +134,7 @@ if (cmd === 'inspect') {
     const list = await s.call('GET', '/accounts/api/connectedApplications');
     console.log('List:', list.status);
     const apps = list.json?.data ?? list.json ?? [];
-    const ours = (Array.isArray(apps) ? apps : []).filter((a) => a.client_name === APP_NAME);
+    const ours = (Array.isArray(apps) ? apps : []).filter(ours);
     console.log(`Connected Apps: ${(Array.isArray(apps) ? apps : []).map((a) => a.client_name).join(', ') || '(none)'}`);
     for (const a of ours) {
       console.log('App:', JSON.stringify(hide(a), null, 1));
@@ -148,7 +150,7 @@ if (cmd === 'app') {
     console.log(`Signed in as ${s.me.username} in ${s.me.organization?.name ?? ''} (${region}).`);
     const list = await s.call('GET', '/accounts/api/connectedApplications');
     if (list.status !== 200) throw new Error(`Listing Connected Apps answered ${list.status}: ${list.text.slice(0, 200)}`);
-    let app = (list.json?.data ?? list.json ?? []).find((a) => a.client_name === APP_NAME);
+    let app = (list.json?.data ?? list.json ?? []).find(ours);
     if (!app) {
       const r = await s.call('POST', '/accounts/api/connectedApplications', TEMPLATE);
       if (r.status >= 300) throw new Error(`Creating the Connected App answered ${r.status}: ${r.text.slice(0, 300)}`);
@@ -157,18 +159,19 @@ if (cmd === 'app') {
     } else {
       const missing = (k) => TEMPLATE[k].filter((x) => !(app[k] ?? []).includes(x));
       const add = { redirect_uris: missing('redirect_uris'), scopes: missing('scopes'), grant_types: missing('grant_types') };
-      const pkce = app.pkce_enforcement !== TEMPLATE.pkce_enforcement;
-      if (Object.values(add).some((x) => x.length) || pkce) {
+      const pkce = app.pkce_enforcement !== TEMPLATE.pkce_enforcement, renamed = app.client_name !== APP_NAME;
+      if (Object.values(add).some((x) => x.length) || pkce || renamed) {
         const patch = Object.fromEntries(Object.entries(add).filter(([, v]) => v.length).map(([k]) => [k, [...app[k], ...add[k]]]));
         if (pkce) patch.pkce_enforcement = TEMPLATE.pkce_enforcement;
+        if (renamed) patch.client_name = APP_NAME; // the name people see on Anypoint's consent page
         const r = await s.call('PATCH', `/accounts/api/connectedApplications/${app.client_id}`, patch);
         if (r.status >= 300) throw new Error(`Updating the Connected App answered ${r.status}: ${r.text.slice(0, 300)}`);
-        console.log(`Updated the Connected App: ${[...Object.entries(add).filter(([, v]) => v.length).map(([k, v]) => `added ${k} ${v.join(', ')}`), ...(pkce ? [`PKCE ${TEMPLATE.pkce_enforcement}`] : [])].join('; ')}.`);
+        console.log(`Updated the Connected App: ${[...Object.entries(add).filter(([, v]) => v.length).map(([k, v]) => `added ${k} ${v.join(', ')}`), ...(pkce ? [`PKCE ${TEMPLATE.pkce_enforcement}`] : []), ...(renamed ? [`renamed to ${APP_NAME}`] : [])].join('; ')}.`);
       } else console.log('The Connected App already matches.');
     }
     // Read it back: what Anypoint now has, and the secret for the broker.
     const now = (await s.call('GET', '/accounts/api/connectedApplications')).json;
-    app = (now?.data ?? now ?? []).find((a) => a.client_name === APP_NAME);
+    app = (now?.data ?? now ?? []).find(ours);
     const off = ['redirect_uris', 'scopes', 'grant_types'].filter((k) => TEMPLATE[k].some((x) => !app[k]?.includes(x)));
     if (app.pkce_enforcement !== TEMPLATE.pkce_enforcement) off.push('pkce_enforcement');
     console.log(off.length ? `Still different from the template: ${off.join(', ')}.` : 'Checked: redirect URIs, scopes, grants and PKCE match the template.');

@@ -316,7 +316,7 @@ footer button:hover { color: var(--content); }
 <div class="toasts" id="toasts"></div>
 
 <script>
-const APP_NAME = 'API Designer Studio'; // working name, one place to change it
+const APP_NAME = 'Design Studio';
 // Where secrets live, by OS: Tauri reports the platform; the keyring crate covers all three.
 const PLATFORM = /Mac/.test(navigator.platform) ? 'mac' : /Linux/.test(navigator.platform) ? 'linux' : 'windows';
 const KEYCHAIN = { windows: 'Windows Credential Manager', mac: 'the macOS Keychain', linux: 'the system keyring (GNOME Keyring or KWallet)' }[PLATFORM];
