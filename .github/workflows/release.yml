@@ -36,17 +36,21 @@ jobs:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             jdkArch: x64
+            vsixTarget: win32-x64
           - platform: macos-latest
             target: aarch64-apple-darwin
             jdkArch: aarch64
+            vsixTarget: darwin-arm64
           # Intel Macs: an x64 JDK through Rosetta on the Apple Silicon runner, so the JRE is x64.
           - platform: macos-latest
             target: x86_64-apple-darwin
             jdkArch: x64
+            vsixTarget: darwin-x64
           # The oldest supported Ubuntu on purpose: the AppImage needs the build machine's glibc or newer.
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             jdkArch: x64
+            vsixTarget: linux-x64
 
     runs-on: ${{ matrix.platform }}
 
@@ -172,6 +176,20 @@ jobs:
           $zip = "Design.Studio_${version}_x64_portable.zip"
           Compress-Archive -Path "$($appExe.Directory.FullName)\*" -DestinationPath $zip -Force
           gh release upload "${{ github.ref_name }}" $zip --repo "${{ github.repository }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The VS Code extension, one per platform (it carries this platform's JRE, as the desktop app does).
+      - name: Build the VS Code extension (.vsix)
+        shell: bash
+        run: |
+          npm run build:vscode
+          cd vscode-extension
+          npm ci
+          npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+          node scripts/bundle-resources.mjs
+          npx --yes @vscode/vsce@3 package --target ${{ matrix.vsixTarget }} --no-dependencies --skip-license --allow-missing-repository -o "design-studio-${GITHUB_REF_NAME#v}-${{ matrix.vsixTarget }}.vsix"
+          gh release upload "$GITHUB_REF_NAME" *.vsix --repo "${{ github.repository }}" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

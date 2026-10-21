@@ -1,5 +1,6 @@
 // The app's own face: the startup splash (DataWeave Studio's loaders) and the About popup the logo opens.
 import { useEffect, useMemo, useState } from 'react';
+import logo from './assets/logo.svg';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { confirm } from '@tauri-apps/plugin-dialog';
@@ -28,7 +29,7 @@ let updateState: UpdateState = { state: 'idle' };
 let pending: Update | null = null;
 const setUpdate = (u: UpdateState) => { updateState = u; window.dispatchEvent(new Event('ads-update')); };
 export const autoUpdates = () => { try { return localStorage.getItem('ads.updateCheck') !== '0'; } catch { return true; } };
-const storeBuild = import.meta.env.VITE_STORE_BUILD === '1';
+const storeBuild = import.meta.env.VITE_STORE_BUILD === '1' || import.meta.env.VITE_VSCODE === '1'; // the Store and the Marketplace update it themselves
 export async function checkForUpdate(manual = false) {
   if (!isTauri || storeBuild || pending) return;
   if (!manual && !autoUpdates()) { setUpdate({ state: 'off' }); return; }
@@ -136,7 +137,7 @@ export function About({ version, onClose, onRestart }: { version: string; onClos
               <div className="mb-3 text-[11px] font-semibold uppercase tracking-[1px] text-accent">A free desktop tool for MuleSoft developers</div>
               <h1 className="m-0 text-[46px] font-bold leading-[1.04] tracking-[-1.5px] text-content">{APP_NAME}.<br /><span className="text-accent">Code and visual, in sync.</span></h1>
             </div>
-            <img src="/logo.svg" alt="" width={124} height={124} className="mr-2 shrink-0" style={{ filter: 'drop-shadow(0 10px 28px rgba(0, 90, 255, 0.28))' }} />
+            <img src={logo} alt="" width={124} height={124} className="mr-2 shrink-0" style={{ filter: 'drop-shadow(0 10px 28px rgba(0, 90, 255, 0.28))' }} />
           </div>
           <p className="mb-0 mt-[18px] max-w-[580px] text-[15px] leading-[1.55] text-content-muted">
             Design Center's API Designer on your desktop: RAML and OAS, big specs that open in seconds, every edit checked by MuleSoft's own AMF engine,

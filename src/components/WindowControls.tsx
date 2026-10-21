@@ -3,10 +3,13 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 // Copied from DataWeave Studio. The window has decorations: false, so these are the
 // only minimize / maximize / close buttons. Outside Tauri (plain browser) there is no window.
-export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+// The VS Code build (vite.config.vscode.ts) has a backend too, the extension, but VS Code owns the window,
+// its zoom and the extension's updates: isVsCode drops those.
+export const isVsCode = import.meta.env.VITE_VSCODE === '1';
+export const isTauri = isVsCode || (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window);
 
 export function WindowControls() {
-  if (!isTauri) return null;
+  if (!isTauri || isVsCode) return null;
   return <TauriWindowControls />;
 }
 

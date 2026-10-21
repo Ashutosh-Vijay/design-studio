@@ -11,6 +11,7 @@ import { KINDS, makeProject, type Kind } from './Create';
 import type { Me } from './SyncUI';
 import { Modal, btn, btnPrimary, Spinner } from './App';
 import { Icons } from './components/Icons';
+import { isVsCode } from './components/WindowControls';
 
 type Problem = { severity: string; message: string; file: string; line: number; col: number };
 type Ref = { file: string; line: number; text: string; decl?: boolean };
@@ -311,7 +312,7 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
     cursor: `{\n  "mcpServers": {\n    "design-studio": { "url": "${url}" }\n  }\n}`,
     desktop: `{\n  "mcpServers": {\n    "design-studio": { "command": "npx", "args": ["-y", "mcp-remote", "${url}"] }\n  }\n}`,
   }[client];
-  const where = { claude: 'Run this in a terminal (Claude Code).', vscode: 'Put this in .vscode/mcp.json, then turn the server on in Copilot agent mode.', cursor: 'Put this in ~/.cursor/mcp.json, then turn it on in Cursor settings, MCP.', desktop: "Put this in Claude Desktop's claude_desktop_config.json (needs Node.js), then restart Claude Desktop." }[client];
+  const where = { claude: 'Run this in a terminal (Claude Code).', vscode: isVsCode ? "Nothing to set up in this VS Code: while the server runs, Copilot's agent mode lists Design Studio by itself (MCP: List Servers). The setting above is for another VS Code." : 'Put this in .vscode/mcp.json, then turn the server on in Copilot agent mode.', cursor: 'Put this in ~/.cursor/mcp.json, then turn it on in Cursor settings, MCP.', desktop: "Put this in Claude Desktop's claude_desktop_config.json (needs Node.js), then restart Claude Desktop." }[client];
   const box = 'rounded-md border border-line bg-surface-2';
   return (
     <Modal title="AI tools (MCP)" sub="Let AI agents like Claude, Copilot and Cursor work in Design Studio" width={560} onCancel={onClose}

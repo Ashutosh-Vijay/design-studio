@@ -11,3 +11,9 @@ dependency-reduced-pom.xml
 src-tauri/resources/**
 !src-tauri/resources/*/
 !src-tauri/resources/*/.gitkeep
+
+# The VS Code extension: built UI, bundle, and the JRE and jar copied in for packaging.
+vscode-extension/webview-dist/
+vscode-extension/dist/
+vscode-extension/resources/
+vscode-extension/*.vsix

@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 /* Bundled mono font, so the editor looks the same on every machine. */
-@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("/fonts/jetbrains-mono-400.woff2") format("woff2"); }
-@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-style: normal; font-display: swap; src: url("/fonts/jetbrains-mono-700.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("./assets/fonts/jetbrains-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-style: normal; font-display: swap; src: url("./assets/fonts/jetbrains-mono-700.woff2") format("woff2"); }
 
 /* ========= Dusk / Paper tokens, copied from DataWeave Studio =========
    Warm-neutral surfaces (hue 80, chroma 0.004) and an accent the user picks. */

@@ -1,0 +1,71 @@
+// The MCP server for AI tools in the extension, as src-tauri/src/mcp.rs on the desktop: Streamable HTTP on
+// 127.0.0.1, tools and their definitions from the webview (src/mcp.tsx), every call handed to the webview and
+// answered through mcp_reply. VS Code's own agent mode finds it through the MCP provider in extension.ts.
+import * as http from 'http';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+let server: http.Server | null = null, port: number | null = null, started = 0, requests = 0, next = 0;
+let tools: unknown[] = [], instructions = '';
+const pending = new Map<number, (r: { ok: boolean; result: string }) => void>();
+let onChange = () => {};
+export const onMcpChange = (f: () => void) => { onChange = f; };
+export const mcpUrl = () => (server && port ? `http://127.0.0.1:${port}/mcp` : null);
+
+const loopback = (host: string) => { const name = host.startsWith('[') ? host.split(']')[0] + ']' : host.split(':')[0]; return ['127.0.0.1', 'localhost', '[::1]'].includes(name); };
+
+function mcpServer(version: string, emit: (e: string, p: unknown) => void) {
+  const s = new Server({ name: 'design-studio', version }, { capabilities: { tools: {} }, instructions });
+  s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: tools as never }));
+  s.setRequestHandler(CallToolRequestSchema, async (req) => {
+    requests++;
+    const id = ++next;
+    const answer = new Promise<{ ok: boolean; result: string }>((r) => pending.set(id, r));
+    emit('mcp-call', { id, tool: req.params.name, args: req.params.arguments ?? {} });
+    // Publishing and pulling big projects take a while; ten minutes is the outer limit.
+    const r = await Promise.race([answer, new Promise<{ ok: boolean; result: string }>((ok) => setTimeout(() => ok({ ok: false, result: "Design Studio didn't answer in time." }), 600000))]);
+    pending.delete(id);
+    return { content: [{ type: 'text', text: r.result }], isError: !r.ok };
+  });
+  return s;
+}
+
+export async function mcpCommand(cmd: string, a: Record<string, any>, version: string, emit: (e: string, p: unknown) => void): Promise<unknown> {
+  switch (cmd) {
+    case 'mcp_start': {
+      stopMcp();
+      tools = a.tools; instructions = a.instructions;
+      const srv = http.createServer(async (req, res) => {
+        // Only this computer, and never a web page (a page on localhost, like a local MCP inspector, is let through).
+        const origin = String(req.headers.origin ?? '');
+        if (!loopback(String(req.headers.host ?? '')) || (origin && !loopback(origin.split('://')[1] ?? ''))) { res.writeHead(403).end('Refused.'); return; }
+        if (!(req.url ?? '').startsWith('/mcp')) { res.writeHead(404).end(); return; }
+        const chunks: Buffer[] = [];
+        for await (const c of req) chunks.push(c as Buffer);
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined;
+        // Stateless: a server and transport per request, as the SDK suggests for simple servers.
+        const t = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+        const s = mcpServer(version, emit);
+        res.on('close', () => { t.close(); s.close(); });
+        await s.connect(t);
+        await t.handleRequest(req, res, body);
+      });
+      await new Promise<void>((ok, fail) => { srv.once('error', (e) => fail(new Error(`Couldn't use port ${a.port}: ${e.message}`))); srv.listen(a.port, '127.0.0.1', () => ok()); });
+      server = srv; port = a.port; started = Date.now();
+      onChange();
+      return null;
+    }
+    case 'mcp_stop': stopMcp(); return null;
+    case 'mcp_status': return { running: !!server, port, uptimeSecs: server ? Math.round((Date.now() - started) / 1000) : 0, requests };
+    case 'mcp_reply': { const f = pending.get(a.id); if (f) f({ ok: a.ok, result: a.result }); return null; }
+  }
+  return undefined;
+}
+export function stopMcp() {
+  if (!server) return;
+  server.close(); server = null; port = null;
+  for (const f of pending.values()) f({ ok: false, result: 'Design Studio was closed.' });
+  pending.clear();
+  onChange();
+}

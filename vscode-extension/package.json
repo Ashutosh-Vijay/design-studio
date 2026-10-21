@@ -1,0 +1,219 @@
+{
+  "name": "design-studio-mulesoft",
+  "displayName": "Design Studio for MuleSoft",
+  "description": "A fast designer for Anypoint Design Center API specs, RAML and OAS, inside VS Code. Every edit is checked by AMF as you type, and it syncs with Design Center and Exchange.",
+  "version": "0.1.0",
+  "preview": true,
+  "publisher": "ashutosh-vijay",
+  "license": "MIT",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "mulesoft",
+    "anypoint",
+    "design center",
+    "raml",
+    "oas",
+    "openapi",
+    "exchange",
+    "api design"
+  ],
+  "galleryBanner": {
+    "color": "#0b0e14",
+    "theme": "dark"
+  },
+  "homepage": "https://ashutosh-vijay.dev/design-studio/",
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "designStudio.open",
+        "title": "Open",
+        "category": "Design Studio",
+        "icon": "$(symbol-structure)"
+      },
+      {
+        "command": "designStudio.openFolder",
+        "title": "Open in Design Studio",
+        "category": "Design Studio"
+      },
+      {
+        "command": "designStudio.academy",
+        "title": "API Design Academy",
+        "category": "Design Studio"
+      },
+      {
+        "command": "designStudio.inApp",
+        "title": "Handled by Design Studio",
+        "category": "Design Studio"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "designStudio.openFolder",
+          "when": "explorerResourceIsFolder || resourceExtname == .raml",
+          "group": "navigation@90"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "designStudio.openFolder",
+          "when": "resourceExtname == .raml",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "designStudio.openFolder",
+          "when": "false"
+        },
+        {
+          "command": "designStudio.inApp",
+          "when": "false"
+        }
+      ]
+    },
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "designStudio.mcp",
+        "label": "Design Studio"
+      }
+    ],
+    "keybindings": [
+      {
+        "key": "ctrl+k",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+k"
+      },
+      {
+        "key": "ctrl+shift+o",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+shift+o"
+      },
+      {
+        "key": "f1",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'"
+      },
+      {
+        "key": "ctrl+o",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+o"
+      },
+      {
+        "key": "ctrl+s",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+s"
+      },
+      {
+        "key": "ctrl+shift+s",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+shift+s"
+      },
+      {
+        "key": "ctrl+w",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+w"
+      },
+      {
+        "key": "ctrl+tab",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'"
+      },
+      {
+        "key": "ctrl+shift+tab",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'"
+      },
+      {
+        "key": "ctrl+alt+b",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+alt+b"
+      },
+      {
+        "key": "f2",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'"
+      },
+      {
+        "key": "f12",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'"
+      },
+      {
+        "key": "shift+f12",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'"
+      },
+      {
+        "key": "ctrl+z",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+z"
+      },
+      {
+        "key": "ctrl+y",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+shift+z"
+      },
+      {
+        "key": "ctrl+shift+z",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'"
+      },
+      {
+        "key": "ctrl+f",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+f"
+      },
+      {
+        "key": "ctrl+h",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+alt+f"
+      },
+      {
+        "key": "ctrl+r",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+r"
+      }
+    ]
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "compile": "npm run check-types && node esbuild.js",
+    "package": "npm run check-types && node esbuild.js --production",
+    "vscode:prepublish": "npm run package",
+    "bundle:resources": "node scripts/bundle-resources.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "adm-zip": "^0.5.16"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.24.0",
+    "typescript": "~5.8.3"
+  }
+}

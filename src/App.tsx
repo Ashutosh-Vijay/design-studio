@@ -1,4 +1,7 @@
 import { Component, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
+import logo from './assets/logo.svg';
+import govWorkerUrl from './governance.worker.ts?worker&url';
+import logoSmall from './assets/logo-small.svg';
 import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
@@ -15,7 +18,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, autoUpdates } from './Brand';
-import { WindowControls, isTauri } from './components/WindowControls';
+import { WindowControls, isTauri, isVsCode } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
@@ -114,6 +117,15 @@ export default function App() {
     return () => { un.then((f) => f()); };
   }, []);
 
+  // In VS Code, "Open in Design Studio" on a folder (and the Academy command) arrive from the extension.
+  const openRef = useRef(openFolder); openRef.current = openFolder;
+  useEffect(() => {
+    if (!isVsCode) return;
+    const go = (p: { root?: string; academy?: boolean } | null) => { if (p?.root) openRef.current(p.root); if (p?.academy) setAcademy(true); };
+    invoke<{ root?: string; academy?: boolean } | null>('vscode_take_pending').then(go, () => {});
+    const un = listen<{ root?: string; academy?: boolean }>('ds-open', (e) => go(e.payload));
+    return () => { un.then((f) => f()); };
+  }, []);
   mcpHost.app = { recent, open: (root) => openFolder(root), close: async () => { if (await okToLeave()) { setProject(null); setDirtyCount(0); } } };
   async function openFolder(root?: string) {
     if (project && !(await okToLeave())) return;
@@ -160,7 +172,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (import.meta.env.PROD && (e.key === 'F5' || (mod && e.key.toLowerCase() === 'r'))) { e.preventDefault(); return; }
-      if (mod && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0') && !e.altKey) {
+      if (!isVsCode && mod && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0') && !e.altKey) {
         e.preventDefault();
         const i = ZOOMS.indexOf(savedZoom());
         setZoom(e.key === '0' ? 1 : ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + (e.key === '-' ? -1 : 1)))]);
@@ -187,7 +199,7 @@ export default function App() {
       {/* Title bar: the window has no OS decorations, so this is the drag region */}
       <header data-tauri-drag-region className="h-11 shrink-0 flex items-center gap-2.5 pl-3 bg-surface border-b border-line">
         <button className="w-8 h-7 flex items-center justify-center rounded-md hover:bg-surface-2" title={`About ${APP_NAME}`} onClick={() => setAbout(true)}>
-          <img src="/logo-small.svg" width={22} height={22} alt="" />
+          <img src={logoSmall} width={22} height={22} alt="" />
         </button>
         {project && <button title="Back to all projects" onClick={async () => { if (await okToLeave()) { setProject(null); setDirtyCount(0); } }}
           className="h-7 pl-1.5 pr-2.5 -ml-1 flex items-center gap-1 rounded-md text-[12px] text-content-muted hover:bg-surface-2 hover:text-content">
@@ -271,8 +283,8 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate
     <div className="flex-1 min-h-0 overflow-auto flex justify-center">
       <div className="w-full max-w-[1000px] grid grid-cols-[340px_minmax(0,1fr)] gap-12 px-10 pt-14 pb-8 content-start">
         <section>
-          <img src="/logo.svg" width={120} height={120} alt="Design Studio" className="-ml-2.5 -mt-3 drop-shadow-[0_6px_18px_rgba(0,90,255,0.25)]" />
-          <h1 className="mt-2 mb-1.5 text-[22px] font-bold">Design Center specs, on your desktop</h1>
+          <img src={logo} width={120} height={120} alt="Design Studio" className="-ml-2.5 -mt-3 drop-shadow-[0_6px_18px_rgba(0,90,255,0.25)]" />
+          <h1 className="mt-2 mb-1.5 text-[22px] font-bold">Design Center specs, {isVsCode ? 'in VS Code' : 'on your desktop'}</h1>
           <p className="text-content-muted leading-relaxed">A desktop designer for Anypoint Design Center specs, RAML and OAS. Big specs open in seconds, and every edit is checked as you type.</p>
           <div className="relative mt-6">
             <button disabled={!isTauri || !!opening} onClick={() => setCreateMenu(!createMenu)}
@@ -621,7 +633,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     saveAll: async () => { for (const p of [...dirty]) if (!(await save(p))) throw new Error(`${p} couldn't be saved.`); },
     // A check started meanwhile (typing, a save) can supersede this one: then it asks again.
     check: async () => { if (!checkable) return undefined; for (let i = 0; i < 6; i++) { const r = await runCheck('validate'); if (r) return r; await new Promise((ok) => setTimeout(ok, 300)); } throw new Error(engine.state === 'failed' ? `The AMF engine isn't running: ${engine.detail}` : "The check didn't finish; try again."); },
-    governance: () => runGovernance(),
+    // A run already going (the one after each check) answers for this one too.
+    governance: async () => { const r = await runGovernance(); if (r !== undefined) return r; while (govBusy.current) await new Promise((ok) => setTimeout(ok, 300)); return govLast.current; },
     outline: () => outlineRef.current,
     refs: async (name, file) => { const d = declFor(name, file); return d ? (await refsOf(d)).map((r) => ({ file: r.file, line: r.line, text: r.text, decl: r.decl })) : null; },
     renameSymbol: async (name, nu, file) => { const d = declFor(name, file); if (!d) throw new Error(`${name} isn't a declared type, trait, resource type or security scheme.`); return doRename(d, nu); },
@@ -1131,7 +1144,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   type Gov = { state: 'idle' | 'running' | 'done' | 'none' | 'failed'; progress?: number; detail?: string; seconds?: number; rulesets?: number; results: Finding[] };
   const [gov, setGov] = useState<Gov>({ state: 'idle', results: [] });
   const [govSettings, setGovSettings] = useState<GovSettings>({ off: {}, auto: true });
-  const govWorker = useRef<Worker | null>(null), govBusy = useRef(false), govAgain = useRef(false), govAlive = useRef(true);
+  const govWorker = useRef<Worker | null>(null), govBusy = useRef(false), govAgain = useRef(false), govAlive = useRef(true), govLast = useRef<unknown[] | undefined>(undefined);
   async function runGovernance() {
     if (!checkable) return;
     if (govBusy.current) { govAgain.current = true; return; }
@@ -1144,8 +1157,9 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       setGov((g) => ({ ...g, state: 'running', progress: 0, rulesets: rs.length }));
       await syncOverlays();
       const { graph } = await amf('governanceGraph', {});
-      const w = govWorker.current ??= new Worker(new URL('./governance.worker.ts', import.meta.url), { type: 'module' });
-      if (!govAlive.current) { w.terminate(); govWorker.current = null; return; } // the project closed meanwhile
+      // A VS Code webview can't start a worker from its resource address (another origin): it runs from a blob there.
+      const w = govWorker.current ??= isVsCode ? new Worker(URL.createObjectURL(new Blob([await (await fetch(govWorkerUrl)).text()], { type: 'text/javascript' }))) : new Worker(govWorkerUrl, { type: 'module' });
+      if (!govAlive.current) { w.terminate(); govWorker.current = null; setGov((g) => ({ ...g, state: 'idle' })); return; } // the project closed meanwhile
       const found = await new Promise<Finding[]>((res, rej) => {
         // No word from the validator for three minutes: it's stuck (a failed start never answers).
         let quiet = 0; const wait = () => { clearTimeout(quiet); quiet = window.setTimeout(() => rej(new Error('The validator stopped answering.')), 180000); };
@@ -1156,6 +1170,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       });
       const at = (await amf('govLocate', { ids: [...new Set(found.map((f) => f.focus))] })).at as Record<string, At>;
       const results = found.map((f) => ({ ...f, file: at[f.focus]?.file, r: at[f.focus]?.r }));
+      govLast.current = results;
       setGov({ state: 'done', rulesets: rs.length, seconds: Math.round((performance.now() - t0) / 1000), results });
       return results;
     } catch (e) {
@@ -1175,7 +1190,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     window.addEventListener('ads-governance-changed', f);
     return () => window.removeEventListener('ads-governance-changed', f);
   }, [project.root]);
-  useEffect(() => { readGovSettings(project.root).then(setGovSettings, () => {}); return () => { govAlive.current = false; govWorker.current?.terminate(); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { govAlive.current = true; readGovSettings(project.root).then(setGovSettings, () => {}); return () => { govAlive.current = false; govWorker.current?.terminate(); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function runCheck(mode: 'parse' | 'validate') {
     if (!checkable) return;
@@ -2022,7 +2037,7 @@ export function setZoom(z: number) {
   if (isTauri) getCurrentWebview().setZoom(z).catch(() => {});
   window.dispatchEvent(new Event('ads-zoom'));
 }
-if (isTauri && savedZoom() !== 1) getCurrentWebview().setZoom(savedZoom()).catch(() => {});
+if (isTauri && !isVsCode && savedZoom() !== 1) getCurrentWebview().setZoom(savedZoom()).catch(() => {});
 function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect, onMcp }: {
   at: DOMRect; pref: ThemePref; accent: string; onChange: (p: ThemePref, a: string) => void; onClose: () => void; onConnect: () => void; onMcp: () => void;
 }) {
@@ -2063,6 +2078,8 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect, onMcp
             style={{ background: `oklch(${dark ? 72 : 55}% ${a.chroma} ${a.hue})`, outline: accent === a.id ? '2px solid var(--content)' : 'none', outlineOffset: 2 }} />
         ))}
       </div>
+      {/* In VS Code, its own zoom does this (View, Appearance). */}
+      {!isVsCode && <>
       <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Interface size</div>
       <div className="flex items-center gap-1.5 text-[12px]">
         <button className={btn + ' !h-6 !w-7 !px-0'} title="Smaller (Ctrl Minus)" disabled={zoom <= ZOOMS[0]} onClick={() => setZoom(ZOOMS[ZOOMS.indexOf(zoom) - 1])}>−</button>
@@ -2072,6 +2089,7 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect, onMcp
         {zoom !== 1 && <button className="text-[11.5px] text-accent hover:underline" title="Ctrl 0" onClick={() => setZoom(1)}>Reset</button>}
       </div>
       <div className="mt-1 text-[11px] text-content-faint">Everything: icons, panels and text. Ctrl Plus and Ctrl Minus work anywhere.</div>
+      </>}
       <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Editor</div>
       <div className="flex items-center gap-2 text-[12px]">
         <span className="text-content-secondary">Text size</span><span className="flex-1" />
@@ -2105,7 +2123,7 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect, onMcp
           <button className={btn + ' !h-6 !px-2 !text-[11.5px]'} onClick={onMcp}>Set up…</button>
         </div>
       </>}
-      {isTauri && import.meta.env.VITE_STORE_BUILD !== '1' && <label className="mt-3.5 flex items-center gap-2 text-[12px] cursor-pointer" title="Asks GitHub for a newer version a few seconds after the app starts, and downloads it quietly">
+      {isTauri && !isVsCode && import.meta.env.VITE_STORE_BUILD !== '1' && <label className="mt-3.5 flex items-center gap-2 text-[12px] cursor-pointer" title="Asks GitHub for a newer version a few seconds after the app starts, and downloads it quietly">
         <input type="checkbox" defaultChecked={autoUpdates()} onChange={(e) => { try { localStorage.setItem('ads.updateCheck', e.target.checked ? '1' : '0'); } catch { /* ignore */ } }} className="accent-[var(--accent)]" />Check for updates automatically
       </label>}
       <div className="mt-3.5 pt-2.5 border-t border-line-subtle text-[11px] text-content-faint">{APP_NAME} {version} · MIT licence</div>

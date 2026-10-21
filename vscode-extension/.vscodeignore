@@ -1,0 +1,9 @@
+# Sources stay out of the .vsix; shipped: dist/, webview-dist/, resources/ (JRE and engine), icon, README, CHANGELOG.
+src/**
+scripts/**
+node_modules/**
+out/**
+tsconfig.json
+esbuild.js
+DEVELOPMENT.md
+**/*.map
