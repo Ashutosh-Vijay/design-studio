@@ -1,6 +1,8 @@
 // The app's own face: the startup splash (DataWeave Studio's loaders) and the About popup the logo opens.
 import { useEffect, useMemo, useState } from 'react';
 import logo from './assets/logo.svg';
+import RELEASES from './releases.json';
+import { isVsCode } from './components/WindowControls';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { confirm } from '@tauri-apps/plugin-dialog';
@@ -110,8 +112,15 @@ export function Splash() {
 }
 
 // About, as in DataWeave Studio: what it is, version, licence, engine, and who made it.
+// The release notes (src/releases.json, newest first): what this runtime shows ("only" keeps an item to desktop or VS Code).
+type Release = { version: string; date: string; headline: string; highlights: { title: string; desc: string; tag?: string; only?: string }[] };
+const shows = (h: { only?: string }) => !h.only || h.only === (isVsCode ? 'vscode' : 'desktop');
+export const NOTES = (RELEASES as Release[]).map((r) => ({ ...r, highlights: r.highlights.filter(shows) })).filter((r) => r.highlights.length);
+
 export function About({ version, onClose, onRestart }: { version: string; onClose: () => void; onRestart: () => void }) {
   const upd = useUpdate();
+  const current = NOTES.find((r) => r.version === version) ?? NOTES[0];
+  const [earlier, setEarlier] = useState(false);
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', k);
@@ -134,13 +143,13 @@ export function About({ version, onClose, onRestart }: { version: string; onClos
         <div className="px-8 pb-6 pt-7">
           <div className="flex items-center gap-8">
             <div className="min-w-0 flex-1">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[1px] text-accent">A free desktop tool for MuleSoft developers</div>
+              <div className="mb-3 text-[11px] font-semibold uppercase tracking-[1px] text-accent">A free {isVsCode ? 'VS Code' : 'desktop'} tool for MuleSoft developers</div>
               <h1 className="m-0 text-[46px] font-bold leading-[1.04] tracking-[-1.5px] text-content">{APP_NAME}.<br /><span className="text-accent">Code and visual, in sync.</span></h1>
             </div>
             <img src={logo} alt="" width={124} height={124} className="mr-2 shrink-0" style={{ filter: 'drop-shadow(0 10px 28px rgba(0, 90, 255, 0.28))' }} />
           </div>
           <p className="mb-0 mt-[18px] max-w-[580px] text-[15px] leading-[1.55] text-content-muted">
-            Design Center's API Designer on your desktop: RAML and OAS, big specs that open in seconds, every edit checked by MuleSoft's own AMF engine,
+            Design Center's API Designer {isVsCode ? 'in VS Code' : 'on your desktop'}: RAML and OAS, big specs that open in seconds, every edit checked by MuleSoft's own AMF engine,
             and the same pull, push and publish to Exchange. Works offline; you only sign in to sync.
           </p>
           <Rule />
@@ -149,6 +158,26 @@ export function About({ version, onClose, onRestart }: { version: string; onClos
             <Stat kicker="license" value="MIT" sub="free and open source" />
             <Stat kicker="engine" value="AMF 5.15" sub="Apache 2.0 · MuleSoft" />
           </div>
+          {current && <>
+            <Rule />
+            <div className="mb-2 flex items-baseline gap-2.5">
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.8px] text-content-faint">What's new in {current.version}</span>
+              <span className="text-[13px] font-semibold text-content">{current.headline}</span>
+              <span className="text-[11px] text-content-faint">{current.date}</span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {current.highlights.map((h) => (
+                <div key={h.title} className="text-[12.5px] leading-[1.5] text-content-muted">
+                  <span className="font-semibold text-content">{h.title}</span>{h.tag && <span className="ml-1.5 rounded px-1 py-px text-[9.5px] font-bold text-accent bg-accent-dim align-middle">{h.tag}</span>}
+                  <span className="text-content-faint"> · </span>{h.desc}
+                </div>
+              ))}
+            </div>
+            {NOTES.length > 1 && <button onClick={() => setEarlier(!earlier)} className="mt-2.5 text-[11.5px] text-accent hover:underline">{earlier ? 'Hide earlier releases' : 'Earlier releases'}</button>}
+            {earlier && NOTES.filter((r) => r !== current).map((r) => (
+              <div key={r.version} className="mt-2 text-[12px] text-content-muted"><span className="font-semibold text-content">{r.version}</span> {r.headline}: {r.highlights.map((h) => h.title).join(', ')}.</div>
+            ))}
+          </>}
           <Rule />
           <div className="grid items-start gap-6" style={{ gridTemplateColumns: '180px 1fr' }}>
             <div>

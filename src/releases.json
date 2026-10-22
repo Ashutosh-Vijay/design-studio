@@ -1,0 +1,44 @@
+[
+  {
+    "version": "0.1.0",
+    "date": "October 2026",
+    "headline": "The first beta",
+    "highlights": [
+      {
+        "title": "Design Center specs, fast",
+        "tag": "NEW",
+        "desc": "Open RAML and OAS projects of any size in seconds. Every edit is checked by AMF, the engine Design Center uses, so errors show as you type. Suggestions for types, traits and !include paths are instant, and Design Center's shelf sits under the editor."
+      },
+      {
+        "title": "Forms and code in step",
+        "tag": "NEW",
+        "desc": "The Inspector edits resources, methods, types, parameters and responses for RAML 1.0 and OAS 3.0, and changes only the lines it must. Rename a type everywhere, find its uses, extract to a library, or delete with cascade."
+      },
+      {
+        "title": "Design Center and Exchange",
+        "tag": "NEW",
+        "desc": "Sign in with Anypoint, pull your projects, push with the branch lock, work on branches and merge with conflict help. Publish to Exchange with a suggested version, manage Exchange dependencies, and see what changed since the last version. Connections start read only."
+      },
+      {
+        "title": "Governance, docs and a local mock",
+        "tag": "NEW",
+        "desc": "Check your API against the rulesets it depends on. Read it as documentation, try any method on a local mock that answers like Design Center's, and see every type's uses on the API map."
+      },
+      {
+        "title": "AI tools (MCP)",
+        "tag": "NEW",
+        "desc": "Let agents like Claude, Copilot and Cursor work in Design Studio: open projects, edit specs, run AMF's checks and governance, try the mock and work with Design Center, while you watch every change. Changes in Design Center and Exchange stay off until you allow them."
+      },
+      {
+        "title": "API Design Academy",
+        "tag": "NEW",
+        "desc": "Sixteen short lessons, from what an API is to libraries, publishing, governance and OAS. Every lesson has something to try, and AMF checks what you write."
+      },
+      {
+        "title": "Also in VS Code",
+        "only": "vscode",
+        "desc": "The same app in an editor tab. Right-click a project folder or a .raml file and pick Open in Design Studio. Copilot's agent mode finds the AI tools by itself while they run."
+      }
+    ]
+  }
+]

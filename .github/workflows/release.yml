@@ -111,6 +111,14 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio-auth/main/clients.json -o src-tauri/clients.json
           node -e "const c=require('./src-tauri/clients.json'); if(!c.regions) process.exit(1); console.log('regions:', Object.keys(c.regions).join(', '))"
 
+      # Versions, notes and changelog agree with the tag (docs/RELEASING.md), and the release text comes from src/releases.json.
+      - name: Check the release, write its notes
+        id: notes
+        shell: bash
+        run: |
+          node scripts/release-check.mjs "$GITHUB_REF_NAME"
+          { echo 'body<<NOTES_END'; node scripts/release-notes.mjs "$GITHUB_REF_NAME"; echo 'NOTES_END'; } >> "$GITHUB_OUTPUT"
+
       - name: Build the app
         uses: tauri-apps/tauri-action@v0.6
         env:
@@ -122,19 +130,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Design Studio ${{ github.ref_name }}'
-          releaseBody: |
-            ### Downloads
-            - **Windows**: `.exe` (installer), `_x64_portable.zip` (no install: unzip and run), or `_x64-setup.zip` (the installer zipped, for proxies that block `.exe`)
-            - **macOS**: `.dmg` (Apple Silicon and Intel)
-            - **Linux**: `.AppImage`, `.deb` or `.rpm`
-
-            Everything is included: the AMF engine and a small Java runtime, so you don't need Java installed.
-            The app updates itself quietly after this.
-
-            ### Opening an unsigned build
-            The app isn't code-signed yet, so your system warns the first time you open it.
-            - **Windows (SmartScreen)**: **More info**, then **Run anyway**. If Smart App Control blocks the installer, use the portable zip.
-            - **macOS**: move the app to Applications, then **System Settings > Privacy & Security > Open Anyway**, or run `xattr -cr "/Applications/Design Studio.app"`.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           updaterJsonPreferNsis: true
@@ -190,8 +186,11 @@ jobs:
           node scripts/bundle-resources.mjs
           npx --yes @vscode/vsce@3 package --target ${{ matrix.vsixTarget }} --no-dependencies --skip-license --allow-missing-repository -o "design-studio-${GITHUB_REF_NAME#v}-${{ matrix.vsixTarget }}.vsix"
           gh release upload "$GITHUB_REF_NAME" *.vsix --repo "${{ github.repository }}" --clobber
+          # To the Marketplace too, once the VSCE_PAT secret is set (docs/RELEASING.md); until then it's only on the release.
+          if [ -n "$VSCE_PAT" ]; then npx --yes @vscode/vsce@3 publish --packagePath *.vsix --pat "$VSCE_PAT"; else echo "::notice::VSCE_PAT isn't set, so the .vsix wasn't published to the Marketplace."; fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
   publish:
     needs: build

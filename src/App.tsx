@@ -17,7 +17,7 @@ import { Select } from './components/Popup';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, autoUpdates } from './Brand';
+import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, autoUpdates, NOTES } from './Brand';
 import { WindowControls, isTauri, isVsCode } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
@@ -83,6 +83,12 @@ export default function App() {
   };
   const [version, setVersion] = useState('');
   useEffect(() => { if (isTauri) getVersion().then(setVersion, () => {}); }, []);
+  // After an update, About opens once, on its What's new. A fresh install only remembers the version.
+  useEffect(() => {
+    if (!version) return;
+    let seen: string | null = null; try { seen = localStorage.getItem('ads.seenVersion'); localStorage.setItem('ads.seenVersion', version); } catch { return; }
+    if (seen && seen !== version && NOTES.some((r) => r.version === version)) setAbout(true);
+  }, [version]);
   // The palette: '' everything (Ctrl K), '@' symbols (Ctrl Shift O), '>' commands (F1).
   const [paletteOpen, setPaletteOpen] = useState<false | '' | '@' | '>'>(false);
   const paletteRef = useRef<{ symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null>(null);

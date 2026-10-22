@@ -28,6 +28,6 @@ Everything is included: the AMF engine and a small Java runtime, so you don't ne
 
 ## Signing in
 
-**Sign in with Anypoint** opens your browser and comes back to VS Code on this computer (localhost ports 8765 to 8768). You can also use your own Connected App. Connections start read only, so nothing in Design Center changes until you turn that off in Settings.
+**Sign in with Anypoint** opens your browser and comes back to VS Code on this computer (localhost ports 8765 to 8768). It works in the US and India Anypoint clouds today; in every other cloud, use your own Connected App. Connections start read only, so nothing in Design Center changes until you turn that off in Settings.
 
 Remote windows (SSH, WSL, dev containers, Codespaces) aren't supported in this beta: run VS Code locally.
