@@ -311,6 +311,14 @@ fn write_file_exact(root: String, path: String, text: String) -> Result<(), Stri
   fs::write(&full, text).map_err(|e| format!("Couldn't write {}: {}", path, e))
 }
 
+// The theme's light or dark, for the window's colour on the next start (before the page can say).
+#[tauri::command]
+fn remember_theme(app: tauri::AppHandle, dark: bool) -> Result<(), String> {
+  let dir = tauri::Manager::path(&app).app_config_dir().map_err(|e| e.to_string())?;
+  fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+  fs::write(dir.join("theme"), if dark { "dark" } else { "light" }).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -323,6 +331,10 @@ pub fn run() {
     .manage(std::sync::Arc::new(anypoint::Anypoint::default()))
     .manage(mcp::Mcp::default())
     .setup(|app| {
+      // The window is painted in the theme's background from the first frame, so a slow load is never a white
+      // flash: dark by default (tauri.conf.json), light when that was the theme last time (remember_theme).
+      let light = tauri::Manager::path(app.handle()).app_config_dir().ok().and_then(|d| fs::read_to_string(d.join("theme")).ok()).is_some_and(|t| t.trim() == "light");
+      if light { if let Some(w) = tauri::Manager::get_webview_window(app.handle(), "main") { let _ = w.set_background_color(Some(tauri::window::Color(249, 248, 246, 255))); } }
       // The window starts hidden and the page shows it after its first frame; this is the safety net.
       let h = app.handle().clone();
       std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_secs(4)); if let Some(w) = tauri::Manager::get_webview_window(&h, "main") { let _ = w.show(); } });
@@ -331,7 +343,7 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, create_dir, export_zip, import_zip, import_into, fetch_url, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
       anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only, anypoint::anypoint_set_org, anypoint::anypoint_broker_regions,
-      anypoint::anypoint_dev_session, mcp::mcp_start, mcp::mcp_stop, mcp::mcp_status, mcp::mcp_reply])
+      anypoint::anypoint_dev_session, remember_theme, mcp::mcp_start, mcp::mcp_stop, mcp::mcp_status, mcp::mcp_reply])
     .build(tauri::generate_context!())
     .expect("error while building Design Studio")
     .run(|app, event| {

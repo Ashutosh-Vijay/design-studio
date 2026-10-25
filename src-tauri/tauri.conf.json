@@ -22,7 +22,8 @@
         "resizable": true,
         "maximized": true,
         "focus": true,
-        "decorations": false
+        "decorations": false,
+        "backgroundColor": "#0a0907"
       }
     ],
     "security": {

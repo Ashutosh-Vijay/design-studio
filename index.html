@@ -5,9 +5,18 @@
     <link rel="icon" type="image/svg+xml" href="/logo-small.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Design Studio for MuleSoft</title>
+    <!-- The first frame, before the app's code and styles load: no background of its own (the window is already
+         painted in the theme's colour), a quiet name and spinner that read on dark and light. React replaces it. -->
+    <style>
+      #ds-boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+        font: 600 19px/1 system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: 0.2px; color: #83807a; }
+      #ds-boot i { width: 26px; height: 26px; border-radius: 50%; border: 2px solid rgba(131, 128, 122, 0.25); border-top-color: #83807a;
+        animation: ds-boot-spin 0.9s linear infinite; }
+      @keyframes ds-boot-spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="ds-boot"><i></i>Design Studio</div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

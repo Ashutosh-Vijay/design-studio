@@ -109,7 +109,11 @@ export default function App() {
   const mcp = useMcpStatus();
   useEffect(() => { if (isTauri) startDispatcher(); }, []);
 
-  useEffect(() => { applyTheme(theme.pref, theme.accent); }, [theme]);
+  useEffect(() => {
+    applyTheme(theme.pref, theme.accent);
+    // The desktop window starts in this colour next time, before the page loads (no white flash).
+    if (isTauri && !isVsCode) invoke('remember_theme', { dark: isDarkPref(theme.pref) }).catch(() => {});
+  }, [theme]);
 
   // Leaving a project (or the window) with unsaved files asks first.
   const okToLeave = async () => dirtyCount === 0 || await ask(`${dirtyCount} ${dirtyCount === 1 ? 'file has' : 'files have'} unsaved changes. Leave without saving?`);
