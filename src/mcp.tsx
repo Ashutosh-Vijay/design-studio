@@ -42,6 +42,7 @@ export type AppHost = {
 export const host: { app: AppHost | null; project: ProjectHost | null } = { app: null, project: null };
 
 const PORT = 4676;
+export let autoStartError: string | null = null;
 const pref = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const setPref = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* blocked storage: forgotten */ } };
 const remoteOk = () => pref('ads.mcp.remote') === '1';
@@ -259,7 +260,8 @@ export function startDispatcher() {
     watchers.forEach((w) => w());
     invoke('mcp_reply', { id, ok, result: text });
   });
-  if (pref('ads.mcp.auto') === '1') startServer().catch(() => {});
+  // "Start when Design Studio opens" that fails (a port in use) is shown, not dropped: the title bar and the panel say it.
+  if (pref('ads.mcp.auto') === '1') startServer().catch((e) => { autoStartError = String(e).replace(/^Error: /, ''); window.dispatchEvent(new Event('ads-mcp')); });
 }
 const definitions = () => TOOLS.map((t) => ({
   name: t.name, description: t.description,
@@ -269,6 +271,7 @@ const definitions = () => TOOLS.map((t) => ({
 export const savedPort = () => Number(pref('ads.mcp.port')) || PORT;
 export async function startServer(port = savedPort()) {
   await invoke('mcp_start', { port, tools: definitions(), instructions: INSTRUCTIONS });
+  autoStartError = null;
   window.dispatchEvent(new Event('ads-mcp'));
 }
 export async function stopServer() { await invoke('mcp_stop'); window.dispatchEvent(new Event('ads-mcp')); }
@@ -291,7 +294,7 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
   const [port, setPort] = useState(String(savedPort()));
   const [auto, setAuto] = useState(pref('ads.mcp.auto') === '1');
   const [remote, setRemote] = useState(remoteOk());
-  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(autoStartError && `It didn't start when Design Studio opened: ${autoStartError}`);
   const [rows, setRows] = useState(log);
   const [client, setClient] = useState<'claude' | 'vscode' | 'cursor' | 'desktop'>('claude');
   const [copied, setCopied] = useState(false);

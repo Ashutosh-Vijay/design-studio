@@ -61,13 +61,14 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
   }, [me?.user_id]); // eslint-disable-line react-hooks/exhaustive-deps
   // The picked project's details and actions, as in Design Center's list.
   const [info, setInfo] = useState<{ created: number; owner: string; type: string; perms: S.Perms } | null>(null);
+  const [infoErr, setInfoErr] = useState<string | null>(null);
   const [dlg, setDlg] = useState<ReactNode>(null);
   useEffect(() => {
-    setInfo(null); if (!pick) return;
+    setInfo(null); setInfoErr(null); if (!pick) return;
     Promise.all([S.projectInfo(pick.id), S.sharedWith(pick.id).catch(() => [] as S.Person[])]).then(([i, sw]) => setInfo({
       created: i.meta.createdDate, type: i.meta.type === 'raml-fragment' ? 'API fragment' : 'API specification', perms: i.perms,
       owner: i.meta.createdBy === me?.user_id ? 'you' : sw.find((x) => x.isOwner)?.name ?? 'someone else',
-    }), () => {});
+    }), (e) => setInfoErr(`Couldn't read this project's details: ${String(e).replace(/^Error: /, '')}`));
   }, [pick]); // eslint-disable-line react-hooks/exhaustive-deps
   const stop = useRef(false);
 
@@ -91,7 +92,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
   useEffect(() => {
     if (!pick) return;
     setBranchList([]); setBranch('master'); setCustom(false);
-    S.branches(pick.id).then((b) => { setBranchList(b.map((x) => x.name)); if (!b.some((x) => x.name === 'master') && b[0]) setBranch(b[0].name); }, () => {});
+    S.branches(pick.id).then((b) => { setBranchList(b.map((x) => x.name)); if (!b.some((x) => x.name === 'master') && b[0]) setBranch(b[0].name); }, (e) => setErr(`Couldn't read the branches of ${pick.name}, so only master is offered: ${String(e).replace(/^Error: /, '')}`));
     setInto(where[pick.id]?.root ?? '');
   }, [pick]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -262,8 +263,8 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
                 } catch (e) { setErr(String(e)); }
               }} />)],
             ] as const).map(([label, perm, fn]) => {
-              const off = me?.read_only ? 'The connection is read only. Turn it off in settings.' : info && info.perms[perm] === false ? "Your Design Center permissions don't allow it." : !info ? 'Reading permissions…' : null;
-              return <button key={label} disabled={!!off} title={off ?? undefined} onClick={fn} className={`shrink-0 hover:text-content underline disabled:no-underline disabled:opacity-50 ${label === 'Delete…' ? 'text-err' : ''}`}>{label}</button>;
+              const off = me?.read_only ? 'The connection is read only. Turn it off in settings.' : info && info.perms[perm] === false ? "Your Design Center permissions don't allow it." : !info ? (infoErr ?? 'Reading permissions…') : null;
+              return <button key={label} title={off ?? undefined} onClick={off ? () => setErr(`${label.replace(/…$/, '')}: ${off}`) : fn} className={`shrink-0 hover:text-content underline ${off ? 'no-underline opacity-50' : ''} ${label === 'Delete…' ? 'text-err' : ''}`}>{label}</button>;
             })}
             <button className="shrink-0 flex items-center gap-1 hover:text-content underline" onClick={() => me && openUrl(S.projectUrls(me.host, me.org_id, pick.id).web)}><Icons.DesignCenter size={13} />Open in Design Center</button>
           </div>
@@ -338,7 +339,7 @@ export function AnypointSettings({ onConnect }: { onConnect: () => void }) {
             <input type="checkbox" disabled={me.read_only} checked={lockOn && !me.read_only} className="accent-[var(--accent)]" onChange={(e) => {
               try { localStorage.setItem('ads.lockWhileEditing', e.target.checked ? '1' : '0'); } catch { /* ignore */ }
               setLockOn(e.target.checked);
-            }} />Lock while I edit
+            }} />Lock while I edit{me.read_only && <span className="text-content-faint">(needs read only off)</span>}
           </label>
         </div>
       ) : (
@@ -563,8 +564,8 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
             {items.map(([label, off, fn], i) => (
               <div key={label}>
                 {(i === 3 || i === 6 || i === 10) && <div className="my-1 border-t border-line-subtle" />}
-                <button disabled={!!off} title={off ?? undefined} onClick={() => { setAt(null); fn(); }}
-                  className={`w-full h-7 px-2 flex items-center gap-2 rounded text-left text-[12.5px] hover:bg-surface-3 disabled:text-content-ghost disabled:hover:bg-transparent ${label.startsWith('Delete') ? 'text-err' : 'text-content-secondary hover:text-content'}`}>
+                <button title={off ?? undefined} onClick={() => { setAt(null); if (off) onNotice(`${label.replace(/…$/, '')}: ${off}`, false); else fn(); }}
+                  className={`w-full h-7 px-2 flex items-center gap-2 rounded text-left text-[12.5px] hover:bg-surface-3 ${off ? '!text-content-ghost' : ''} ${label.startsWith('Delete') ? 'text-err' : 'text-content-secondary hover:text-content'}`}>
                   <span className="flex-1">{label}</span>{label === 'Open in Design Center' && <Icons.DesignCenter size={14} />}</button>
               </div>
             ))}
@@ -632,7 +633,7 @@ export function ShareDialog({ projectId, name, org, onClose, onSaved }: { projec
   useEffect(() => { S.sharedWith(projectId).then((l) => { setList(l); setOrig(Object.fromEntries(l.map((x) => [x.id, x.role ?? '']))); }, (e) => setErr(String(e))); }, [projectId]);
   useEffect(() => {
     if (q.trim().length < 2) { setFound([]); return; }
-    const t = setTimeout(() => S.findPeople(org, q.trim()).then(setFound, () => {}), 250);
+    const t = setTimeout(() => S.findPeople(org, q.trim()).then((f) => { setFound(f); setErr(null); }, (e) => setErr(`Couldn't search for people: ${String(e).replace(/^Error: /, '')}`)), 250);
     return () => clearTimeout(t);
   }, [q, org]);
   const ROLES: [string, string][] = [['VIEWER', 'Viewer'], ['EDITOR', 'Editor'], ['ADMIN', 'Admin'], ['REMOVE_ACCESS', 'Remove access']];

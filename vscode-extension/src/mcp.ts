@@ -51,7 +51,7 @@ export async function mcpCommand(cmd: string, a: Record<string, any>, version: s
         await s.connect(t);
         await t.handleRequest(req, res, body);
       });
-      await new Promise<void>((ok, fail) => { srv.once('error', (e) => fail(new Error(`Couldn't use port ${a.port}: ${e.message}`))); srv.listen(a.port, '127.0.0.1', () => ok()); });
+      await new Promise<void>((ok, fail) => { srv.once('error', (e: NodeJS.ErrnoException) => fail(new Error(e.code === 'EADDRINUSE' ? `Port ${a.port} is in use by another program. Pick another port in the AI tools panel.` : `Couldn't use port ${a.port}: ${e.message}`))); srv.listen(a.port, '127.0.0.1', () => ok()); });
       server = srv; port = a.port; started = Date.now();
       onChange();
       return null;

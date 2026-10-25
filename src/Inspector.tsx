@@ -329,7 +329,8 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
   // Extract to trait / resource type: a button that opens a small panel (which parts, what name) in place.
   const extractPanel = (id: 'trait' | 'rt', label: string, parts: string[], defName: string, run: (name: string, parts: string[]) => void, blocked: boolean) => {
     if (panel?.id !== id || panel.at !== nodeKey) {
-      return <div className="mt-2.5"><button disabled={blocked} title={blocked ? 'Its is: has traits with parameters. Edit those in the code.' : undefined}
+      if (blocked) return <div className="mt-2.5 text-[11.5px] text-content-faint">{label.replace(/…$/, '')}: not here, because its is: has traits with parameters. Edit those in the code.</div>;
+      return <div className="mt-2.5"><button
         onClick={() => setPanel({ id, at: nodeKey, name: defName, parts: parts.filter((p) => p !== 'responses' && p !== 'body') })} className={BTN}>{label}</button></div>;
     }
     if (id === 'trait' && !parts.length) return <div className="mt-2.5 text-[11.5px] text-content-faint">Nothing to extract: add query parameters, headers or responses first.</div>;
@@ -343,7 +344,8 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         ))}</div>}
         <label className="flex items-center gap-2"><span className="text-[11.5px] text-content-faint shrink-0">Name</span>
           <Field value={panel.name} mono focus onCommit={(v) => setPanel({ ...panel, name: v.trim() })} /></label>
-        <div className="flex gap-1.5 justify-end">
+        <div className="flex gap-1.5 justify-end items-center">
+          <span className="flex-1 text-[11px] text-content-faint">{!/^[A-Za-z_][\w-]*$/.test(panel.name) ? 'A name starts with a letter or _, then letters, digits, - or _.' : id === 'trait' && !panel.parts.length ? 'Tick at least one part.' : ''}</span>
           <button onClick={() => setPanel(null)} className={BTN}>Cancel</button>
           <button disabled={!/^[A-Za-z_][\w-]*$/.test(panel.name) || (id === 'trait' && !panel.parts.length)}
             onClick={() => { run(panel.name, panel.parts); setPanel(null); }}

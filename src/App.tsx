@@ -22,7 +22,7 @@ import { WindowControls, isTauri, isVsCode } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
-import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus } from './mcp';
+import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus, autoStartError } from './mcp';
 import { AcademyScreen, academyDone } from './Academy';
 import { LESSONS } from './course';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
@@ -232,6 +232,8 @@ export default function App() {
         </button>
         {mcp?.running && <button onClick={() => setMcpOpen(true)} title={`AI tools are connected at 127.0.0.1:${mcp.port} (${mcp.requests} ${mcp.requests === 1 ? 'call' : 'calls'}). Click for details.`}
           className="h-7 px-2 flex items-center gap-1.5 rounded-md text-[11.5px] text-content-muted hover:bg-surface-2 hover:text-content"><Icons.Sparkle size={13} />AI tools</button>}
+        {!mcp?.running && autoStartError && <button onClick={() => setMcpOpen(true)} title={autoStartError}
+          className="h-7 px-2 flex items-center gap-1.5 rounded-md text-[11.5px] text-err hover:bg-surface-2"><Icons.Sparkle size={13} />AI tools didn't start</button>}
         {upd.state === 'ready' && <button onClick={restartToUpdate} title={`Version ${upd.version} is downloaded. Restart to use it (a few seconds).`}
           className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-[12px] font-medium text-accent border border-accent-border bg-accent-dim hover:brightness-110">
           <span className="w-1.5 h-1.5 rounded-full bg-accent" />Update ready</button>}

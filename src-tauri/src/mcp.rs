@@ -115,7 +115,7 @@ pub async fn mcp_start(app: AppHandle, port: u16, tools: Vec<Value>, instruction
   let router = axum::Router::new().nest_service("/mcp", service).layer(axum::middleware::from_fn(guard));
   let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], port)))
     .await
-    .map_err(|e| format!("Couldn't use port {}: {}", port, e))?;
+    .map_err(|e| if e.kind() == std::io::ErrorKind::AddrInUse { format!("Port {} is in use by another program. Pick another port in the AI tools panel.", port) } else { format!("Couldn't use port {}: {}", port, e) })?;
   let (tx, rx) = tokio::sync::oneshot::channel::<()>();
   tauri::async_runtime::spawn(async move {
     let _ = axum::serve(listener, router).with_graceful_shutdown(async move { let _ = rx.await; }).await;
