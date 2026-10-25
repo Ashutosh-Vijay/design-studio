@@ -1,5 +1,5 @@
 // The Academy's gate: every lesson through the real AMF engine (amf-server/target/amf-server.jar).
-// A build lesson's solution must pass every goal with no errors, its starter must not pass, and each "wrong"
+// Choices and quizzes need exactly one right answer per question. A build lesson's solution must pass every goal with no errors, its starter must not pass, and each "wrong"
 // must fail. Example specs (read-only lessons) must have no errors. No em dashes anywhere.
 // Run: node scripts/academy-verify.mjs   (after mvn package in amf-server)
 import { spawn } from 'node:child_process';
@@ -27,8 +27,9 @@ const text = JSON.stringify(PARTS);
 if (text.includes('—')) fail('an em dash in the course text');
 for (const l of LESSONS) {
   console.log(`${l.id} ${l.title}`);
-  if (l.check.kind === 'choice') {
-    if (l.check.options.filter((o) => o.correct).length !== 1) fail('a choice needs exactly one right answer');
+  if (l.check.kind !== 'build') {
+    for (const q of l.check.kind === 'quiz' ? l.check.questions : [l.check]) if (q.options.filter((o) => o.correct).length !== 1) fail(`"${q.question.slice(0, 50)}" needs exactly one right answer`);
+    if (!Object.keys(l.files).length && !l.http && !l.aside) fail('a lesson with no files needs an aside');
     if (Object.keys(l.files).length) {
       const r = await lesson(l.files);
       const errs = (r.problems ?? []).filter((p) => p.severity === 'error');

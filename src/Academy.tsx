@@ -1,7 +1,7 @@
 // API Design Academy, after DataWeave Studio's: from "what is an API?" to a published, governed spec.
 // Reading on the left; on the right a live editor that AMF reads as you type (op "lesson": files held in
 // memory, never the open project's), and a check graded on AMF's own model of what you wrote. The course
-// is in academy.ts and every lesson is run through AMF by scripts/academy-verify.mjs before it ships.
+// is in course.ts and every lesson is run through AMF by scripts/academy-verify.mjs before it ships.
 // Lessons are never locked: the order is a suggestion.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -9,13 +9,13 @@ import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import { baseExtensions, languageFor } from './editor';
-import { PARTS, LESSONS, grade, type Block, type Lesson, type Model, type Problem } from './course';
+import { PARTS, LESSONS, grade, type Block, type Question, type Lesson, type Model, type Problem } from './course';
 import { Icons } from './components/Icons';
 import { WindowControls } from './components/WindowControls';
 import { Spinner } from './App';
 
 // ---------- Progress (this computer only) ----------
-const STORE = 'ads.academy.v1';
+const STORE = 'ads.academy.v2'; // v2: the course was renumbered when it grew
 type Progress = { done: Record<string, boolean>; drafts: Record<string, Record<string, string>> };
 const load = (): Progress => { try { const p = JSON.parse(localStorage.getItem(STORE) ?? '{}'); return { done: p.done ?? {}, drafts: p.drafts ?? {} }; } catch { return { done: {}, drafts: {} }; } };
 const store = (p: Progress) => { try { localStorage.setItem(STORE, JSON.stringify(p)); } catch { /* blocked storage: it just forgets */ } };
@@ -48,6 +48,14 @@ function Reading({ body }: { body: Block[] }) {
   return (
     <div className="flex flex-col gap-3 text-[13.5px] leading-relaxed text-content-secondary">
       {body.map((b, i) => 'p' in b ? <p key={i} className="m-0"><Rich text={b.p} /></p>
+        : 'h' in b ? <h2 key={i} className="mt-3 mb-0 text-[14.5px] font-semibold text-content">{b.h}</h2>
+        : 'table' in b ? (
+          <div key={i} className="overflow-x-auto rounded-lg border border-line">
+            <table className="w-full border-collapse text-[12.5px] leading-snug">
+              <thead><tr>{b.table[0].map((c, j) => <th key={j} className="text-left font-semibold text-content px-2.5 py-1.5 bg-surface-2 border-b border-line">{c}</th>)}</tr></thead>
+              <tbody>{b.table.slice(1).map((r, j) => <tr key={j} className="border-t border-line first:border-t-0 align-top">{r.map((c, k) => <td key={k} className={`px-2.5 py-1.5 ${k === 0 ? 'text-content' : ''}`}><Rich text={c} /></td>)}</tr>)}</tbody>
+            </table>
+          </div>)
         : 'list' in b ? <ul key={i} className="m-0 pl-0 list-none flex flex-col gap-1.5">{b.list.map((x, j) => <li key={j} className="flex gap-2"><span className="text-accent">•</span><span><Rich text={x} /></span></li>)}</ul>
           : 'callout' in b ? <div key={i} className="px-3.5 py-2.5 rounded-r-lg border-l-[3px] border-accent bg-accent-dim"><strong className="text-content">{b.callout}. </strong><Rich text={b.text} /></div>
             : 'code' in b ? <pre key={i} className="m-0 p-3 rounded-lg bg-bg border border-line font-mono text-[12px] leading-[1.6] text-content overflow-x-auto">{b.code}</pre>
@@ -149,19 +157,39 @@ function AmfReads({ read, busy }: { read: Read | null; busy: boolean }) {
           : !read.ok ? <span className="text-err font-sans">The engine isn't ready: {read.error}</span>
             : <>
               {read.problems.map((p, i) => <div key={i} style={{ color: p.severity === 'error' ? 'var(--err)' : 'var(--warn)' }}>{p.file}:{p.line} {p.message}</div>)}
-              {m?.title && <div className="text-content">{m.title.v}{m.version ? <span className="text-content-faint"> · {m.version.v}</span> : null}</div>}
+              {m?.title && <div className="text-content">{m.title.v}{m.version ? <span className="text-content-faint"> · {m.version.v}</span> : null}{m.securedBy?.length ? <span className="text-content-faint"> · secured by {m.securedBy.join(', ')}</span> : null}</div>}
               {(m?.endpoints ?? []).map((e) => (
                 <div key={e.path}>
                   <span className="text-content">{e.path}</span>
-                  {e.operations.map((o) => <span key={o.method} className="ml-2.5"><span style={{ color: METHOD_COLOR[o.method.toUpperCase()] ?? 'var(--violet)' }}>{o.method.toUpperCase()}</span>{o.responses.length ? <span className="text-content-faint"> {o.responses.map((r) => r.code + (r.body[0]?.type ? ` ${r.body[0].type}` : '')).join(', ')}</span> : null}</span>)}
+                  {e.resourceType && <span className="text-content-faint"> type {e.resourceType}</span>}
+                  {e.is?.length ? <span className="text-content-faint"> is {e.is.join(', ')}</span> : null}
+                  {e.params?.length ? <span className="text-content-faint"> {'{'}{e.params.map((p) => `${p.name}: ${p.type}`).join(', ')}{'}'}</span> : null}
+                  {e.operations.map((o) => <span key={o.method} className="ml-2.5"><span style={{ color: METHOD_COLOR[o.method.toUpperCase()] ?? 'var(--violet)' }}>{o.method.toUpperCase()}</span>{o.responses.length ? <span className="text-content-faint"> {o.responses.map((r) => r.code + (r.body[0]?.type ? ` ${r.body[0].type}` : '')).join(', ')}</span> : null}{o.is.length ? <span className="text-content-faint"> is {o.is.join(', ')}</span> : null}</span>)}
                 </div>
               ))}
+              {([['traits', m?.traits], ['resource types', m?.resourceTypes], ['security schemes', m?.schemes?.map((x) => x.type ? `${x.name} (${x.type})` : x.name)], ['annotation types', m?.annotationTypes]] as const).map(([k, v]) => v?.length ? <div key={k}><span className="text-content-faint">{k}: </span><span className="text-content">{v.join(', ')}</span></div> : null)}
               {(m?.types ?? []).map((t) => <div key={t.name + (t.at?.file ?? '')}><span className="text-[var(--syn-type)]">{t.name}</span><span className="text-content-faint"> {t.properties?.length ? `{ ${t.properties.map((p) => `${p.name}${p.required ? '' : '?'}: ${p.type}`).join(', ')} }` : t.type}</span></div>)}
               {!read.problems.length && !m?.title && !(m?.endpoints ?? []).length && <span className="text-content-faint font-sans">Nothing yet.</span>}
             </>}
       </div>
     </div>
   );
+}
+
+// One question and its options: a lesson's choice, or one of a quiz's questions.
+function Choices({ q, label, picked, onPick }: { q: Question; label: string; picked?: number; onPick: (i: number) => void }) {
+  return <>
+    <div className="text-[13px] font-semibold mb-2.5 text-content"><Rich text={`${label}${q.question}`} /></div>
+    <div className="flex flex-col gap-1.5">
+      {q.options.map((o, i) => (
+        <button key={i} onClick={() => onPick(i)} className="w-full text-left px-3 py-2 rounded-lg border text-[12.5px]"
+          style={{ borderColor: picked === i ? (o.correct ? 'var(--ok)' : 'var(--err)') : 'var(--line)', background: picked === i ? 'var(--surface)' : 'transparent' }}>
+          <Rich text={o.text} />
+          {picked === i && <div className="mt-1 text-[12px]" style={{ color: o.correct ? 'var(--ok)' : 'var(--err)' }}>{o.correct ? '✓ ' : ''}<Rich text={o.why} /></div>}
+        </button>
+      ))}
+    </div>
+  </>;
 }
 
 // ---------- A lesson ----------
@@ -173,7 +201,14 @@ function LessonView({ lesson, index, done, draft, onDraft, onDone, onPrev, onNex
   const [files, setFiles] = useState<Record<string, string>>(() => ({ ...lesson.files, ...(draft ?? {}) }));
   const [read, setRead] = useState<Read | null>(null);
   const [busy, setBusy] = useState(false);
-  const [picked, setPicked] = useState<number | null>(null);
+  const [picked, setPicked] = useState<number | undefined>();
+  const [picks, setPicks] = useState<Record<number, number>>({});
+  const quizRight = check.kind === 'quiz' ? check.questions.filter((q, i) => q.options[picks[i]]?.correct).length : 0;
+  const pick = (qi: number, i: number) => {
+    if (check.kind !== 'quiz') return;
+    const next = { ...picks, [qi]: i }; setPicks(next);
+    if (check.questions.every((q, j) => q.options[next[j]]?.correct)) onDone();
+  };
   const [result, setResult] = useState<ReturnType<typeof grade> | null>(null);
   const [hints, setHints] = useState(0);
   const hasEditor = Object.keys(lesson.files).length > 0;
@@ -209,20 +244,18 @@ function LessonView({ lesson, index, done, draft, onDraft, onDone, onPrev, onNex
           <div className="text-[11px] font-mono uppercase tracking-[0.12em] text-accent">Lesson {lesson.id} · {index + 1} of {total} · about {lesson.minutes} min</div>
           <h1 className="mt-1.5 mb-4 text-[22px] font-semibold tracking-tight">{lesson.title}</h1>
           <Reading body={lesson.body} />
+          {check.kind === 'quiz' && <div className="mt-7 pt-5 border-t border-line flex flex-col gap-6">
+            {check.questions.map((q, qi) => <div key={qi}><Choices q={q} label={`${qi + 1}. `} picked={picks[qi]} onPick={(i) => pick(qi, i)} /></div>)}
+          </div>}
         </div>
         <div className="border-t border-line px-7 py-4 bg-surface-2">
-          {check.kind === 'choice' ? <>
-            <div className="text-[13px] font-semibold mb-2.5"><Rich text={`Check: ${check.question}`} /></div>
-            <div className="flex flex-col gap-1.5">
-              {check.options.map((o, i) => (
-                <button key={i} onClick={() => { setPicked(i); if (o.correct) onDone(); }} className="w-full text-left px-3 py-2 rounded-lg border text-[12.5px]"
-                  style={{ borderColor: picked === i ? (o.correct ? 'var(--ok)' : 'var(--err)') : 'var(--line)', background: picked === i ? 'var(--surface)' : 'transparent' }}>
-                  <Rich text={o.text} />
-                  {picked === i && <div className="mt-1 text-[12px]" style={{ color: o.correct ? 'var(--ok)' : 'var(--err)' }}>{o.correct ? '✓ ' : ''}<Rich text={o.why} /></div>}
-                </button>
-              ))}
+          {check.kind === 'choice' ? <Choices q={check} label="Check: " picked={picked} onPick={(i) => { setPicked(i); if (check.options[i].correct) onDone(); }} />
+          : check.kind === 'quiz' ? (
+            <div className="flex items-center gap-3 text-[12.5px]">
+              <span className="font-semibold">Check: {check.questions.length} questions above</span>
+              <span style={{ color: quizRight === check.questions.length ? 'var(--ok)' : 'var(--content-faint)' }}>{quizRight === check.questions.length ? '✓ All right' : `${quizRight} of ${check.questions.length} right`}</span>
             </div>
-          </> : <>
+          ) : <>
             <div className="text-[13px] font-semibold"><Rich text={`Check: ${check.prompt}`} /></div>
             <div className="flex items-center gap-3 mt-2.5 flex-wrap">
               <button onClick={submit} disabled={busy} className="h-8 px-3.5 rounded-lg text-[12.5px] font-semibold bg-accent text-accent-ink disabled:opacity-50">{busy && result === null ? 'Checking…' : 'Check my design'}</button>
@@ -247,7 +280,10 @@ function LessonView({ lesson, index, done, draft, onDraft, onDone, onPrev, onNex
         </div>
       </section>
       <section className="flex flex-col min-h-0 min-w-0 bg-bg">
-        {lesson.http ? <HttpExplorer /> : <>
+        {lesson.http ? <HttpExplorer /> : lesson.aside ? <>
+          <PaneHead title={lesson.aside.title} />
+          <div className="flex-1 min-h-0 overflow-auto px-6 py-5"><Reading body={lesson.aside.body} /></div>
+        </> : <>
           <SpecEditor key={lesson.id} files={files} readOnly={!!lesson.readOnly} onChange={edit} problems={read?.ok ? read.problems : []} />
           <AmfReads read={read} busy={busy} />
         </>}
@@ -293,7 +329,7 @@ export function AcademyScreen({ onClose, onCreate }: { onClose: () => void; onCr
             <section className="grid gap-6 items-end pb-6 border-b border-line" style={{ gridTemplateColumns: '1fr auto' }}>
               <div>
                 <h1 className="m-0 text-[28px] font-semibold tracking-tight">Learn API design from zero</h1>
-                <p className="mt-1.5 mb-0 max-w-[620px] text-[13.5px] text-content-secondary leading-relaxed">Start with what an API is. Finish with a RAML spec split into libraries, ready to mock, publish and govern the way Design Center does. Every lesson has something to try, and AMF, the engine Design Center uses, checks what you write.</p>
+                <p className="mt-1.5 mb-0 max-w-[640px] text-[13.5px] text-content-secondary leading-relaxed">Start with what an API is. Go through all of RAML (types, resource types, traits, security schemes, fragments, libraries), then Design Center, Exchange, APIkit and API Manager, as far as the MuleSoft Developer I and II exams ask. Every lesson has something to try or answer, and AMF, the engine Design Center uses, checks what you write.</p>
               </div>
               <div className="min-w-[260px] p-4 rounded-xl border border-line bg-surface">
                 <div className="text-[22px] font-bold">{doneCount} of {LESSONS.length}</div>
@@ -315,7 +351,7 @@ export function AcademyScreen({ onClose, onCreate }: { onClose: () => void; onCr
                         style={cur ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 3px var(--accent-dim)' } : { borderColor: 'var(--line)' }}>
                         <div className="text-[11px] font-mono text-content-faint">{l.id}{d && <span className="text-[var(--ok)]">  ✓ done</span>}{cur && <span className="text-accent">  → next</span>}</div>
                         <div className="mt-0.5 text-[13px] font-semibold">{l.title}</div>
-                        <div className="mt-1 text-[11.5px] text-content-faint">{l.minutes} min · {l.check.kind === 'build' ? 'design it, AMF checks' : 'a quick question'}</div>
+                        <div className="mt-1 text-[11.5px] text-content-faint">{l.minutes} min · {l.check.kind === 'build' ? 'design it, AMF checks' : l.check.kind === 'quiz' ? `${l.check.questions.length} questions` : 'a quick question'}</div>
                       </button>
                     );
                   })}

@@ -424,6 +424,7 @@ public class Main {
     if (unit instanceof amf.core.client.platform.model.document.Document doc && doc.encodes() instanceof amf.apicontract.client.platform.model.domain.api.Api<?> api) {
       put(m, "title", api.name()); put(m, "version", api.version()); put(m, "description", api.description());
       if (!api.servers().isEmpty()) put(m, "baseUri", api.servers().get(0).url());
+      ArrayNode asec = m.putArray("securedBy"); for (var rq : api.security()) for (var sc : rq.schemes()) if (!sc.name().isNullOrEmpty()) asec.add(sc.name().value());
       ArrayNode docs = m.putArray("docs");
       for (var d : api.documentations()) docs.addObject().put("title", d.title().isNullOrEmpty() ? "" : d.title().value()).put("content", d.description().isNullOrEmpty() ? "" : d.description().value());
       ArrayNode eps = m.putArray("endpoints");
@@ -431,7 +432,15 @@ public class Main {
         ObjectNode e = eps.addObject().put("path", ep.path().value());
         ObjectNode ea = at(ep.annotations()); if (ea != null) e.set("at", ea);
         put(e, "summary", ep.summary()); put(e, "description", ep.description());
-        for (var x : ep.extendsNode()) if (x instanceof amf.core.client.platform.model.domain.ParametrizedDeclaration pd) e.put("resourceType", pd.name().value());
+        // A resource's `type:` is its resource type; its `is:` traits apply to every method in it.
+        ArrayNode eis = e.putArray("is");
+        for (var x : ep.extendsNode()) if (x instanceof amf.core.client.platform.model.domain.ParametrizedDeclaration pd) {
+          if (pd.getClass().getSimpleName().contains("Trait")) eis.add(pd.name().value()); else e.put("resourceType", pd.name().value());
+        }
+        // The resource's own URI parameters ({bookId}), declared on the resource rather than a method.
+        ArrayNode eparams = e.putArray("params");
+        for (var p : ep.parameters()) eparams.addObject().put("name", p.name().value()).put("in", p.binding().isNullOrEmpty() ? "path" : p.binding().value()).put("required", p.required().value()).put("type", typeName(p.schema(), 0));
+        ArrayNode esec = e.putArray("securedBy"); for (var rq : ep.security()) for (var sc : rq.schemes()) if (!sc.name().isNullOrEmpty()) esec.add(sc.name().value());
         ArrayNode ops = e.putArray("operations");
         for (var op : ep.operations()) {
           String where = op.method().value().toUpperCase() + " " + ep.path().value();
@@ -460,6 +469,7 @@ public class Main {
             ObjectNode rn = rs.addObject().put("code", r.statusCode().value());
             ObjectNode ra = at(r.annotations()); if (ra != null) rn.set("at", ra);
             put(rn, "description", r.description());
+            ArrayNode rh = rn.putArray("headers"); for (var h : r.headers()) rh.add(h.name().value());
             payloads(r.payloads(), where + " " + r.statusCode().value(), refs, rn.putArray("body"));
           }
         }
@@ -471,6 +481,8 @@ public class Main {
     List<Object[]> templateRefs = new ArrayList<>();
     Deque<BaseUnit> units = new ArrayDeque<>(List.of(unit)); Set<String> seenUnits = new HashSet<>();
     ArrayNode files = m.putArray("files");
+    // The other declarations, by name: traits, resource types, security schemes (with their type), annotation types.
+    ArrayNode traits = m.putArray("traits"), rtypes = m.putArray("resourceTypes"), schemes = m.putArray("schemes"), annTypes = m.putArray("annotationTypes");
     while (!units.isEmpty()) {
       BaseUnit u = units.pop();
       if (!seenUnits.add(u.id())) continue;
@@ -485,16 +497,21 @@ public class Main {
         // used inside them are read from there (with their positions).
         if (d instanceof amf.core.client.platform.model.domain.AbstractDeclaration ad) {
           String kind = d.getClass().getSimpleName().equals("Trait") ? "trait " : "resource type ";
+          (kind.startsWith("trait") ? traits : rtypes).add(ad.name().value());
           templateUses(ad.dataNode(), kind + ad.name().value(), null, templateRefs, 0);
           continue;
         }
+        if (d instanceof amf.apicontract.client.platform.model.domain.security.SecurityScheme ss) { schemes.addObject().put("name", ss.name().value()).put("type", ss.type().isNullOrEmpty() ? "" : ss.type().value()); continue; }
+        if (d instanceof amf.core.client.platform.model.domain.CustomDomainProperty cp) { annTypes.add(cp.name().value()); continue; }
         if (!(d instanceof amf.core.client.platform.model.domain.Shape s)) continue;
-        ObjectNode t = types.addObject().put("id", s.id()).put("name", s.name().value()).put("type", typeName(s, 0));
-        if (!s.description().isNullOrEmpty()) t.put("description", s.description().value());
-        if (!s.values().isEmpty()) { ArrayNode en = t.putArray("enum"); for (var v : s.values()) if (v instanceof amf.core.client.platform.model.domain.ScalarNode sn) en.add(sn.value().value()); }
-        String tex = exampleText(s); if (tex != null) t.put("example", tex);
+        // A type declared as `Name: !include fragment.raml` is a link: its shape is the fragment's.
+        var body = s.isLink() && s.linkTarget().isPresent() && s.linkTarget().get() instanceof amf.core.client.platform.model.domain.Shape ft ? ft : s;
+        ObjectNode t = types.addObject().put("id", s.id()).put("name", s.name().value()).put("type", typeName(body, 0));
+        if (!body.description().isNullOrEmpty()) t.put("description", body.description().value());
+        if (!body.values().isEmpty()) { ArrayNode en = t.putArray("enum"); for (var v : body.values()) if (v instanceof amf.core.client.platform.model.domain.ScalarNode sn) en.add(sn.value().value()); }
+        String tex = exampleText(body); if (tex != null) t.put("example", tex);
         ObjectNode ta = at(s.annotations()); if (ta != null) t.set("at", ta);
-        if (s instanceof amf.shapes.client.platform.model.domain.NodeShape n) {
+        if (body instanceof amf.shapes.client.platform.model.domain.NodeShape n) {
           ArrayNode props = t.putArray("properties");
           for (var p : n.properties()) {
             ObjectNode pn = props.addObject().put("name", p.name().value()).put("type", typeName(p.range(), 0)).put("required", p.minCount().value() > 0);

@@ -39,14 +39,18 @@ fn plain(p: PathBuf) -> PathBuf {
 }
 
 fn find_jar(app: &AppHandle) -> Option<PathBuf> {
-  // Release: bundled next to the app. Dev: the Maven build output.
+  // Release: bundled next to the app. Dev: the Maven build output, first, so a jar left in resources/ by a
+  // local release build never shadows the one just built.
+  let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("amf-server").join("target").join("amf-server.jar");
+  if cfg!(debug_assertions) && dev.exists() {
+    return Some(dev);
+  }
   if let Ok(dir) = app.path().resource_dir() {
     let p = plain(dir.join("resources").join("amf-server").join("amf-server.jar"));
     if p.exists() {
       return Some(p);
     }
   }
-  let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("amf-server").join("target").join("amf-server.jar");
   dev.exists().then_some(dev)
 }
 
