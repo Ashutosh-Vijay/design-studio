@@ -37,7 +37,7 @@
       {
         "title": "Also in VS Code",
         "only": "vscode",
-        "desc": "The same app in an editor tab. Right-click a project folder or a .raml file and pick Open in Design Studio. Copilot's agent mode finds the AI tools by itself while they run."
+        "desc": "The same app in an editor tab. Right-click a project folder or a .raml file and pick Open in Design Studio. Copilot's agent mode can use Design Studio's AI tools directly, with nothing to set up or start."
       }
     ]
   }

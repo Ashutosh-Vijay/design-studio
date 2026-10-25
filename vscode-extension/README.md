@@ -15,7 +15,7 @@ Big specs open in seconds, and every edit is checked as you type by AMF, the sam
 - **Exchange**: publish with a suggested version, add and update dependencies, and see what changed since the last version.
 - **Governance**: check your API against the rulesets it depends on.
 - **A local mock**: try every method with Design Center's MS2 headers, unsaved edits included.
-- **AI tools (MCP)**: Copilot's agent mode, Claude and Cursor can open projects, edit specs, run AMF's checks and more. You watch every change happen.
+- **AI tools**: Copilot's agent mode can use Design Studio's tools directly, with nothing to set up: open projects, edit specs, run AMF's checks and governance, try the mock. You watch every change happen, and tools that change something ask first. Claude Code, Cursor and other agents can connect too (Settings, AI tools).
 - **API Design Academy**: 16 short lessons, from "what is an API" to libraries, publishing and OAS, each one checked by AMF.
 
 ## Getting started

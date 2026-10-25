@@ -10,10 +10,13 @@ import * as vscode from 'vscode';
 import { fileCommand, stopWatching } from './files';
 import { amf, startAmf, stopAmf } from './amf';
 import { anypointCommand, initAnypoint, releaseOnExit } from './anypoint';
-import { mcpCommand, mcpUrl, onMcpChange, stopMcp } from './mcp';
+import { callTool, mcpCommand, stopMcp } from './mcp';
 
 let panel: vscode.WebviewPanel | null = null;
 let pending: { root?: string; academy?: boolean } | null = null;
+// The webview says when its tool dispatcher listens (mcp_ready), so a tool call that opened the tab waits for it.
+let markReady = () => {};
+let ready: Promise<void> = new Promise((r) => { markReady = r; });
 
 export function activate(context: vscode.ExtensionContext) {
   initAnypoint(context);
@@ -28,6 +31,7 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
     pending = what ?? null;
+    ready = new Promise((r) => { markReady = r; });
     const dist = vscode.Uri.joinPath(context.extensionUri, 'webview-dist');
     const p = panel = vscode.window.createWebviewPanel('designStudio', 'Design Studio', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [dist] });
     p.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.png');
@@ -48,6 +52,7 @@ export function activate(context: vscode.ExtensionContext) {
   async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
     if (cmd === 'amf') return amf(ext, emit, a.op, a.args ?? {});
     if (cmd.startsWith('anypoint_')) { const r = await anypointCommand(cmd, a); if (r !== undefined) return r; }
+    if (cmd === 'mcp_ready') { markReady(); return null; }
     if (cmd.startsWith('mcp_')) { const r = await mcpCommand(cmd, a, version, emit); if (r !== undefined) return r; }
     const r = await fileCommand(cmd, a, emit);
     if (r !== undefined) return r;
@@ -95,17 +100,25 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // VS Code's own agent mode (Copilot) finds the server while it runs. The API is from VS Code 1.101: older ones skip it.
-  const lm = (vscode as any).lm, Def = (vscode as any).McpHttpServerDefinition;
-  if (lm?.registerMcpServerDefinitionProvider && Def) {
-    const changed = new vscode.EventEmitter<void>();
-    onMcpChange(() => changed.fire());
-    try {
-      context.subscriptions.push(lm.registerMcpServerDefinitionProvider('designStudio.mcp', {
-        onDidChangeMcpServerDefinitions: changed.event,
-        provideMcpServerDefinitions: async () => { const u = mcpUrl(); return u ? [new Def('Design Studio', vscode.Uri.parse(u))] : []; },
-      }));
-    } catch (e) { console.error('[design-studio] MCP provider:', e); }
+  // Copilot calls Design Studio's tools natively: each one declared in package.json (generated from src/mcpTools.ts by
+  // scripts/gen-tools.mjs) is registered here and runs in the Design Studio tab, which opens if it isn't. No port,
+  // nothing to start. Tools that change something ask first, through VS Code's own confirmation.
+  for (const t of (context.extension.packageJSON.contributes?.languageModelTools ?? []) as { name: string; displayName: string; tags: string[] }[]) {
+    const tool = t.name.replace(/^designStudio_/, ''), readOnly = t.tags.includes('read-only');
+    context.subscriptions.push(vscode.lm.registerTool<Record<string, unknown>>(t.name, {
+      prepareInvocation: (o) => ({
+        invocationMessage: t.displayName,
+        ...(readOnly ? {} : { confirmationMessages: { title: t.displayName, message: new vscode.MarkdownString(Object.keys(o.input ?? {}).length ? '```json\n' + JSON.stringify(o.input, null, 2).slice(0, 1500) + '\n```' : 'Run it in the open Design Studio tab?') } }),
+      }),
+      invoke: async (o) => {
+        if (!panel) open(); else panel.reveal(undefined, true);
+        const up = await Promise.race([ready.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 30000))]);
+        if (!up) throw new Error("Design Studio's tab didn't finish opening.");
+        const r = await callTool(tool, o.input ?? {}, emit);
+        if (!r.ok) throw new Error(r.result);
+        return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(r.result)]);
+      },
+    }));
   }
 }
 

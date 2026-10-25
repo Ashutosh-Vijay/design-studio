@@ -35,7 +35,7 @@ The app's data folder is `%APPDATA%\com.designstudio.desktop` on Windows, `~/Lib
 
 - **8765 to 8768**, only during a browser sign-in, to receive the login code. Closed straight after.
 - **The local mock**, on a free port, only when you use the Documentation panel's Try it or the AI tools' mock.
-- **4676, the AI tools (MCP) server**, only when you start it in Settings, AI tools. It refuses requests whose Host isn't this computer and requests from web pages. An agent connected to it can do what you can in the app; changes in Design Center and Exchange through it are off until you allow them, and a read-only connection blocks them either way.
+- **4676, the AI tools (MCP) server**, only when you start it in Settings, AI tools. In VS Code, Copilot doesn't need it: the extension gives it the same tools through VS Code itself, with no port. It refuses requests whose Host isn't this computer and requests from web pages. An agent connected to it can do what you can in the app; changes in Design Center and Exchange through it are off until you allow them, and a read-only connection blocks them either way.
 
 ## Sign-in design
 

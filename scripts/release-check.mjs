@@ -40,7 +40,13 @@ for (const r of releases) {
 // 3. The Marketplace listing's changelog has this version (it can't be fixed after publishing).
 if (!new RegExp(`^## ${want.replace(/\./g, '\\.')}\\b`, 'm').test(read('vscode-extension/CHANGELOG.md'))) bad.push(`vscode-extension/CHANGELOG.md has no "## ${want}" entry.`);
 
-// 4. User-facing text: no em dashes.
+// 4. The AI tools declared to VS Code match the ones the app runs (src/mcpTools.ts).
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+const tools = spawnSync(process.execPath, [fileURLToPath(new URL('../vscode-extension/scripts/gen-tools.mjs', import.meta.url)), '--check'], { encoding: 'utf8' });
+if (tools.status !== 0) bad.push((tools.stdout || tools.stderr).trim());
+
+// 5. User-facing text: no em dashes.
 for (const f of ['src/releases.json', 'README.md', 'vscode-extension/README.md', 'vscode-extension/CHANGELOG.md', 'SECURITY.md', 'PRIVACY.md', 'src/course.ts']) {
   let t = ''; try { t = read(f); } catch { bad.push(`${f} is missing.`); continue; }
   if (t.includes('—')) bad.push(`${f} has an em dash.`);

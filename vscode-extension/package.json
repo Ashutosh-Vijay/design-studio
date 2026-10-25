@@ -8,7 +8,7 @@
   "license": "MIT",
   "icon": "icon.png",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.95.0"
   },
   "categories": [
     "Programming Languages",
@@ -82,12 +82,6 @@
         }
       ]
     },
-    "mcpServerDefinitionProviders": [
-      {
-        "id": "designStudio.mcp",
-        "label": "Design Studio"
-      }
-    ],
     "keybindings": [
       {
         "key": "ctrl+k",
@@ -196,6 +190,982 @@
         "when": "activeWebviewPanelId == 'designStudio'",
         "mac": "cmd+r"
       }
+    ],
+    "languageModelTools": [
+      {
+        "name": "designStudio_get_state",
+        "toolReferenceName": "designStudio_get_state",
+        "displayName": "Design Studio: Get state",
+        "modelDescription": "What Design Studio has open (project, root file, files, unsaved files, open tabs), recent projects, who is signed in to Anypoint, and whether changes in Design Center and Exchange are allowed for AI tools. Call it first.",
+        "userDescription": "What Design Studio has open (project, root file, files, unsaved files, open tabs), recent projects, who is signed in to Anypoint, and whether changes in Design Center and Exchange are allowed for AI tools.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_open_project",
+        "toolReferenceName": "designStudio_open_project",
+        "displayName": "Design Studio: Open project",
+        "modelDescription": "Open a spec project folder on this computer (a path from get_state recentProjects, or any folder). If the open project has unsaved changes, Design Studio asks the person first.",
+        "userDescription": "Open a spec project folder on this computer (a path from get_state recentProjects, or any folder).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "The project folder"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_create_project",
+        "toolReferenceName": "designStudio_create_project",
+        "displayName": "Design Studio: Create project",
+        "modelDescription": "Create a new API specification or fragment project, as Design Center's Create does, and open it. With in_design_center it is created in Design Center too (needs changes allowed and a sign-in that isn't read only).",
+        "userDescription": "Create a new API specification or fragment project, as Design Center's Create does, and open it.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Project name"
+            },
+            "kind": {
+              "type": "string",
+              "description": "Language or fragment type",
+              "enum": [
+                "raml",
+                "oas3yaml",
+                "oas3json",
+                "oas2json",
+                "oas2yaml",
+                "library",
+                "type",
+                "trait",
+                "resourceType",
+                "example",
+                "docs",
+                "annotationType",
+                "securityScheme",
+                "overlay",
+                "extension"
+              ]
+            },
+            "in_design_center": {
+              "type": "boolean",
+              "description": "Also create it in Design Center (default false)"
+            }
+          },
+          "required": [
+            "name",
+            "kind"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_close_project",
+        "toolReferenceName": "designStudio_close_project",
+        "displayName": "Design Studio: Close project",
+        "modelDescription": "Close the open project and go back to the start screen (asks the person if files are unsaved).",
+        "userDescription": "Close the open project and go back to the start screen (asks the person if files are unsaved).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_list_files",
+        "toolReferenceName": "designStudio_list_files",
+        "displayName": "Design Studio: List files",
+        "modelDescription": "Every file in the open project, the root file, and which are unsaved. Files under exchange_modules/ are Exchange dependencies and are read only.",
+        "userDescription": "Every file in the open project, the root file, and which are unsaved.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_read_file",
+        "toolReferenceName": "designStudio_read_file",
+        "displayName": "Design Studio: Read file",
+        "modelDescription": "A file's text as the editor holds it (unsaved edits included). Paths are relative to the project, with forward slashes.",
+        "userDescription": "A file's text as the editor holds it (unsaved edits included).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path in the project"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_write_file",
+        "toolReferenceName": "designStudio_write_file",
+        "displayName": "Design Studio: Write file",
+        "modelDescription": "Create a file or replace its whole text, then save it. It opens in the editor so the person sees it. Prefer edit_file for changes to an existing file: it keeps the rest byte for byte.",
+        "userDescription": "Create a file or replace its whole text, then save it.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path in the project; folders are made as needed"
+            },
+            "content": {
+              "type": "string",
+              "description": "The full text"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_edit_file",
+        "toolReferenceName": "designStudio_edit_file",
+        "displayName": "Design Studio: Edit file",
+        "modelDescription": "Replace an exact piece of text in a file and save it. old_text must match exactly once (include enough surrounding lines), unless replace_all is true. Indentation is YAML structure in RAML and OAS: keep it right.",
+        "userDescription": "Replace an exact piece of text in a file and save it.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path in the project"
+            },
+            "old_text": {
+              "type": "string",
+              "description": "The exact text to replace"
+            },
+            "new_text": {
+              "type": "string",
+              "description": "The replacement"
+            },
+            "replace_all": {
+              "type": "boolean",
+              "description": "Replace every match instead of exactly one"
+            }
+          },
+          "required": [
+            "path",
+            "old_text",
+            "new_text"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_delete_file",
+        "toolReferenceName": "designStudio_delete_file",
+        "displayName": "Design Studio: Delete file",
+        "modelDescription": "Move a file to the Recycle Bin or Trash (it can be restored from there).",
+        "userDescription": "Move a file to the Recycle Bin or Trash (it can be restored from there).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path in the project"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_rename_file",
+        "toolReferenceName": "designStudio_rename_file",
+        "displayName": "Design Studio: Rename file",
+        "modelDescription": "Rename or move a file. Every !include and uses: path that points at it is updated, as Design Center does.",
+        "userDescription": "Rename or move a file.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Current path"
+            },
+            "new_path": {
+              "type": "string",
+              "description": "New path in the project"
+            }
+          },
+          "required": [
+            "path",
+            "new_path"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_set_root_file",
+        "toolReferenceName": "designStudio_set_root_file",
+        "displayName": "Design Studio: Set root file",
+        "modelDescription": "Make a file the project's root file (Design Center's Set as root file; written to exchange.json).",
+        "userDescription": "Make a file the project's root file (Design Center's Set as root file; written to exchange.json).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_show_in_editor",
+        "toolReferenceName": "designStudio_show_in_editor",
+        "displayName": "Design Studio: Show in editor",
+        "modelDescription": "Open a file in the editor for the person, optionally at a line.",
+        "userDescription": "Open a file in the editor for the person, optionally at a line.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path"
+            },
+            "line": {
+              "type": "number",
+              "description": "Line number (1 based)"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_check_spec",
+        "toolReferenceName": "designStudio_check_spec",
+        "displayName": "Design Studio: Check spec",
+        "modelDescription": "Run AMF's full check (the same engine and rules as Design Center) on the project, unsaved edits included. Returns every error and warning with file and line. Run it after every change and fix what it reports until it is clean.",
+        "userDescription": "Run AMF's full check (the same engine and rules as Design Center) on the project, unsaved edits included.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_get_outline",
+        "toolReferenceName": "designStudio_get_outline",
+        "displayName": "Design Studio: Get outline",
+        "modelDescription": "The API as a tree: resources and their methods, types, traits, resource types, security schemes and libraries, with the file each is declared in.",
+        "userDescription": "The API as a tree: resources and their methods, types, traits, resource types, security schemes and libraries, with the file each is declared in.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_find_references",
+        "toolReferenceName": "designStudio_find_references",
+        "displayName": "Design Studio: Find references",
+        "modelDescription": "Where a type, trait, resource type or security scheme is declared and used, in every file (Design Center's Go to References). Library members are written alias.Name.",
+        "userDescription": "Where a type, trait, resource type or security scheme is declared and used, in every file (Design Center's Go to References).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The name, like Order or lib.Order"
+            },
+            "file": {
+              "type": "string",
+              "description": "Optional: the file you see the name in, for library aliases"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_rename_symbol",
+        "toolReferenceName": "designStudio_rename_symbol",
+        "displayName": "Design Studio: Rename symbol",
+        "modelDescription": "Rename a type, trait, resource type or security scheme and every use of it in every file (Design Center's Rename), never plain mentions in descriptions.",
+        "userDescription": "Rename a type, trait, resource type or security scheme and every use of it in every file (Design Center's Rename), never plain mentions in descriptions.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Current name (alias.Name for a library member)"
+            },
+            "new_name": {
+              "type": "string",
+              "description": "New name"
+            },
+            "file": {
+              "type": "string",
+              "description": "Optional: the file you see the name in"
+            }
+          },
+          "required": [
+            "name",
+            "new_name"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_convert_spec",
+        "toolReferenceName": "designStudio_convert_spec",
+        "displayName": "Design Studio: Convert spec",
+        "modelDescription": "Convert a RAML root file to OAS with AMF (Design Center's Duplicate As) and save the result as a new file.",
+        "userDescription": "Convert a RAML root file to OAS with AMF (Design Center's Duplicate As) and save the result as a new file.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "The RAML root file"
+            },
+            "to": {
+              "type": "string",
+              "description": "Target",
+              "enum": [
+                "oas30",
+                "oas20"
+              ]
+            },
+            "syntax": {
+              "type": "string",
+              "description": "Output syntax",
+              "enum": [
+                "yaml",
+                "json"
+              ]
+            },
+            "target_path": {
+              "type": "string",
+              "description": "Where to save the converted file"
+            }
+          },
+          "required": [
+            "path",
+            "to",
+            "syntax",
+            "target_path"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_type_as_json_schema",
+        "toolReferenceName": "designStudio_type_as_json_schema",
+        "displayName": "Design Studio: Type as json schema",
+        "modelDescription": "A RAML type or OAS schema rendered by AMF as JSON Schema.",
+        "userDescription": "A RAML type or OAS schema rendered by AMF as JSON Schema.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Type name"
+            },
+            "file": {
+              "type": "string",
+              "description": "The file that declares it"
+            }
+          },
+          "required": [
+            "name",
+            "file"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_run_governance",
+        "toolReferenceName": "designStudio_run_governance",
+        "displayName": "Design Studio: Run governance",
+        "modelDescription": "Check the API against the governance rulesets it depends on (Exchange rulesets in exchange.json), as Design Center's Governance does. Returns each finding with its rule, level and place.",
+        "userDescription": "Check the API against the governance rulesets it depends on (Exchange rulesets in exchange.json), as Design Center's Governance does.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_mock_request",
+        "toolReferenceName": "designStudio_mock_request",
+        "displayName": "Design Studio: Mock request",
+        "modelDescription": "Call the API's local mock (Design Center's mocking service, unsaved edits included) and get the status, headers and body it answers with. Supports Design Center's MS2-Status-Code and MS2-Example headers.",
+        "userDescription": "Call the API's local mock (Design Center's mocking service, unsaved edits included) and get the status, headers and body it answers with.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "description": "HTTP method"
+            },
+            "path": {
+              "type": "string",
+              "description": "Path with query, like /orders/1?limit=2 (the baseUri path is not needed)"
+            },
+            "headers": {
+              "type": "object",
+              "description": "Request headers"
+            },
+            "body": {
+              "type": "string",
+              "description": "Request body"
+            }
+          },
+          "required": [
+            "method",
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_design_center_status",
+        "toolReferenceName": "designStudio_design_center_status",
+        "displayName": "Design Studio: Design center status",
+        "modelDescription": "The open project's Design Center link: project, branch, whether Design Center has commits not pulled yet, who holds the lock, and the local changes not pushed yet.",
+        "userDescription": "The open project's Design Center link: project, branch, whether Design Center has commits not pulled yet, who holds the lock, and the local changes not pushed yet.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_pull",
+        "toolReferenceName": "designStudio_pull",
+        "displayName": "Design Studio: Pull",
+        "modelDescription": "Bring Design Center's latest commits in, merging with local changes (like git). Conflicting lines get both versions between markers, to resolve with edit_file.",
+        "userDescription": "Bring Design Center's latest commits in, merging with local changes (like git).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_push",
+        "toolReferenceName": "designStudio_push",
+        "displayName": "Design Studio: Push",
+        "modelDescription": "Save every file and send the local changes to Design Center, holding the branch lock. Refuses when Design Center has commits not pulled yet (pull first).",
+        "userDescription": "Save every file and send the local changes to Design Center, holding the branch lock.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "design-center-change"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_list_branches",
+        "toolReferenceName": "designStudio_list_branches",
+        "displayName": "Design Studio: List branches",
+        "modelDescription": "The Design Center project's branches.",
+        "userDescription": "The Design Center project's branches.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_switch_branch",
+        "toolReferenceName": "designStudio_switch_branch",
+        "displayName": "Design Studio: Switch branch",
+        "modelDescription": "Switch the project to another Design Center branch (local changes must be pushed or discarded first).",
+        "userDescription": "Switch the project to another Design Center branch (local changes must be pushed or discarded first).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Branch name"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_create_branch",
+        "toolReferenceName": "designStudio_create_branch",
+        "displayName": "Design Studio: Create branch",
+        "modelDescription": "Create a Design Center branch from the current one and switch to it.",
+        "userDescription": "Create a Design Center branch from the current one and switch to it.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "design-center-change"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "New branch name"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_list_design_center_projects",
+        "toolReferenceName": "designStudio_list_design_center_projects",
+        "displayName": "Design Studio: List design center projects",
+        "modelDescription": "The Design Center projects in the signed-in organization (Design Center's project list).",
+        "userDescription": "The Design Center projects in the signed-in organization (Design Center's project list).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "designStudio_pull_design_center_project",
+        "toolReferenceName": "designStudio_pull_design_center_project",
+        "displayName": "Design Studio: Pull design center project",
+        "modelDescription": "Pull a Design Center project to this computer (or find the copy already here) and open it.",
+        "userDescription": "Pull a Design Center project to this computer (or find the copy already here) and open it.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Project id from list_design_center_projects"
+            },
+            "branch": {
+              "type": "string",
+              "description": "Branch (default master)"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_publish_to_exchange",
+        "toolReferenceName": "designStudio_publish_to_exchange",
+        "displayName": "Design Studio: Publish to exchange",
+        "modelDescription": "Publish the project to Exchange (Design Center's Publish): pushes unsent changes first, holds the lock, publishes, pulls back exchange.json. A Stable version can't be published twice; use development for a version you will republish.",
+        "userDescription": "Publish the project to Exchange (Design Center's Publish): pushes unsent changes first, holds the lock, publishes, pulls back exchange.json.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "design-center-change"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "string",
+              "description": "Asset version, like 1.0.1"
+            },
+            "development": {
+              "type": "boolean",
+              "description": "Publish as a Development version (default false: Stable)"
+            },
+            "api_version": {
+              "type": "string",
+              "description": "API version, like v1 (default from the spec)"
+            },
+            "name": {
+              "type": "string",
+              "description": "Asset name (default from exchange.json)"
+            }
+          },
+          "required": [
+            "version"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_search_exchange",
+        "toolReferenceName": "designStudio_search_exchange",
+        "displayName": "Design Studio: Search exchange",
+        "modelDescription": "Search Exchange for assets to depend on: RAML fragments (libraries, types, traits), rulesets, or APIs.",
+        "userDescription": "Search Exchange for assets to depend on: RAML fragments (libraries, types, traits), rulesets, or APIs.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search words"
+            },
+            "types": {
+              "type": "array",
+              "description": "Asset types, like raml-fragment, rest-api, ruleset (default raml-fragment)"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_asset_versions",
+        "toolReferenceName": "designStudio_asset_versions",
+        "displayName": "Design Studio: Asset versions",
+        "modelDescription": "An Exchange asset's versions, newest first, with Stable or Development status.",
+        "userDescription": "An Exchange asset's versions, newest first, with Stable or Development status.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "group_id": {
+              "type": "string",
+              "description": "Group (organization) id"
+            },
+            "asset_id": {
+              "type": "string",
+              "description": "Asset id"
+            }
+          },
+          "required": [
+            "group_id",
+            "asset_id"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_add_dependency",
+        "toolReferenceName": "designStudio_add_dependency",
+        "displayName": "Design Studio: Add dependency",
+        "modelDescription": "Add an Exchange asset as a dependency (Design Center's Exchange dependencies): written to exchange.json and fetched into exchange_modules/. Returns the path to use in !include or uses:.",
+        "userDescription": "Add an Exchange asset as a dependency (Design Center's Exchange dependencies): written to exchange.json and fetched into exchange_modules/.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "group_id": {
+              "type": "string",
+              "description": "Group id"
+            },
+            "asset_id": {
+              "type": "string",
+              "description": "Asset id"
+            },
+            "version": {
+              "type": "string",
+              "description": "Version"
+            }
+          },
+          "required": [
+            "group_id",
+            "asset_id",
+            "version"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_remove_dependency",
+        "toolReferenceName": "designStudio_remove_dependency",
+        "displayName": "Design Studio: Remove dependency",
+        "modelDescription": "Remove an Exchange dependency (refused while a file still uses it).",
+        "userDescription": "Remove an Exchange dependency (refused while a file still uses it).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "group_id": {
+              "type": "string",
+              "description": "Group id"
+            },
+            "asset_id": {
+              "type": "string",
+              "description": "Asset id"
+            },
+            "version": {
+              "type": "string",
+              "description": "Version"
+            }
+          },
+          "required": [
+            "group_id",
+            "asset_id",
+            "version"
+          ]
+        }
+      }
     ]
   },
   "scripts": {
@@ -212,7 +1182,7 @@
   "devDependencies": {
     "@types/adm-zip": "^0.5.7",
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.90.0",
+    "@types/vscode": "^1.95.0",
     "esbuild": "^0.24.0",
     "typescript": "~5.8.3"
   }

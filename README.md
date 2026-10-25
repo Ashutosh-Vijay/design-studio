@@ -70,7 +70,7 @@ The builds aren't code-signed yet: on Windows, SmartScreen needs **More info**, 
 
 ## AI tools
 
-Settings, AI tools, **Start**. The panel shows the one-line setup for Claude Code, VS Code, Cursor and Claude Desktop. In the VS Code extension, Copilot's agent mode finds it by itself while it runs. The server listens on `127.0.0.1` only.
+In the VS Code extension, Copilot's agent mode can use Design Studio's tools directly: pick them in its tools list, nothing to set up or start. For other agents (Claude Code, Cursor, Claude Desktop, or Copilot in the desktop app's case), open Settings, AI tools, and **Start**: the panel shows the one-line setup for each. That server listens on `127.0.0.1` only.
 
 ## Privacy and security
 
