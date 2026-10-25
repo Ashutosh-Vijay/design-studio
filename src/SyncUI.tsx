@@ -102,7 +102,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
       // __ADS_BROKER and __ADS_HOST: a local broker and stand-in Anypoint for development tests (release builds ignore the broker one).
       const dev = window as unknown as { __ADS_BROKER?: string; __ADS_HOST?: string };
       const m = await invoke<Me>('anypoint_connect', { mode, clientId: clientId.trim(), clientSecret: secret.trim(), host: dev.__ADS_HOST ?? region, broker: dev.__ADS_BROKER ?? null, readOnly });
-      setMe(m); setSecret(''); await loadProjects(m);
+      setMe(m); setSecret(''); window.dispatchEvent(new Event('ads-signed-in')); await loadProjects(m);
     } catch (e) { setErr(String(e)); setStep('choose'); }
   };
   const pull = async () => {

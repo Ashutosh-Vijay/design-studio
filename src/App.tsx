@@ -72,6 +72,7 @@ export default function App() {
   const [theme, setTheme] = useState(savedTheme);
   const [settingsAt, setSettingsAt] = useState<DOMRect | null>(null);
   const [about, setAbout] = useState(false);
+  const [aboutNotes, setAboutNotes] = useState(false); // About opened by itself after an update: What's new unfolded
   // Updates: a quiet check a few seconds after start; once downloaded, one "Update ready" in the title bar.
   const upd = useUpdate();
   useEffect(() => { const t = setTimeout(() => checkForUpdate(), 8000); return () => clearTimeout(t); }, []);
@@ -87,7 +88,7 @@ export default function App() {
   useEffect(() => {
     if (!version) return;
     let seen: string | null = null; try { seen = localStorage.getItem('ads.seenVersion'); localStorage.setItem('ads.seenVersion', version); } catch { return; }
-    if (seen && seen !== version && NOTES.some((r) => r.version === version)) setAbout(true);
+    if (seen && seen !== version && NOTES.some((r) => r.version === version)) { setAboutNotes(true); setAbout(true); }
   }, [version]);
   // The palette: '' everything (Ctrl K), '@' symbols (Ctrl Shift O), '>' commands (F1).
   const [paletteOpen, setPaletteOpen] = useState<false | '' | '@' | '>'>(false);
@@ -103,6 +104,8 @@ export default function App() {
   // API Design Academy: from the start screen, or the palette anywhere (a window event, since the project view has the palette).
   const [academy, setAcademy] = useState(false);
   useEffect(() => { const f = () => setAcademy(true); window.addEventListener('ads-academy', f); return () => window.removeEventListener('ads-academy', f); }, []);
+  // Panels that need Anypoint (Dependencies' + when signed out) ask for the sign-in dialog.
+  useEffect(() => { const f = () => setConnectOpen(true); window.addEventListener('ads-connect', f); return () => window.removeEventListener('ads-connect', f); }, []);
   const mcp = useMcpStatus();
   useEffect(() => { if (isTauri) startDispatcher(); }, []);
 
@@ -263,7 +266,7 @@ export default function App() {
       {connectOpen && <ConnectDialog openRoot={project?.root} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
       {creating && <CreateDialog what={creating} onClose={() => setCreating(null)} onCreated={(root) => { setCreating(null); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
-      {about && <About version={version} onClose={() => setAbout(false)} onRestart={restartToUpdate} />}
+      {about && <About version={version} whatsNew={aboutNotes} onClose={() => { setAbout(false); setAboutNotes(false); }} onRestart={restartToUpdate} />}
       {mcpOpen && <McpPanel onClose={() => setMcpOpen(false)} />}
       {academy && <AcademyScreen onClose={() => setAcademy(false)} onCreate={() => { setAcademy(false); if (project) setPendingNotice('Go back to all projects to create one.'); else setCreating('api'); }} />}
       <Splash />

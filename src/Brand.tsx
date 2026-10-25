@@ -117,10 +117,11 @@ type Release = { version: string; date: string; headline: string; highlights: { 
 const shows = (h: { only?: string }) => !h.only || h.only === (isVsCode ? 'vscode' : 'desktop');
 export const NOTES = (RELEASES as Release[]).map((r) => ({ ...r, highlights: r.highlights.filter(shows) })).filter((r) => r.highlights.length);
 
-export function About({ version, onClose, onRestart }: { version: string; onClose: () => void; onRestart: () => void }) {
+export function About({ version, onClose, onRestart, whatsNew = false }: { version: string; onClose: () => void; onRestart: () => void; whatsNew?: boolean }) {
   const upd = useUpdate();
   const current = NOTES.find((r) => r.version === version) ?? NOTES[0];
   const [earlier, setEarlier] = useState(false);
+  const [notes, setNotes] = useState(whatsNew);
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', k);
@@ -160,12 +161,14 @@ export function About({ version, onClose, onRestart }: { version: string; onClos
           </div>
           {current && <>
             <Rule />
-            <div className="mb-2 flex items-baseline gap-2.5">
+            <button onClick={() => setNotes(!notes)} className="w-full flex items-baseline gap-2.5 text-left group">
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.8px] text-content-faint">What's new in {current.version}</span>
-              <span className="text-[13px] font-semibold text-content">{current.headline}</span>
+              <span className="text-[13px] font-semibold text-content group-hover:text-accent">{current.headline}</span>
               <span className="text-[11px] text-content-faint">{current.date}</span>
-            </div>
-            <div className="flex flex-col gap-2">
+              <span className="ml-auto text-[11.5px] text-accent">{notes ? 'Hide' : 'Show'}</span>
+            </button>
+            {notes && <>
+            <div className="mt-2 flex flex-col gap-2">
               {current.highlights.map((h) => (
                 <div key={h.title} className="text-[12.5px] leading-[1.5] text-content-muted">
                   <span className="font-semibold text-content">{h.title}</span>{h.tag && <span className="ml-1.5 rounded px-1 py-px text-[9.5px] font-bold text-accent bg-accent-dim align-middle">{h.tag}</span>}
@@ -177,6 +180,7 @@ export function About({ version, onClose, onRestart }: { version: string; onClos
             {earlier && NOTES.filter((r) => r !== current).map((r) => (
               <div key={r.version} className="mt-2 text-[12px] text-content-muted"><span className="font-semibold text-content">{r.version}</span> {r.headline}: {r.highlights.map((h) => h.title).join(', ')}.</div>
             ))}
+            </>}
           </>}
           <Rule />
           <div className="grid items-start gap-6" style={{ gridTemplateColumns: '180px 1fr' }}>

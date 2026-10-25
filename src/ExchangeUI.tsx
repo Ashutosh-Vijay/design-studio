@@ -256,6 +256,7 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
   const [info, setInfo] = useState<Record<string, { name: string; type: string; latest?: string; versions: S.Version[] } | null>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState<'fragment' | 'ruleset' | null>(null);
+  const [needSignIn, setNeedSignIn] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
   // Rulesets (Design Center's governance dependencies) and which of their rules are on here.
   const [sets, setSets] = useState<G.Ruleset[]>([]);
@@ -272,6 +273,8 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
     }
   };
   useEffect(() => { load(); }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Signing in elsewhere (the dialog this panel opens, or Settings) brings the panel up to date.
+  useEffect(() => { const f = () => { setNeedSignIn(false); load(); }; window.addEventListener('ads-signed-in', f); return () => window.removeEventListener('ads-signed-in', f); }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
   const run = async (label: string, fn: () => Promise<string>) => {
     setBusy(label); setMenu(null);
     try { const t = await fn(); await onChanged(); await load(); onNotice(t, false); window.dispatchEvent(new Event('ads-governance-changed')); } catch (e) { onNotice(String(e).replace(/^Error: /, ''), true); }
@@ -293,7 +296,7 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
   const header = (title: string, n: number, kind: 'fragment' | 'ruleset') => (
     <div className="flex items-center gap-1 px-3 h-8 mt-1">
       <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">{title} <span className="font-normal">({n})</span></span>
-      <button title={me ? (kind === 'ruleset' ? 'Add a ruleset from Exchange' : 'Add a dependency from Exchange') : 'Sign in to Anypoint to add dependencies'} disabled={!me || !!busy} onClick={() => setAdding(kind)}
+      <button title={kind === 'ruleset' ? 'Add a ruleset from Exchange' : 'Add a dependency from Exchange'} disabled={!!busy} onClick={() => (me ? setAdding(kind) : setNeedSignIn(true))}
         className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content disabled:opacity-40"><Icons.Plus size={14} /></button>
     </div>
   );
@@ -356,6 +359,15 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
   return (
     <div className="flex-1 overflow-auto pb-4 text-[12.5px]">
       {busy && <div className="px-3 pt-2"><Note><span className="flex items-center gap-2"><Spinner />{busy}</span></Note></div>}
+      {needSignIn && !me && (
+        <div className="mx-3 mt-2 p-2.5 rounded-md border border-line bg-surface-2 text-[12px] text-content-secondary">
+          Dependencies come from Exchange, so adding one needs an Anypoint sign-in.
+          <div className="mt-2 flex gap-2">
+            <button className={btnPrimary} onClick={() => window.dispatchEvent(new Event('ads-connect'))}>Sign in…</button>
+            <button className={btn} onClick={() => setNeedSignIn(false)}>Not now</button>
+          </div>
+        </div>
+      )}
       {header('Fragments', frags.length, 'fragment')}
       {frags.length === 0 && <div className="px-3"><Note>None yet. Fragments from Exchange, like shared libraries and traits, go here.</Note></div>}
       {frags.map(row)}
