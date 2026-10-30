@@ -184,7 +184,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
-      if (import.meta.env.PROD && (e.key === 'F5' || (mod && e.key.toLowerCase() === 'r'))) { e.preventDefault(); return; }
+      // The webview's browser keys: reload (drops unsaved work) and print.
+      if (import.meta.env.PROD && (e.key === 'F5' || (mod && (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'p')))) { e.preventDefault(); return; }
       if (!isVsCode && mod && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0') && !e.altKey) {
         e.preventDefault();
         const i = ZOOMS.indexOf(savedZoom());
