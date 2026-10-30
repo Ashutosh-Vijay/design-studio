@@ -16,7 +16,7 @@ Big specs open in seconds, and every edit is checked as you type by AMF, the sam
 - **Governance**: check your API against the rulesets it depends on.
 - **A local mock**: try every method with Design Center's MS2 headers, unsaved edits included.
 - **AI tools**: Copilot's agent mode can use Design Studio's tools directly, with nothing to set up: open projects, edit specs, run AMF's checks and governance, try the mock. You watch every change happen, and tools that change something ask first. Claude Code, Cursor and other agents can connect too (Settings, AI tools).
-- **API Design Academy**: 39 lessons, from "what is an API" to all of RAML, Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications, checked by AMF.
+- **API Design Academy**: 46 lessons, from how computers talk (HTTP, JSON, integration, MuleSoft) to all of RAML, Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications, checked by AMF.
 
 ## Getting started
 

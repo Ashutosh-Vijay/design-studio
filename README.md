@@ -52,7 +52,7 @@ Built with Tauri 2 (Rust), React, TypeScript and CodeMirror. It ships with AMF 5
 - **Documentation, mock and map.** The API as documentation, Try it on a local mock, and a map of what uses what.
 - **Design Center's file actions.** Set as root file, Rename, Duplicate (a copy, or RAML to OAS through AMF), Delete to the trash, Download as zip, Import.
 - **AI tools (MCP).** 33 tools for agents, from opening a project to publishing. Changes in Design Center and Exchange stay off until you allow them.
-- **API Design Academy.** 39 lessons from "what is an API" to all of RAML, Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications.
+- **API Design Academy.** 46 lessons, from how computers talk (HTTP, JSON, integration, MuleSoft) to all of RAML, Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications.
 - **Works offline.** Open a folder or a Design Center zip; you only sign in to pull, push and publish.
 
 ## Install

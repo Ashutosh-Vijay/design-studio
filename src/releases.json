@@ -32,7 +32,7 @@
       {
         "title": "API Design Academy",
         "tag": "NEW",
-        "desc": "39 lessons, from what an API is to all of RAML (types, resource types, traits, security schemes, fragments, libraries), Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications. Every lesson has something to try or answer, and AMF checks what you write."
+        "desc": "46 lessons, from how computers talk (HTTP, JSON, integration, MuleSoft) to all of RAML (types, resource types, traits, security schemes, fragments, libraries), Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications. Every lesson has something to try or answer, and AMF checks what you write."
       },
       {
         "title": "Also in VS Code",

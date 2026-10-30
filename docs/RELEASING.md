@@ -25,7 +25,7 @@ App-milestone semver: a major user-facing capability is a minor bump while in be
 
 ## 4. Check the words people read
 
-- README, `vscode-extension/README.md`, About, the start screen: still true? (Sign-in clouds, counts like "33 tools" or "39 lessons".)
+- README, `vscode-extension/README.md`, About, the start screen: still true? (Sign-in clouds, counts like "33 tools" or "46 lessons".)
 - **Network behaviour changed?** Update the complete list in `SECURITY.md` and the summary in `PRIVACY.md`.
 - **UI changed?** Retake the screenshots (`docs/screenshots/`, 1600x1000, dark and light) on the Library API showcase project, never a real one. Before committing, look at every recent list, path, host and project name in them: nothing from work, ever.
 

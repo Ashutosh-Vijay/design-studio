@@ -329,14 +329,14 @@ export function AcademyScreen({ onClose, onCreate }: { onClose: () => void; onCr
             <section className="grid gap-6 items-end pb-6 border-b border-line" style={{ gridTemplateColumns: '1fr auto' }}>
               <div>
                 <h1 className="m-0 text-[28px] font-semibold tracking-tight">Learn API design from zero</h1>
-                <p className="mt-1.5 mb-0 max-w-[640px] text-[13.5px] text-content-secondary leading-relaxed">Start with what an API is. Go through all of RAML (types, resource types, traits, security schemes, fragments, libraries), then Design Center, Exchange, APIkit and API Manager, as far as the MuleSoft Developer I and II exams ask. Every lesson has something to try or answer, and AMF, the engine Design Center uses, checks what you write.</p>
+                <p className="mt-1.5 mb-0 max-w-[640px] text-[13.5px] text-content-secondary leading-relaxed">Start from nothing: how computers talk, HTTP, JSON, what integration and MuleSoft are. Then go through all of RAML (types, resource types, traits, security schemes, fragments, libraries), then Design Center, Exchange, APIkit and API Manager, as far as the MuleSoft Developer I and II exams ask. Every lesson has something to try or answer, and AMF, the engine Design Center uses, checks what you write.</p>
               </div>
               <div className="min-w-[260px] p-4 rounded-xl border border-line bg-surface">
                 <div className="text-[22px] font-bold">{doneCount} of {LESSONS.length}</div>
                 <div className="text-[12px] text-content-faint">lessons done</div>
                 <div className="h-1.5 my-2.5 rounded-full bg-surface-3 overflow-hidden"><div className="h-full bg-accent" style={{ width: `${(doneCount / LESSONS.length) * 100}%` }} /></div>
                 <button onClick={() => (doneCount === LESSONS.length ? onCreate() : setAt(next))} className="w-full h-9 rounded-lg text-[12.5px] font-semibold bg-accent text-accent-ink">
-                  {doneCount === 0 ? 'Start with 1.1' : doneCount === LESSONS.length ? 'Create your own project' : `Continue: ${LESSONS[next].id} ${LESSONS[next].title}`}
+                  {doneCount === 0 ? `Start with ${LESSONS[0].id} ${LESSONS[0].title}` : doneCount === LESSONS.length ? 'Create your own project' : `Continue: ${LESSONS[next].id} ${LESSONS[next].title}`}
                 </button>
               </div>
             </section>
