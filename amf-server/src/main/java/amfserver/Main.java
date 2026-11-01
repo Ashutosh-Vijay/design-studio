@@ -610,6 +610,18 @@ public class Main {
     };
     var client = target.withResourceLoaders(loaders()).baseUnitClient();
     AMFResult converted = client.transform(parsed.baseUnit(), PipelineId.Compatibility());
+    // AMF's compatibility step gathers every example used with a type (each body's example) onto the type, naming
+    // them example_0, example_1... per place, so names from different places collide and OAS gets duplicate keys,
+    // which AMF itself then rejects. Give each type's examples distinct names.
+    for (var e : converted.baseUnit().findByType("http://a.ml/vocabularies/shapes#AnyShape")) {
+      if (!(e instanceof amf.shapes.client.platform.model.domain.AnyShape s)) continue;
+      Set<String> seen = new HashSet<>();
+      for (var ex : s.examples()) {
+        String n = ex.name().isNullOrEmpty() ? "example" : ex.name().value(), u = n;
+        for (int i = 2; !seen.add(u); i++) u = n + "_" + i;
+        if (!u.equals(n)) ex.withName(u);
+      }
+    }
     String text = client.render(converted.baseUnit(), "json".equals(req.path("syntax").asText()) ? "application/json" : "application/yaml");
     return reply(req).put("text", text).put("conforms", converted.conforms());
   }

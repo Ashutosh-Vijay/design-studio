@@ -78,6 +78,18 @@ for (const [kind, file, text, sets] of specs) {
   for (const f of found) console.log('  FAIL ' + f);
   bad += found.length;
 }
+// Duplicate As on the RAML starter: AMF's converter once wrote OAS that AMF itself rejected (duplicate example
+// names, fixed in convert()). Every target must come out clean.
+for (const [to, syntax] of [['oas30', 'yaml'], ['oas30', 'json'], ['oas31', 'yaml'], ['oas31', 'json']]) {
+  await call('open', { root: join(tmp, 'raml'), main: 'api.raml' });
+  const r = await call('convert', { path: 'api.raml', to, syntax });
+  const dir = join(tmp, `raml-to-${to}-${syntax}`); mkdirSync(dir); writeFileSync(join(dir, 'api.' + syntax), r.text ?? '');
+  await call('open', { root: dir, main: 'api.' + syntax });
+  const probs = r.ok ? (await call('check', { mode: 'validate' })).problems ?? [] : [{ severity: 'error', message: r.error }];
+  console.log(`raml as ${to} ${syntax}: ${probs.length ? probs.length + ' AMF problems' : 'clean on AMF'}`);
+  for (const p of probs) console.log(`  FAIL AMF ${p.severity}: ${p.message}`);
+  bad += probs.length;
+}
 java.kill();
 try { acv.exit(); } catch { /* ends itself */ }
 process.exit(bad ? 1 : 0);
