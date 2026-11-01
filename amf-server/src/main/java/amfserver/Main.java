@@ -602,6 +602,7 @@ public class Main {
     String path = req.path("path").asText(), to = req.path("to").asText();
     AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient().parse(fileUrl(root.resolve(path))).get();
     AMFConfiguration target = switch (to) {
+      case "oas31" -> OASConfiguration.OAS31();
       case "oas30" -> OASConfiguration.OAS30();
       case "oas20" -> OASConfiguration.OAS20();
       case "raml10" -> RAMLConfiguration.RAML10();

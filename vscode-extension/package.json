@@ -267,6 +267,8 @@
                 "raml",
                 "oas3yaml",
                 "oas3json",
+                "oas31yaml",
+                "oas31json",
                 "oas2json",
                 "oas2yaml",
                 "asyncyaml",
@@ -289,7 +291,7 @@
             },
             "secured": {
               "type": "boolean",
-              "description": "Start from the secured starter (raml, oas3yaml, oas3json, asyncyaml, asyncjson): an Orders API with HTTPS only, OAuth 2.0 on every call, error and rate-limit responses and correlation ids, clean on MuleSoft's best-practice and OWASP rulesets. Rename it to the person's API (default false)"
+              "description": "Start from the secured starter (raml, oas3yaml, oas3json, oas31yaml, oas31json, asyncyaml, asyncjson): an Orders API with HTTPS only, OAuth 2.0 on every call, error and rate-limit responses and correlation ids, clean on MuleSoft's best-practice and OWASP rulesets. Rename it to the person's API (default false)"
             }
           },
           "required": [
@@ -689,6 +691,7 @@
               "type": "string",
               "description": "Target",
               "enum": [
+                "oas31",
                 "oas30",
                 "oas20"
               ]

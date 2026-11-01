@@ -21,6 +21,8 @@ const specs = [
   ['raml', 'api.raml', read('src/starters/secured.raml'), RULESETS],
   ['oas3yaml', 'api.yaml', oas, [...RULESETS, 'openapi-best-practices']],
   ['oas3json', 'api.json', JSON.stringify(parse(oas), null, 2) + '\n', [...RULESETS, 'openapi-best-practices']],
+  ['oas31yaml', 'api.yaml', oas.replace('openapi: 3.0.0', 'openapi: 3.1.0'), [...RULESETS, 'openapi-best-practices']],
+  ['oas31json', 'api.json', JSON.stringify({ ...parse(oas), openapi: '3.1.0' }, null, 2) + '\n', [...RULESETS, 'openapi-best-practices']],
   ['asyncyaml', 'api.yaml', async, ASYNC],
   ['asyncjson', 'api.json', JSON.stringify(parse(async), null, 2) + '\n', ASYNC],
 ];

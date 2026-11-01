@@ -17,6 +17,8 @@ export const KINDS = {
   raml: { label: 'RAML 1.0', ext: 'raml', head: '#%RAML 1.0\ntitle: {name}\n' },
   oas3yaml: { label: 'OAS 3.0 (YAML)', ext: 'yaml', head: 'openapi: 3.0.0\ninfo:\n  title: {name}\n  version: 1.0.0\npaths: {}\n' },
   oas3json: { label: 'OAS 3.0 (JSON)', ext: 'json', head: '{\n  "openapi": "3.0.0",\n  "info": {\n    "title": "{name}",\n    "version": "1.0.0"\n  },\n  "paths": {}\n}\n' },
+  oas31yaml: { label: 'OAS 3.1 (YAML)', ext: 'yaml', head: 'openapi: 3.1.0\ninfo:\n  title: {name}\n  version: 1.0.0\npaths: {}\n' },
+  oas31json: { label: 'OAS 3.1 (JSON)', ext: 'json', head: '{\n  "openapi": "3.1.0",\n  "info": {\n    "title": "{name}",\n    "version": "1.0.0"\n  },\n  "paths": {}\n}\n' },
   oas2json: { label: 'OAS 2.0 (JSON)', ext: 'json', head: '{\n  "swagger": "2.0",\n  "info": {\n    "version": "1.0.0",\n    "title": "{name}"\n  },\n  "paths": {}\n}\n' },
   asyncyaml: { label: 'AsyncAPI 2.6 (YAML)', ext: 'yaml', head: "asyncapi: '2.6.0'\ninfo:\n  title: {name}\n  version: 1.0.0\nchannels: {}\n" },
   asyncjson: { label: 'AsyncAPI 2.6 (JSON)', ext: 'json', head: '{\n  "asyncapi": "2.6.0",\n  "info": {\n    "title": "{name}",\n    "version": "1.0.0"\n  },\n  "channels": {}\n}\n' },
@@ -35,21 +37,26 @@ export const KINDS = {
   other: { label: 'Other', ext: '', head: '' },
 } as const;
 export type Kind = keyof typeof KINDS;
-const API_KINDS: Kind[] = ['raml', 'oas3yaml', 'oas3json', 'oas2json', 'oas2yaml', 'asyncyaml', 'asyncjson'];
+const API_KINDS: Kind[] = ['raml', 'oas3yaml', 'oas3json', 'oas31yaml', 'oas31json', 'oas2json', 'oas2yaml', 'asyncyaml', 'asyncjson'];
 // AsyncAPI projects in Design Center: its classifier for them isn't proven yet (spikes/m0-3-anypoint/async-probe.mjs),
-// so they're made on this computer; Exchange calls them evented-api.
+// so they're made on this computer; Exchange calls them evented-api. OAS 3.1 too: Design Center's AMF (5.10) and
+// Exchange are not proven with it yet.
 const isAsyncKind = (k: Kind) => k === 'asyncyaml' || k === 'asyncjson';
+const localOnly = (k: Kind) => isAsyncKind(k) || k === 'oas31yaml' || k === 'oas31json';
 const FRAGMENTS: Kind[] = ['library', 'type', 'trait', 'resourceType', 'example', 'docs', 'annotationType', 'securityScheme', 'overlay', 'extension'];
 // The secured starter (src/starters): HTTPS only, OAuth 2.0 on every call, errors, rate limits, correlation ids
 // and patterns on every string parameter. Proven clean on AMF and MuleSoft's rulesets (Anypoint Best Practices,
 // OWASP API Security, transport and authentication security, documentation, OpenAPI): scripts/starters-verify.mjs.
-export const SECURED: Kind[] = ['raml', 'oas3yaml', 'oas3json', 'asyncyaml', 'asyncjson'];
+export const SECURED: Kind[] = ['raml', 'oas3yaml', 'oas3json', 'oas31yaml', 'oas31json', 'asyncyaml', 'asyncjson'];
 export const starter = (k: Kind, name: string, secured = false) => {
   if (!secured || !SECURED.includes(k)) return KINDS[k].head.split('{name}').join(name);
   if (k === 'raml') return securedRaml.replace('title: Orders API', 'title: ' + quote(name));
   if (k === 'oas3yaml') return securedOas.replace('  title: Orders API', '  title: ' + quote(name));
+  // OAS 3.1: the same starter (proven clean as 3.1 too).
+  if (k === 'oas31yaml') return securedOas.replace('openapi: 3.0.0', 'openapi: 3.1.0').replace('  title: Orders API', '  title: ' + quote(name));
   if (k === 'asyncyaml') return securedAsync.replace('  title: Order Events', '  title: ' + quote(name));
   const o = parse(k === 'asyncjson' ? securedAsync : securedOas); o.info.title = name;
+  if (k === 'oas31json') o.openapi = '3.1.0';
   return JSON.stringify(o, null, 2) + '\n';
 };
 const fileName = (k: Kind, name: string) => (KINDS[k].ext && !name.toLowerCase().endsWith('.' + KINDS[k].ext) ? `${name}.${KINDS[k].ext}` : name);
@@ -58,7 +65,7 @@ const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input text
 // ---------- Create: a new project, in Design Center and here, or only here ----------
 // The work itself, shared by the dialog and the AI tools (create_project). Returns the new folder.
 export async function makeProject(n: string, kind: Kind, dc: boolean, me: Me | null, busy: (s: string) => void = () => {}, secured = false) {
-  if (dc && isAsyncKind(kind)) throw new Error('AsyncAPI projects are made on this computer for now. Push them to a Design Center project you made there.');
+  if (dc && localOnly(kind)) throw new Error(`${KINDS[kind].label} projects are made on this computer for now.`);
   if (dc) {
     busy('Creating it in Design Center…');
     const id = await S.createProject(n, KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment', (KINDS[kind] as { sub?: string }).sub);
@@ -102,7 +109,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
   const [secured, setSecured] = useState(false);
   const [busy, setBusy] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null);
   useEffect(() => { invoke<Me | null>('anypoint_status').then(setMe, () => setMe(null)); }, []);
-  const dcOk = !!me && !me.read_only && !isAsyncKind(kind);
+  const dcOk = !!me && !me.read_only && !localOnly(kind);
   const dc = dcOk && inDc;
   const [noName, setNoName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -150,7 +157,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
             <label key={label} className={`flex items-center gap-2 ${v && !dcOk ? 'opacity-50' : 'cursor-pointer'}`}>
               <input type="radio" checked={dc === v} disabled={v && !dcOk} onChange={() => setInDc(v)} className="accent-[var(--accent)]" />{label}</label>
           ))}
-          {!dcOk && me !== undefined && <span className="text-[11.5px] text-content-faint">{isAsyncKind(kind) ? 'AsyncAPI projects are made on this computer for now.' : !me ? 'Sign in to Anypoint to create it in Design Center too.' : 'The connection is read only, so it can only be made here. Turn read only off in settings to create it in Design Center.'}</span>}
+          {!dcOk && me !== undefined && <span className="text-[11.5px] text-content-faint">{localOnly(kind) ? `${KINDS[kind].label.replace(/ \(.*/, '')} projects are made on this computer for now.` : !me ? 'Sign in to Anypoint to create it in Design Center too.' : 'The connection is read only, so it can only be made here. Turn read only off in settings to create it in Design Center.'}</span>}
         </div>
         {err && <div className="text-[12px] text-err select-text">{err}</div>}
       </div>

@@ -1084,7 +1084,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         if (fmt === 'copy') text = await readAny(path);
         else {
           await syncOverlays();
-          const r = await amf('convert', { path, to: fmt.startsWith('oas2') ? 'oas20' : 'oas30', syntax: fmt.endsWith('j') ? 'json' : 'yaml' });
+          const r = await amf('convert', { path, to: fmt.startsWith('oas2') ? 'oas20' : fmt.startsWith('oas31') ? 'oas31' : 'oas30', syntax: fmt.endsWith('j') ? 'json' : 'yaml' });
           text = r.text;
         }
         await invoke('save_text_file', { root: project.root, path: target, text });
@@ -2090,7 +2090,7 @@ function MoveDialog({ name, libs, exists, onOk, onCancel }: { name: string; libs
 function DuplicateDialog({ path, canConvert, exists, onOk, onCancel }: { path: string; canConvert: boolean; exists: (p: string) => boolean; onOk: (target: string, fmt: string) => Promise<void>; onCancel: () => void }) {
   const name = base(path), dir = path.slice(0, path.length - name.length), ext = (name.match(/\.[^.]+$/) || [''])[0], stem = name.slice(0, name.length - ext.length);
   const formats: [string, string, string][] = canConvert
-    ? [['copy', 'RAML 1.0 (exact copy)', ext], ['oas3y', 'OAS 3.0 (YAML)', '.yaml'], ['oas3j', 'OAS 3.0 (JSON)', '.json'], ['oas2y', 'OAS 2.0 (YAML)', '.yaml'], ['oas2j', 'OAS 2.0 (JSON)', '.json']]
+    ? [['copy', 'RAML 1.0 (exact copy)', ext], ['oas31y', 'OAS 3.1 (YAML)', '.yaml'], ['oas31j', 'OAS 3.1 (JSON)', '.json'], ['oas3y', 'OAS 3.0 (YAML)', '.yaml'], ['oas3j', 'OAS 3.0 (JSON)', '.json'], ['oas2y', 'OAS 2.0 (YAML)', '.yaml'], ['oas2j', 'OAS 2.0 (JSON)', '.json']]
     : [['copy', 'Same format', ext]];
   const [fmt, setFmt] = useState('copy');
   const [n, setN] = useState(stem + '-copy');
@@ -2110,7 +2110,7 @@ function DuplicateDialog({ path, canConvert, exists, onOk, onCancel }: { path: s
           {formats.map(([id, label]) => (
             <label key={id} className="flex items-center gap-2 h-[26px] text-[12.5px] cursor-pointer">
               <input type="radio" name="fmt" checked={fmt === id} style={{ accentColor: 'var(--accent)' }}
-                onChange={() => { setFmt(id); if (!touched) setN(id === 'copy' ? stem + '-copy' : stem + (id.startsWith('oas2') ? '-oas2' : '')); }} />{label}
+                onChange={() => { setFmt(id); if (!touched) setN(id === 'copy' ? stem + '-copy' : stem + (id.startsWith('oas2') ? '-oas2' : id.startsWith('oas31') ? '-oas31' : '')); }} />{label}
             </label>
           ))}
         </div>
