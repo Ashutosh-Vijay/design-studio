@@ -51,15 +51,17 @@ export function DocsPanel({ model: checked, resolve, onOpenAt, startMock }: {
         <div className="mt-1.5"><Text>{ep.description?.v}</Text></div>
         {ep.operations.map((o) => {
           const key = o.method + ' ' + ep.path;
+          // AsyncAPI: publish and subscribe carry a message, and there's nothing to try on an HTTP mock.
+          const event = o.method === 'publish' || o.method === 'subscribe';
           return (
             <div key={o.method} className="mt-3.5 pt-3 border-t border-line-subtle">
               <div className="flex items-center gap-2">
                 <Badge m={o.method} />
                 <b className="text-[12.5px] min-w-0 truncate">{o.summary?.v || o.operationId?.v || `${o.method.toUpperCase()} ${ep.path}`}</b>
-                <button className="ml-auto h-6 px-2 rounded-md flex items-center gap-1 text-[11.5px] border border-line bg-surface-2 text-content-secondary hover:text-content"
+                {event ? <span className="ml-auto" /> : <button className="ml-auto h-6 px-2 rounded-md flex items-center gap-1 text-[11.5px] border border-line bg-surface-2 text-content-secondary hover:text-content"
                   onClick={async () => { if (trying === key) { setTrying(null); return; } setTrying(key); if (!mock) setMock(await startMock()); }}>
                   <Icons.Play size={9} />Try it
-                </button>
+                </button>}
                 {o.at && <button title="Show in code" className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content" onClick={() => onOpenAt(o.at!)}><Icons.Braces size={13} /></button>}
               </div>
               <div className="mt-1.5"><Text>{o.description?.v}</Text></div>
@@ -80,14 +82,14 @@ export function DocsPanel({ model: checked, resolve, onOpenAt, startMock }: {
                 ))}
               </>}
               {o.body.length > 0 && <>
-                <H>Request body</H>
+                <H>{event ? 'Message' : 'Request body'}</H>
                 {o.body.map((b, i) => <div key={i} className="py-1"><div className="flex items-center gap-2"><span className="font-mono text-[11px] text-content-faint">{b.media || 'default'}</span>{typeLink(b.type)}</div>{b.example && <Code>{b.example}</Code>}</div>)}
               </>}
               {o.responses.length > 0 && <>
-                <H>Responses</H>
+                <H>{event ? 'Message' : 'Responses'}</H>
                 {o.responses.map((r) => (
-                  <div key={r.code} className="py-1.5">
-                    <div className="flex items-center gap-2"><span className="font-mono text-[11px] font-bold px-1.5 rounded" style={{ color: codeColor(r.code), background: `color-mix(in oklch, ${codeColor(r.code)} 14%, transparent)` }}>{r.code}</span>
+                  <div key={r.code ?? 'message'} className="py-1.5">
+                    <div className={`flex items-center gap-2 ${r.code ? '' : 'hidden'}`}><span className="font-mono text-[11px] font-bold px-1.5 rounded" style={{ color: codeColor(r.code), background: `color-mix(in oklch, ${codeColor(r.code)} 14%, transparent)` }}>{r.code}</span>
                       <span className="text-[12px] text-content-secondary min-w-0">{r.description?.v}</span></div>
                     {r.body.map((b, i) => <div key={i} className="mt-1"><div className="flex items-center gap-2"><span className="font-mono text-[11px] text-content-faint">{b.media || 'default'}</span>{typeLink(b.type)}</div>{b.example && <Code>{b.example}</Code>}</div>)}
                   </div>
@@ -135,7 +137,7 @@ export function DocsPanel({ model: checked, resolve, onOpenAt, startMock }: {
         {model.docs?.map((d) => (
           <details key={d.title} className="mt-2"><summary className="cursor-pointer text-[12.5px] font-semibold">{d.title}</summary><div className="mt-1"><Text>{d.content}</Text></div></details>
         ))}
-        <H>Resources</H>
+        <H>{model.endpoints.some((e) => e.operations.some((o) => o.method === 'publish' || o.method === 'subscribe')) ? 'Channels' : 'Resources'}</H>
         {(model.endpoints ?? []).filter((e) => e.operations.length).map((e) => (
           <button key={e.path} onClick={() => setPage({ kind: 'res', path: e.path })} className="w-full flex items-center gap-2 py-1 px-1.5 -mx-1.5 rounded-md text-left hover:bg-[var(--hover-overlay)]">
             <span className="font-mono text-[11.5px] min-w-0 truncate">{e.path}</span>

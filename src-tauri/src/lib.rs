@@ -65,7 +65,7 @@ fn find_main(root: &Path, files: &[ProjectFile]) -> Option<String> {
     }
     let head: String = fs::read_to_string(root.join(&f.path)).unwrap_or_default().chars().take(400).collect();
     let first = head.lines().next().unwrap_or("").trim_start_matches('\u{feff}').trim();
-    if first == "#%RAML 1.0" || first == "#%RAML 0.8" || head.contains("openapi:") || head.contains("swagger:") || head.contains("\"openapi\"") || head.contains("\"swagger\"") {
+    if first == "#%RAML 1.0" || first == "#%RAML 0.8" || head.contains("openapi:") || head.contains("swagger:") || head.contains("\"openapi\"") || head.contains("\"swagger\"") || head.contains("asyncapi:") || head.contains("\"asyncapi\"") {
       return Some(f.path.clone());
     }
   }

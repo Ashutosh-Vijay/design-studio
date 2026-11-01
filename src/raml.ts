@@ -1,6 +1,7 @@
 // A fast line-based reading of RAML: the outline (tree, autocomplete) and the shelf's context.
 // It runs on every cursor move and edit, so it never waits on AMF. AMF still has the final word on errors.
 
+import { parseDocument, isMap, isScalar } from 'yaml';
 export const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
 export const BUILTIN_TYPES = ['string', 'number', 'integer', 'boolean', 'date-only', 'time-only', 'datetime', 'datetime-only', 'file', 'object', 'array', 'any', 'nil'];
 
@@ -51,9 +52,29 @@ const topIndex = (E: Entry[], key: string) => E.findIndex((e) => e.ind === 0 && 
 
 export type Method = { kind: 'method'; id: string; m: string; path: string; name: string; from: number };
 export type Resource = { kind: 'res'; id: string; key: string; path: string; from: number; methods: Method[]; children: Resource[] };
-export type Decl = { kind: 'type' | 'trait' | 'rt' | 'sec'; id: string; name: string; alias: string | null; file: string; from: number };
+export type Decl = { kind: 'type' | 'trait' | 'rt' | 'sec' | 'msg'; id: string; name: string; alias: string | null; file: string; from: number };
 export type Library = { alias: string; path: string };
-export type Outline = { resources: Resource[]; types: Decl[]; traits: Decl[]; resourceTypes: Decl[]; securitySchemes: Decl[]; libraries: Library[] };
+export type Outline = { resources: Resource[]; types: Decl[]; traits: Decl[]; resourceTypes: Decl[]; securitySchemes: Decl[]; libraries: Library[]; messages?: Decl[] };
+
+// AsyncAPI 2.x (YAML or JSON): channels with their publish and subscribe operations, and components'
+// messages, schemas and security schemes. Read with the yaml library, which reads JSON too and keeps offsets.
+export const isAsync = (p: string, text: string) => /\.(ya?ml|json)$/i.test(p) && /^\s*["']?asyncapi["']?\s*:\s*["']?2\./m.test(text);
+export function buildAsyncOutline(file: string, text: string): Outline | null {
+  const doc = parseDocument(text);
+  if (doc.errors.length) return null;
+  const pairs = (n: unknown) => (isMap(n) ? n.items : []);
+  const name = (p: { key: unknown }) => String(isScalar(p.key) ? p.key.value : p.key);
+  const from = (p: { key: unknown }) => (isScalar(p.key) && p.key.range ? p.key.range[0] : 0);
+  const resources: Resource[] = pairs(doc.get('channels', true)).map((c) => ({
+    kind: 'res', id: 'res:' + name(c), key: name(c), path: name(c), from: from(c), children: [],
+    methods: pairs(c.value).filter((o) => ['publish', 'subscribe'].includes(name(o))).map((o) => {
+      const op = isMap(o.value) ? o.value : null;
+      return { kind: 'method', id: `m:${name(o)}:${name(c)}`, m: name(o), path: name(c), name: String(op?.get('summary') ?? op?.get('operationId') ?? ''), from: from(o) };
+    }),
+  }));
+  const decls = (key: string, kind: Decl['kind']): Decl[] => pairs(doc.getIn(['components', key], true)).map((d) => ({ kind, id: `${kind}:${name(d)}`, name: name(d), alias: null, file, from: from(d) }));
+  return { resources, types: decls('schemas', 'type'), traits: [], resourceTypes: [], securitySchemes: decls('securitySchemes', 'sec'), libraries: [], messages: decls('messages', 'msg') };
+}
 
 // Library paths in uses: can be relative to the root file or start with / (project root).
 export function libraryPaths(rootPath: string, rootText: string): Library[] {

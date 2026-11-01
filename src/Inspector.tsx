@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Icons } from './components/Icons';
 import { PopupList, Select } from './components/Popup';
 import { METHODS, BUILTIN_TYPES, entries, kids, kid, keyPathAt, type Outline, type Decl } from './raml';
+import { parseDocument } from 'yaml';
 import * as S from './splice';
 
 type Node =
@@ -31,11 +32,12 @@ export function nodeAt(text: string, line: number, isMain: boolean): Node {
 export const CODES: Record<string, string> = { 200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No content', 400: 'Bad request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not found', 409: 'Conflict', 422: 'Unprocessable', 500: 'Server error', 502: 'Bad gateway', 503: 'Unavailable' };
 export const MEDIA = ['application/json', 'application/xml', 'text/plain', 'multipart/form-data', 'application/x-www-form-urlencoded'];
 const METHOD_STYLE: Record<string, string> = {
+  publish: 'text-[var(--ok)] bg-[color-mix(in_oklch,var(--ok)_14%,transparent)]', subscribe: 'text-cyan bg-cyan-tint',
   get: 'text-cyan bg-cyan-tint', post: 'text-[var(--ok)] bg-[color-mix(in_oklch,var(--ok)_14%,transparent)]', put: 'text-warn bg-warn-tint',
   patch: 'text-violet bg-violet-tint', delete: 'text-err bg-err-tint', head: 'text-content-muted bg-surface-3', options: 'text-content-muted bg-surface-3',
 };
-export const Badge = ({ m }: { m: string }) => <span className={`font-mono text-[9.5px] font-bold w-[38px] h-4 rounded-[3px] shrink-0 inline-flex items-center justify-center ${METHOD_STYLE[m] ?? ''}`}>{m.toUpperCase()}</span>;
-export const codeColor = (c: string) => (c[0] === '2' ? 'var(--ok)' : c[0] === '4' ? 'var(--warn)' : c[0] === '5' ? 'var(--err)' : 'var(--content-muted)');
+export const Badge = ({ m }: { m: string }) => <span className={`font-mono text-[9.5px] font-bold w-[38px] h-4 rounded-[3px] shrink-0 inline-flex items-center justify-center ${METHOD_STYLE[m] ?? ''}`}>{m === 'publish' ? 'PUB' : m === 'subscribe' ? 'SUB' : m.toUpperCase()}</span>;
+export const codeColor = (c: string | null) => (!c ? 'var(--content-muted)' : c[0] === '2' ? 'var(--ok)' : c[0] === '4' ? 'var(--warn)' : c[0] === '5' ? 'var(--err)' : 'var(--content-muted)');
 
 // A text box that writes on Enter or when you leave it; Escape puts the old value back.
 // With options, it suggests as you type (the app's own list: a native datalist ignores the theme).
@@ -947,6 +949,36 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
     <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
       {readOnly && <div className="mb-3 flex items-center gap-1.5 text-[11.5px] text-content-faint"><Icons.Lock size={12} />{typeof readOnly === 'string' ? readOnly : 'Read-only: managed by Exchange'}</div>}
       <ReadOnlyBox readOnly={!!readOnly}>{h}</ReadOnlyBox>
+    </div>
+  );
+}
+
+// ---------- AsyncAPI ----------
+// No forms yet: a schema or message under the cursor gets AMF's tools (check a sample, copy as JSON Schema or RAML).
+export function AsyncInspector({ file, text, line, onCopyType, onCheckSample }: {
+  file: string; text: string; line: number;
+  onCopyType: (name: string, file: string, as: 'jsonSchema' | 'ramlType') => void; onCheckSample: (name: string, file: string, payload: string) => Promise<SampleResult>;
+}) {
+  const kp = keyPathAt(text, line).map((e) => e.key.replace(/^["']|["']$/g, ''));
+  let schema: string | null = null, title: ReactNode = null, note = 'AsyncAPI has no forms yet: edit it in the code. Put the cursor in a schema or a message to check a sample against it.';
+  if (kp[0] === 'components' && kp[1] === 'schemas' && kp[2]) { schema = kp[2]; title = <><span className="font-mono text-[13.5px] font-bold">{kp[2]}</span><span className="text-[12px] text-content-faint">Schema</span></>; }
+  else if (kp[0] === 'components' && kp[1] === 'messages' && kp[2]) {
+    // A message's payload, when it's a $ref to a schema (the usual way): checked against that schema.
+    const ref = String(parseDocument(text).getIn(['components', 'messages', kp[2], 'payload', '$ref']) ?? '');
+    schema = ref.startsWith('#/components/schemas/') ? ref.slice('#/components/schemas/'.length) : null;
+    title = <><span className="font-mono text-[13.5px] font-bold">{kp[2]}</span><span className="text-[12px] text-content-faint">Message{schema ? `, payload ${schema}` : ''}</span></>;
+    if (!schema) note = 'This message writes its payload in place. Move it to components.schemas to check samples against it.';
+  }
+  return (
+    <div className="flex-1 overflow-auto px-3.5 pt-3.5 pb-6 select-none">
+      {title && <div className="flex items-center gap-2 min-w-0">{title}</div>}
+      {schema ? <>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <button data-nav onClick={() => onCopyType(schema!, file, 'jsonSchema')} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>
+          <button data-nav onClick={() => onCopyType(schema!, file, 'ramlType')} className={BTN} title="AMF renders this schema as a RAML data type and puts it on the clipboard">Copy as RAML type</button>
+        </div>
+        <SampleCheck key={schema} name={schema} run={(p) => onCheckSample(schema!, file, p)} />
+      </> : <div className={`${title ? 'mt-3' : 'pt-6 text-center px-2'} text-[12.5px] text-content-faint`}>{note}</div>}
     </div>
   );
 }

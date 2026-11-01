@@ -1,4 +1,4 @@
-// The secured starters (src/starters) must stay clean: no AMF errors or warnings, and nothing from MuleSoft's
+// The secured starters (src/starters: RAML, OAS 3.0 and AsyncAPI) must stay clean: no AMF errors or warnings, and nothing from MuleSoft's
 // rulesets (fetched from Exchange, public). The OAS 3.0 JSON starter is the YAML one as JSON, as Create makes it.
 // Run: node scripts/starters-verify.mjs   (after mvn package in amf-server)
 import { spawn } from 'node:child_process';
@@ -14,11 +14,15 @@ const RULESETS = ['anypoint-best-practices', 'owasp-api-security', 'api-transpor
 const MULESOFT = '68ef9520-24e9-4cf2-b2f5-620025690913';
 const tmp = mkdtempSync(join(tmpdir(), 'starters-'));
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
-const oas = read('src/starters/secured.yaml');
+const oas = read('src/starters/secured.yaml'), async = read('src/starters/secured-async.yaml');
+// AsyncAPI: the rulesets that apply to events. The HTTP ones (an https base URI, 2xx responses) misfire on a Kafka broker.
+const ASYNC = ['asyncapi-best-practices', 'api-authentication-scheme-security', 'authentication-security-best-practices', 'api-documentation-best-practices'];
 const specs = [
   ['raml', 'api.raml', read('src/starters/secured.raml'), RULESETS],
   ['oas3yaml', 'api.yaml', oas, [...RULESETS, 'openapi-best-practices']],
   ['oas3json', 'api.json', JSON.stringify(parse(oas), null, 2) + '\n', [...RULESETS, 'openapi-best-practices']],
+  ['asyncyaml', 'api.yaml', async, ASYNC],
+  ['asyncjson', 'api.json', JSON.stringify(parse(async), null, 2) + '\n', ASYNC],
 ];
 
 // One file out of a zip, by its central directory (stored or deflated).

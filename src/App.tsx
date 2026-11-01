@@ -8,7 +8,7 @@ import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import { listen } from '@tauri-apps/api/event';
 import { METHODS, baseExtensions, languageFor, yamlPathAt, setUses, growSelection, shrinkSelection } from './editor';
-import { BUILTIN_TYPES, SCALAR_KEYS, entries, kids, normalizePath, buildOutline, buildOasOutline, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
+import { BUILTIN_TYPES, SCALAR_KEYS, entries, kids, normalizePath, buildOutline, buildOasOutline, buildAsyncOutline, isAsync, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -19,7 +19,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, autoUpdates, NOTES } from './Brand';
 import { WindowControls, isTauri, isVsCode } from './components/WindowControls';
-import { Inspector, OasInspector, type AmfModel, type At, type SampleResult } from './Inspector';
+import { Inspector, OasInspector, AsyncInspector, type AmfModel, type At, type SampleResult } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection, oasJsonAdd } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
 import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus, autoStartError } from './mcp';
@@ -506,6 +506,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   async function rebuildOutline() {
     const main = project.main; if (!main) { setOutline(null); return; }
     const rootText = textOf(main); if (rootText == null) return;
+    if (isAsync(main, rootText)) { const o = buildAsyncOutline(main, rootText); if (o) setOutline(o); return; } // unreadable keeps the last tree
     if (isOasYaml(main, rootText)) { setOutline(buildOasOutline(main, rootText)); return; }
     if (isOasJson(main, rootText)) { const o = buildOasJsonOutline(main, rootText); if (o) setOutline(o); return; } // unreadable JSON keeps the last tree
     if (!/\.raml$/i.test(main)) { setOutline(null); return; }
@@ -525,6 +526,14 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   function updateCursorViews(path: string, state: EditorState) {
     const pos = state.selection.main.head, line = state.doc.lineAt(pos), text = state.doc.toString();
     // OAS: the tree selection follows paths, operations and schemas; there's no shelf for OAS.
+    // AsyncAPI: channels and their publish and subscribe, and components (YAML; JSON keys come quoted).
+    if (path === project.main && isAsync(path, text)) {
+      setShelf(null);
+      const k = keyPathAt(text, line.number - 1).map((e) => e.key.replace(/^["']|["']$/g, ''));
+      const decl = ({ schemas: 'type', messages: 'msg', securitySchemes: 'sec' } as Record<string, string>)[k[1]];
+      setSelId(k[0] === 'channels' && k[1] ? (['publish', 'subscribe'].includes(k[2]) ? `m:${k[2]}:${k[1]}` : 'res:' + k[1]) : k[0] === 'components' && decl && k[2] ? `${decl}:${k[2]}` : null);
+      return;
+    }
     if (path === project.main && isOasJson(path, text)) { setShelf(null); setSelId(oasJsonSelection(text, line.from + line.text.search(/\S|$/))); return; }
     if (path === project.main && isOasYaml(path, text)) {
       setShelf(null);
@@ -563,21 +572,29 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const t = v.state.doc.toString();
     const free = (base: string, has: (n: string) => boolean) => { let n = base, i = 2; while (has(n)) n = base + i++; return n; };
     let path: string[], nt: string;
-    // OAS 3.0: a path, a schema or a security scheme, under paths and components.
-    if (isOasYaml(main, t) || isOasJson(main, t)) {
-      const [parent, base, value] = ({
+    // OAS 3.0: a path, a schema or a security scheme, under paths and components. AsyncAPI: a channel, a
+    // message, a schema or a security scheme.
+    if (isOasYaml(main, t) || isOasJson(main, t) || isAsync(main, t)) {
+      const [parent, base, value] = (isAsync(main, t) ? {
+        Channels: [['channels'], 'new-channel', { description: 'A new channel.' }],
+        Messages: [['components', 'messages'], 'NewMessage', { name: 'NewMessage', contentType: 'application/json', payload: { type: 'object' } }],
+        Schemas: [['components', 'schemas'], 'DataType', { type: 'object' }],
+        'Security schemes': [['components', 'securitySchemes'], 'SecurityScheme', { type: 'userPassword' }],
+      } as Record<string, [string[], string, Record<string, unknown>]> : {
         Paths: [['paths'], '/new-resource', {}],
         Schemas: [['components', 'schemas'], 'DataType', { type: 'object' }],
         'Security schemes': [['components', 'securitySchemes'], 'SecurityScheme', { type: 'http', scheme: 'bearer' }],
-      } as Record<string, [string[], string, Record<string, string>]>)[sec];
-      if (isOasJson(main, t)) {
+      } as Record<string, [string[], string, Record<string, unknown>]>)[sec];
+      if (/\.json$/i.test(main)) {
         const r = oasJsonAdd(t, parent, base, value);
         v.dispatch({ changes: diff(t, r.text), userEvent: 'input.form' });
         goOffset(r.at);
         return;
       }
       const E = entries(t), n = free(base, (x) => find(E, [...parent, x]) >= 0);
-      const lines = Object.keys(value).length ? [n + ':', ...Object.entries(value).map(([a, b]) => `  ${a}: ${b}`)] : [n + ': {}'];
+      // One level of nesting at most (a message's payload): written out as a block.
+      const lines = !Object.keys(value).length ? [n + ': {}'] : [n + ':', ...Object.entries(value).flatMap(([a, b]) => typeof b === 'object' && b
+        ? [`  ${a}:`, ...Object.entries(b).map(([c, d]) => `    ${c}: ${d}`)] : [`  ${a}: ${b}`])];
       path = [...parent, n]; nt = addChild(t, parent, lines);
     } else if (sec === 'Resources') {
       const E = entries(t), n = free('/new-resource', (x) => find(E, [x]) >= 0);
@@ -1451,7 +1468,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   // The + buttons need a RAML 1.0 API (not a fragment, not 0.8) or an OAS 3.0 spec as the root file, that this person may edit.
   const rootHead = (project.main && textOf(project.main)) || '';
   const canAdd = !!project.main && !viewOnly && !isReadOnly(project.main)
-    && ((/\.raml$/i.test(project.main) && !/^(\uFEFF)?#%RAML (0\.8|1\.0 \w)/.test(rootHead)) || isOasYaml(project.main, rootHead) || isOasJson(project.main, rootHead));
+    && ((/\.raml$/i.test(project.main) && !/^(\uFEFF)?#%RAML (0\.8|1\.0 \w)/.test(rootHead)) || isOasYaml(project.main, rootHead) || isOasJson(project.main, rootHead) || isAsync(project.main, rootHead));
 
   // Folders first, then files; a filter shows matching files with their folders open.
   const rows = useMemo(() => {
@@ -1485,6 +1502,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
               <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onCopyType={copyType} onCheckSample={checkSample} />
             ) : doc && active === doc.path && isOasJson(doc.path, doc.text) ? (
               <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onCopyType={copyType} onCheckSample={checkSample} />
+            ) : doc && active === doc.path && isAsync(doc.path, doc.text) ? (
+              <AsyncInspector file={doc.path} text={doc.text} line={doc.line} onCopyType={copyType} onCheckSample={checkSample} />
             ) : (
               <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.' : 'Forms are for RAML 1.0 and OAS 3.0 specs.'}</div>
             )}
@@ -1695,6 +1714,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           if (f) return f[3] ? `RAML ${f[2]} ${f[3]}` : `RAML ${f[2]}`;
           const o = /^\s*["']?(openapi|swagger)["']?\s*:\s*["']?(\d(\.\d)?)/m.exec(t);
           if (o) return `OAS ${o[2].startsWith('2') ? '2.0' : o[2]}`;
+          const a = /^\s*["']?asyncapi["']?\s*:\s*["']?(\d\.\d)/m.exec(t);
+          if (a) return `AsyncAPI ${a[1]}`;
           return /\.json$/i.test(active) ? 'JSON' : /\.ya?ml$/i.test(active) ? 'YAML' : /\.md$/i.test(active) ? 'Markdown' : 'Text';
         })()}</span>}
         {project.main && <span>{/^(\uFEFF)?#%RAML 1\.0 \w/.test(textOf(project.main) ?? '') ? 'API fragment' : 'API specification'}</span>}
@@ -1715,12 +1736,15 @@ class Boundary extends Component<{ children: ReactNode; resetKey: string; fallba
   render() { return this.state.error ? this.props.fallback(this.state.error) : this.props.children; }
 }
 
+// AsyncAPI's publish and subscribe, shortened to fit the method column.
+const METHOD_LABEL: Record<string, string> = { publish: 'PUB', subscribe: 'SUB' };
 const METHOD_STYLE: Record<string, string> = {
+  publish: 'text-[var(--ok)] bg-[color-mix(in_oklch,var(--ok)_14%,transparent)]', subscribe: 'text-cyan bg-cyan-tint',
   get: 'text-cyan bg-cyan-tint', post: 'text-[var(--ok)] bg-[color-mix(in_oklch,var(--ok)_14%,transparent)]', put: 'text-warn bg-warn-tint',
   patch: 'text-violet bg-violet-tint', delete: 'text-err bg-err-tint', head: 'text-content-muted bg-surface-3', options: 'text-content-muted bg-surface-3',
 };
 function MethodBadge({ m }: { m: string }) {
-  return <span className={`font-mono text-[9.5px] font-bold w-[38px] h-4 rounded-[3px] shrink-0 inline-flex items-center justify-center ${METHOD_STYLE[m] ?? ''}`}>{m.toUpperCase()}</span>;
+  return <span className={`font-mono text-[9.5px] font-bold w-[38px] h-4 rounded-[3px] shrink-0 inline-flex items-center justify-center ${METHOD_STYLE[m] ?? ''}`}>{METHOD_LABEL[m] ?? m.toUpperCase()}</span>;
 }
 
 const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed, setClosed, noRoot, onPick, onAdd }: {
@@ -1777,13 +1801,14 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
   const declRows = (list: Decl[], letter: string, color: string) => list.filter((d) => match((d.alias ? d.alias + '.' : '') + d.name)).map((d) =>
     row(d.id, 0, <><span className="w-3.5" /><span className={`font-mono text-[9.5px] font-bold w-4 h-4 rounded-[3px] inline-flex items-center justify-center ${color}`}>{letter}</span><span className="truncate">{d.name}</span></>,
       () => onPick(d.file, d.from, d.id), d.alias ? <span className="text-[11px] text-content-ghost">{d.alias}</span> : null));
-  const oas = !/\.raml$/i.test(rootFile);
+  const oas = !/\.raml$/i.test(rootFile), async = !!outline.messages;
   return (
     <div className="flex-1 overflow-auto pb-3">
       {/* OAS uses its own words: paths and schemas, and has no traits, resource types or libraries. */}
       {/* Design Center's API Summary: the API's own form (title, version, base URI, protocols, docs). */}
       {!q && <div className="mt-1.5">{row('root', 0, <><span className="w-3.5" /><span className="text-content-faint flex"><Icons.ApiSpec size={13} /></span><span className="font-medium">API Summary</span></>, () => onPick(rootFile, 0, 'root'))}</div>}
-      {sec(oas ? 'Paths' : 'Resources', `${all.length} · ${nMethods} ${oas ? 'operations' : 'methods'}`, resRows, oas ? 'Add a path' : 'Add a resource')}
+      {sec(async ? 'Channels' : oas ? 'Paths' : 'Resources', `${all.length} · ${nMethods} ${oas ? 'operations' : 'methods'}`, resRows, async ? 'Add a channel' : oas ? 'Add a path' : 'Add a resource')}
+      {async && sec('Messages', outline.messages!.length, declRows(outline.messages!, 'M', 'text-cyan bg-cyan-tint'), 'Add a message')}
       {sec(oas ? 'Schemas' : 'Types', outline.types.length, declRows(outline.types, oas ? 'S' : 'T', 'text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]'), oas ? 'Add a schema' : 'Add a data type')}
       {!oas && sec('Traits', outline.traits.length, declRows(outline.traits, 'Tr', 'text-violet bg-violet-tint'), 'Add a trait')}
       {!oas && sec('Resource types', outline.resourceTypes.length, declRows(outline.resourceTypes, 'RT', 'text-cyan bg-cyan-tint'), 'Add a resource type')}

@@ -1,6 +1,6 @@
 # Design Studio for MuleSoft (BETA)
 
-A fast designer for Anypoint Design Center API specs, RAML and OAS, right inside VS Code.
+A fast designer for Anypoint Design Center API specs, RAML, OAS and AsyncAPI, right inside VS Code.
 
 Big specs open in seconds, and every edit is checked as you type by AMF, the same engine Design Center uses. It works the way Design Center does, with the same words (Root file, Project errors, Exchange dependencies, Publish), so there's nothing new to learn.
 

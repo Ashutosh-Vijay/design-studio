@@ -489,7 +489,9 @@ public class Main {
           ArrayNode is = o.putArray("is"); for (var x : op.extendsNode()) if (x instanceof amf.core.client.platform.model.domain.ParametrizedDeclaration pd) is.add(pd.name().value());
           ArrayNode sec = o.putArray("securedBy"); for (var rq : op.security()) for (var sc : rq.schemes()) if (!sc.name().isNullOrEmpty()) sec.add(sc.name().value());
           ArrayNode params = o.putArray("parameters"), body = o.putArray("body");
+          // An AsyncAPI message is often a $ref to components.messages: follow the link to its payloads.
           for (var rq : op.requests()) {
+            var rqMsg = rq.isLink() && rq.linkTarget().orElse(null) instanceof amf.apicontract.client.platform.model.domain.Message lm ? lm : rq;
             for (var group : List.of(rq.queryParameters(), rq.headers(), rq.uriParameters(), rq.cookieParameters())) for (var p : group) {
               ObjectNode pn = params.addObject().put("name", p.parameterName().isNullOrEmpty() ? p.name().value() : p.parameterName().value())
                 .put("in", p.binding().isNullOrEmpty() ? "" : p.binding().value()).put("required", p.required().value()).put("type", typeName(p.schema(), 0));
@@ -500,15 +502,16 @@ public class Main {
             }
             // A queryString type (RAML) uses its types too, unions included.
             if (rq.queryString() != null) links(rq.queryString(), where + " queryString", refs, new HashSet<>(), 0);
-            payloads(rq.payloads(), where + " body", refs, body);
+            payloads(rqMsg.payloads(), where + " body", refs, body);
           }
           ArrayNode rs = o.putArray("responses");
           for (var r : op.responses()) {
+            var rMsg = r.isLink() && r.linkTarget().orElse(null) instanceof amf.apicontract.client.platform.model.domain.Message lm ? lm : r;
             ObjectNode rn = rs.addObject().put("code", r.statusCode().value());
             ObjectNode ra = at(r.annotations()); if (ra != null) rn.set("at", ra);
             put(rn, "description", r.description());
             ArrayNode rh = rn.putArray("headers"); for (var h : r.headers()) rh.add(h.name().value());
-            payloads(r.payloads(), where + " " + r.statusCode().value(), refs, rn.putArray("body"));
+            payloads(rMsg.payloads(), where + " " + (r.statusCode().isNullOrEmpty() ? "message" : r.statusCode().value()), refs, rn.putArray("body"));
           }
         }
       }

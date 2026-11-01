@@ -10,6 +10,7 @@ import { parse } from 'yaml';
 import { quote } from './splice';
 import securedRaml from './starters/secured.raml?raw';
 import securedOas from './starters/secured.yaml?raw';
+import securedAsync from './starters/secured-async.yaml?raw';
 
 // Every kind of file: label, extension, and for fragments the subType Design Center's API takes (probed).
 export const KINDS = {
@@ -17,6 +18,8 @@ export const KINDS = {
   oas3yaml: { label: 'OAS 3.0 (YAML)', ext: 'yaml', head: 'openapi: 3.0.0\ninfo:\n  title: {name}\n  version: 1.0.0\npaths: {}\n' },
   oas3json: { label: 'OAS 3.0 (JSON)', ext: 'json', head: '{\n  "openapi": "3.0.0",\n  "info": {\n    "title": "{name}",\n    "version": "1.0.0"\n  },\n  "paths": {}\n}\n' },
   oas2json: { label: 'OAS 2.0 (JSON)', ext: 'json', head: '{\n  "swagger": "2.0",\n  "info": {\n    "version": "1.0.0",\n    "title": "{name}"\n  },\n  "paths": {}\n}\n' },
+  asyncyaml: { label: 'AsyncAPI 2.6 (YAML)', ext: 'yaml', head: "asyncapi: '2.6.0'\ninfo:\n  title: {name}\n  version: 1.0.0\nchannels: {}\n" },
+  asyncjson: { label: 'AsyncAPI 2.6 (JSON)', ext: 'json', head: '{\n  "asyncapi": "2.6.0",\n  "info": {\n    "title": "{name}",\n    "version": "1.0.0"\n  },\n  "channels": {}\n}\n' },
   oas2yaml: { label: 'OAS 2.0 (YAML)', ext: 'yaml', head: "swagger: '2.0'\ninfo:\n  version: 1.0.0\n  title: {name}\npaths: {}\n" },
   library: { label: 'Library', ext: 'raml', head: '#%RAML 1.0 Library\nusage:\n', sub: 'library' },
   type: { label: 'Data Type', ext: 'raml', head: '#%RAML 1.0 DataType\n', sub: 'type' },
@@ -32,17 +35,21 @@ export const KINDS = {
   other: { label: 'Other', ext: '', head: '' },
 } as const;
 export type Kind = keyof typeof KINDS;
-const API_KINDS: Kind[] = ['raml', 'oas3yaml', 'oas3json', 'oas2json', 'oas2yaml'];
+const API_KINDS: Kind[] = ['raml', 'oas3yaml', 'oas3json', 'oas2json', 'oas2yaml', 'asyncyaml', 'asyncjson'];
+// AsyncAPI projects in Design Center: its classifier for them isn't proven yet (spikes/m0-3-anypoint/async-probe.mjs),
+// so they're made on this computer; Exchange calls them evented-api.
+const isAsyncKind = (k: Kind) => k === 'asyncyaml' || k === 'asyncjson';
 const FRAGMENTS: Kind[] = ['library', 'type', 'trait', 'resourceType', 'example', 'docs', 'annotationType', 'securityScheme', 'overlay', 'extension'];
 // The secured starter (src/starters): HTTPS only, OAuth 2.0 on every call, errors, rate limits, correlation ids
 // and patterns on every string parameter. Proven clean on AMF and MuleSoft's rulesets (Anypoint Best Practices,
 // OWASP API Security, transport and authentication security, documentation, OpenAPI): scripts/starters-verify.mjs.
-export const SECURED: Kind[] = ['raml', 'oas3yaml', 'oas3json'];
+export const SECURED: Kind[] = ['raml', 'oas3yaml', 'oas3json', 'asyncyaml', 'asyncjson'];
 export const starter = (k: Kind, name: string, secured = false) => {
   if (!secured || !SECURED.includes(k)) return KINDS[k].head.split('{name}').join(name);
   if (k === 'raml') return securedRaml.replace('title: Orders API', 'title: ' + quote(name));
   if (k === 'oas3yaml') return securedOas.replace('  title: Orders API', '  title: ' + quote(name));
-  const o = parse(securedOas); o.info.title = name;
+  if (k === 'asyncyaml') return securedAsync.replace('  title: Order Events', '  title: ' + quote(name));
+  const o = parse(k === 'asyncjson' ? securedAsync : securedOas); o.info.title = name;
   return JSON.stringify(o, null, 2) + '\n';
 };
 const fileName = (k: Kind, name: string) => (KINDS[k].ext && !name.toLowerCase().endsWith('.' + KINDS[k].ext) ? `${name}.${KINDS[k].ext}` : name);
@@ -51,6 +58,7 @@ const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input text
 // ---------- Create: a new project, in Design Center and here, or only here ----------
 // The work itself, shared by the dialog and the AI tools (create_project). Returns the new folder.
 export async function makeProject(n: string, kind: Kind, dc: boolean, me: Me | null, busy: (s: string) => void = () => {}, secured = false) {
+  if (dc && isAsyncKind(kind)) throw new Error('AsyncAPI projects are made on this computer for now. Push them to a Design Center project you made there.');
   if (dc) {
     busy('Creating it in Design Center…');
     const id = await S.createProject(n, KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment', (KINDS[kind] as { sub?: string }).sub);
@@ -78,7 +86,7 @@ export async function makeProject(n: string, kind: Kind, dc: boolean, me: Me | n
   const file = fileName(kind, n.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-'));
   await invoke('write_file_exact', { root, path: file, text: starter(kind, n, secured) });
   // Design Center's descriptor, so the root file, Publish and Exchange see it the same way later.
-  const classifier = KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment';
+  const classifier = KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : isAsyncKind(kind) ? 'evented-api' : 'raml-fragment';
   await invoke('write_file_exact', { root, path: 'exchange.json', text: JSON.stringify({ main: file, name: n, classifier, tags: [], version: '1.0.0', dependencies: [] }, null, 2) + '\n' });
   return root;
 }
@@ -94,7 +102,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
   const [secured, setSecured] = useState(false);
   const [busy, setBusy] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null);
   useEffect(() => { invoke<Me | null>('anypoint_status').then(setMe, () => setMe(null)); }, []);
-  const dcOk = !!me && !me.read_only;
+  const dcOk = !!me && !me.read_only && !isAsyncKind(kind);
   const dc = dcOk && inDc;
   const [noName, setNoName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -103,7 +111,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
     if (!n) { setNoName(true); nameRef.current?.focus(); return; }
     try {
       const root = await makeProject(n, kind, dc, me ?? null, setBusy, secured && SECURED.includes(kind));
-      try { if (what === 'api' && guide) localStorage.setItem('ads.guided:' + root, '1'); } catch { /* ignore */ }
+      try { if (what === 'api' && guide && !isAsyncKind(kind)) localStorage.setItem('ads.guided:' + root, '1'); } catch { /* ignore */ }
       onCreated(root, null);
     }
     catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(null); }
@@ -122,13 +130,13 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
           <Select value={kind} onChange={(v) => setKind(v as Kind)} className="w-full" options={list.map((k) => ({ value: k, label: KINDS[k].label }))} /></label>
         {what === 'api' && SECURED.includes(kind) && <div className="flex flex-col gap-1.5">
           <span className="text-[11.5px] text-content-faint">Start from</span>
-          {([[false, 'An empty spec', 'Just the title'], [true, 'A secured starter', "An Orders API to rename: HTTPS only, OAuth 2.0 on every call, error and rate-limit responses, correlation ids. Passes MuleSoft's best-practice and OWASP security rulesets."]] as const).map(([v, label, sub]) => (
+          {([[false, 'An empty spec', 'Just the title'], [true, 'A secured starter', isAsyncKind(kind) ? "Order events to rename: Kafka over TLS, SASL/SCRAM on every connection, closed message schemas, correlation ids. Passes MuleSoft's AsyncAPI best-practice and authentication rulesets." : "An Orders API to rename: HTTPS only, OAuth 2.0 on every call, error and rate-limit responses, correlation ids. Passes MuleSoft's best-practice and OWASP security rulesets."]] as const).map(([v, label, sub]) => (
             <label key={label} className="flex items-start gap-2 cursor-pointer">
               <input type="radio" checked={secured === v} onChange={() => setSecured(v)} className="mt-[3px] accent-[var(--accent)]" />
               <span>{label}<span className="block text-[11.5px] text-content-faint">{sub}</span></span></label>
           ))}
         </div>}
-        {what === 'api' && <div className="flex flex-col gap-1.5">
+        {what === 'api' && !isAsyncKind(kind) && <div className="flex flex-col gap-1.5">
           <span className="text-[11.5px] text-content-faint">How do you want to start?</span>
           {([[true, 'Guide me through it', 'Forms for each part, with the code next to them'], [false, "I'm comfortable designing it on my own", 'The code in front, the forms on the side']] as const).map(([v, label, sub]) => (
             <label key={label} className="flex items-start gap-2 cursor-pointer">
@@ -142,7 +150,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
             <label key={label} className={`flex items-center gap-2 ${v && !dcOk ? 'opacity-50' : 'cursor-pointer'}`}>
               <input type="radio" checked={dc === v} disabled={v && !dcOk} onChange={() => setInDc(v)} className="accent-[var(--accent)]" />{label}</label>
           ))}
-          {!dcOk && me !== undefined && <span className="text-[11.5px] text-content-faint">{!me ? 'Sign in to Anypoint to create it in Design Center too.' : 'The connection is read only, so it can only be made here. Turn read only off in settings to create it in Design Center.'}</span>}
+          {!dcOk && me !== undefined && <span className="text-[11.5px] text-content-faint">{isAsyncKind(kind) ? 'AsyncAPI projects are made on this computer for now.' : !me ? 'Sign in to Anypoint to create it in Design Center too.' : 'The connection is read only, so it can only be made here. Turn read only off in settings to create it in Design Center.'}</span>}
         </div>
         {err && <div className="text-[12px] text-err select-text">{err}</div>}
       </div>

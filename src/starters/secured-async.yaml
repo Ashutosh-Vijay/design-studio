@@ -1,0 +1,123 @@
+asyncapi: '2.6.0'
+info:
+  title: Order Events
+  description: Events about orders, on Kafka. Every connection uses TLS and SASL/SCRAM-SHA-512.
+  version: 1.0.0
+  contact:
+    name: API team
+    email: api-team@mycompany.com
+    url: https://mycompany.com/api-team
+  license:
+    name: Proprietary
+    url: https://mycompany.com/license
+servers:
+  production:
+    url: kafka.mycompany.com:9093
+    protocol: kafka-secure
+    description: The production Kafka cluster, TLS only.
+    security:
+      - saslScram: []
+tags:
+  - name: orders
+    description: Orders and their status.
+defaultContentType: application/json
+channels:
+  orders.created:
+    description: A new order. Sent once, when the order is placed.
+    subscribe:
+      operationId: onOrderCreated
+      summary: An order was created.
+      description: Receive each new order.
+      tags:
+        - name: orders
+          description: Orders and their status.
+      message:
+        $ref: '#/components/messages/OrderCreated'
+  orders.cancelled:
+    description: A request to cancel an order.
+    publish:
+      operationId: cancelOrder
+      summary: Cancel an order.
+      description: Ask for an order to be cancelled.
+      tags:
+        - name: orders
+          description: Orders and their status.
+      message:
+        $ref: '#/components/messages/CancelOrder'
+components:
+  securitySchemes:
+    saslScram:
+      type: scramSha512
+      description: SASL/SCRAM-SHA-512 credentials, over TLS.
+  messages:
+    OrderCreated:
+      name: OrderCreated
+      title: Order created
+      summary: A new order.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/Headers'
+      payload:
+        $ref: '#/components/schemas/Order'
+    CancelOrder:
+      name: CancelOrder
+      title: Cancel order
+      summary: Which order to cancel, and why.
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/Headers'
+      payload:
+        $ref: '#/components/schemas/Cancellation'
+  schemas:
+    Headers:
+      description: The headers every message carries.
+      type: object
+      additionalProperties: false
+      required: [ correlationId ]
+      properties:
+        correlationId:
+          description: An id to trace the event through every system it reaches.
+          type: string
+          pattern: '^[A-Za-z0-9-]{1,64}$'
+      example:
+        correlationId: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+    Order:
+      description: An order.
+      type: object
+      additionalProperties: false
+      required: [ id, status, total ]
+      properties:
+        id:
+          description: The order's id.
+          type: string
+          pattern: '^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$'
+        status:
+          description: Where the order is.
+          type: string
+          enum: [ open, shipped, closed ]
+        total:
+          description: The order's total amount.
+          type: number
+          minimum: 0
+      example:
+        id: 3f2b8c1e-9a4d-4e7b-b6c5-2d1f0e9a8b7c
+        status: open
+        total: 42.5
+    Cancellation:
+      description: Which order to cancel, and why.
+      type: object
+      additionalProperties: false
+      required: [ id ]
+      properties:
+        id:
+          description: The order's id.
+          type: string
+          pattern: '^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$'
+        reason:
+          description: Why the order is cancelled.
+          type: string
+          maxLength: 200
+          pattern: '^[^<>]*$'
+      example:
+        id: 3f2b8c1e-9a4d-4e7b-b6c5-2d1f0e9a8b7c
+        reason: Ordered twice.

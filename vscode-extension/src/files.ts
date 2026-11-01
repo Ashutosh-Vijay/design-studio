@@ -30,7 +30,7 @@ function findMain(root: string, files: ProjectFile[]): string | null {
     let head = '';
     try { head = fs.readFileSync(path.join(root, f.path), 'utf8').slice(0, 400); } catch { continue; }
     const first = (head.split(/\r?\n/)[0] ?? '').replace(/^﻿/, '').trim();
-    if (first === '#%RAML 1.0' || first === '#%RAML 0.8' || /openapi:|swagger:|"openapi"|"swagger"/.test(head)) return f.path;
+    if (first === '#%RAML 1.0' || first === '#%RAML 0.8' || /openapi:|swagger:|asyncapi:|"openapi"|"swagger"|"asyncapi"/.test(head)) return f.path;
   }
   return null;
 }
