@@ -746,6 +746,76 @@
         }
       },
       {
+        "name": "designStudio_type_as_raml",
+        "toolReferenceName": "designStudio_type_as_raml",
+        "displayName": "Design Studio: Type as raml",
+        "modelDescription": "A type (an OAS schema, say) rendered by AMF as a RAML 1.0 data type, as a library.",
+        "userDescription": "A type (an OAS schema, say) rendered by AMF as a RAML 1.0 data type, as a library.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Type name"
+            },
+            "file": {
+              "type": "string",
+              "description": "The file that declares it"
+            }
+          },
+          "required": [
+            "name",
+            "file"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_validate_payload",
+        "toolReferenceName": "designStudio_validate_payload",
+        "displayName": "Design Studio: Validate payload",
+        "modelDescription": "Check a sample body (JSON, YAML or XML) against a declared type with AMF's payload validator, the check the mock and API Manager apply. Returns conforms and the problems, each with a JSON path. Unsaved edits count.",
+        "userDescription": "Check a sample body (JSON, YAML or XML) against a declared type with AMF's payload validator, the check the mock and API Manager apply.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Type name"
+            },
+            "file": {
+              "type": "string",
+              "description": "The file that declares it (optional when the name is unique)"
+            },
+            "payload": {
+              "type": "string",
+              "description": "The body, as text"
+            }
+          },
+          "required": [
+            "name",
+            "payload"
+          ]
+        }
+      },
+      {
         "name": "designStudio_run_governance",
         "toolReferenceName": "designStudio_run_governance",
         "displayName": "Design Studio: Run governance",

@@ -26,6 +26,8 @@ export type ProjectHost = {
   renameSymbol: (name: string, nu: string, file?: string) => Promise<string>;
   convert: (path: string, to: string, syntax: string) => Promise<string>;
   jsonSchema: (name: string, file: string) => Promise<string>;
+  ramlType: (name: string, file: string) => Promise<string>;
+  checkPayload: (name: string, file: string, payload: string) => Promise<unknown>;
   mockPort: () => Promise<number>;
   show: (path: string, line?: number) => Promise<void>;
   reload: () => Promise<void>;
@@ -153,6 +155,11 @@ export const TOOLS: Tool[] = [
     run: async (a) => { const p = proj(); await p.write(String(a.target_path), await p.convert(String(a.path), String(a.to), String(a.syntax))); return `Converted to ${a.target_path}.`; } },
   { name: 'type_as_json_schema', readOnly: true, description: 'A RAML type or OAS schema rendered by AMF as JSON Schema.', props: { name: str('Type name'), file: str('The file that declares it') }, required: ['name', 'file'],
     run: async (a) => proj().jsonSchema(String(a.name), String(a.file)) },
+  { name: 'type_as_raml', readOnly: true, description: 'A type (an OAS schema, say) rendered by AMF as a RAML 1.0 data type, as a library.', props: { name: str('Type name'), file: str('The file that declares it') }, required: ['name', 'file'],
+    run: async (a) => proj().ramlType(String(a.name), String(a.file)) },
+  { name: 'validate_payload', readOnly: true, description: "Check a sample body (JSON, YAML or XML) against a declared type with AMF's payload validator, the check the mock and API Manager apply. Returns conforms and the problems, each with a JSON path. Unsaved edits count.",
+    props: { name: str('Type name'), file: str('The file that declares it (optional when the name is unique)'), payload: str('The body, as text') }, required: ['name', 'payload'],
+    run: async (a) => proj().checkPayload(String(a.name), a.file ? String(a.file) : '', String(a.payload)) },
   { name: 'run_governance', readOnly: true, description: "Check the API against the governance rulesets it depends on (Exchange rulesets in exchange.json), as Design Center's Governance does. Returns each finding with its rule, level and place.",
     run: async () => { const r = await proj().governance(); return r === undefined ? 'No governance results (no rulesets, or no root file).' : r.length ? r : 'No findings: the API meets its rulesets.'; } },
   { name: 'mock_request', readOnly: true, description: "Call the API's local mock (Design Center's mocking service, unsaved edits included) and get the status, headers and body it answers with. Supports Design Center's MS2-Status-Code and MS2-Example headers.",

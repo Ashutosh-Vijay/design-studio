@@ -6,7 +6,7 @@ import { parseTree, findNodeAtLocation, findNodeAtOffset, getNodePath, getNodeVa
 import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
 import { METHODS, type Outline, type Resource, type Decl } from './raml';
-import { Field, Sec, AddSelect, IconBtn, ReadOnlyBox, Badge, UsedBy, BTN, CODES, MEDIA, codeColor, type AmfModel, type At } from './Inspector';
+import { Field, Sec, AddSelect, IconBtn, ReadOnlyBox, Badge, UsedBy, BTN, CODES, MEDIA, codeColor, SampleCheck, type AmfModel, type At, type SampleResult } from './Inspector';
 
 const OAS_BUILTIN = ['string', 'integer', 'number', 'boolean', 'object', 'array'];
 const REF = '#/components/schemas/';
@@ -109,9 +109,9 @@ export function oasJsonSelection(text: string, offset: number): string | null {
   return p[0] === 'components' && p[1] === 'schemas' && typeof p[2] === 'string' ? 'type:' + p[2] : null;
 }
 
-export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, onGoOffset, onOpenAt, onJsonSchema }: {
+export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, onGoOffset, onOpenAt, onCopyType, onCheckSample }: {
   file: string; text: string; line: number; readOnly: boolean | string; model: AmfModel | null;
-  onEdit: (fn: (t: string) => string) => void; onGoOffset: (offset: number) => void; onOpenAt: (at: At) => void; onJsonSchema: (name: string, file: string) => void;
+  onEdit: (fn: (t: string) => string) => void; onGoOffset: (offset: number) => void; onOpenAt: (at: At) => void; onCopyType: (name: string, file: string, as: 'jsonSchema' | 'ramlType') => void; onCheckSample: (name: string, file: string, payload: string) => Promise<SampleResult>;
 }) {
   const tree = useMemo(() => parseTree(text), [text]);
   // The JSON path under the cursor: the first non-space character of the line.
@@ -256,7 +256,9 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
       <>
         <span className="font-mono text-[13.5px] font-bold break-all">{name}</span>
         <div className="mt-1 text-[12.5px] text-content-secondary">Schema</div>
-        {amfSchema && <div className="mt-3"><button data-nav onClick={() => onJsonSchema(name, file)} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button></div>}
+        {amfSchema && <div className="mt-3 flex flex-wrap gap-1.5"><button data-nav onClick={() => onCopyType(name, file, 'jsonSchema')} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>
+          <button data-nav onClick={() => onCopyType(name, file, 'ramlType')} className={BTN} title="AMF renders this schema as a RAML data type and puts it on the clipboard">Copy as RAML type</button></div>}
+        {amfSchema && <SampleCheck key={name} name={name} run={(p) => onCheckSample(name, file, p)} />}
         <Sec title="Type">{typeCell(p)}</Sec>
         <div className="mt-3">{field(p, 'description', 'Description', false, true)}</div>
         {Array.isArray(val([...p, 'enum'])) ? (

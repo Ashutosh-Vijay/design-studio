@@ -154,14 +154,45 @@ export function UsedBy({ uses, onOpenAt }: { uses: AmfModel['types'][number]['us
 }
 
 export const BTN = 'h-[26px] px-2.5 rounded-md text-[12px] border border-line bg-surface-2 text-content-secondary hover:text-content disabled:opacity-40';
+
+// Check a sample against a type: AMF's payload validator (what the mock and API Manager check a body with).
+// Works on read-only types too (an Exchange dependency's), so it's all data-nav.
+export type SampleResult = { conforms: boolean; media: string; problems: { severity: string; message: string }[] };
+export function SampleCheck({ name, run }: { name: string; run: (payload: string) => Promise<SampleResult> }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [res, setRes] = useState<SampleResult | string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const go = async () => { setBusy(true); try { setRes(await run(text)); } catch (e) { setRes(String(e).replace(/^Error: /, '')); } setBusy(false); };
+  if (!open) return <div className="mt-2"><button data-nav onClick={() => setOpen(true)} className={BTN} title="Paste a JSON, XML or YAML body and AMF checks it against this type">Check a sample…</button></div>;
+  const errs = res && typeof res !== 'string' ? res.problems.filter((p) => p.severity === 'error') : [];
+  return (
+    <Sec title="Check a sample">
+      <div data-nav className="flex flex-col gap-1.5">
+        <textarea data-nav value={text} autoFocus spellCheck={false} rows={6} placeholder={`A JSON, XML or YAML ${name}, as an API would send it`}
+          onChange={(e) => { setText(e.target.value); setRes(null); }} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) go(); }}
+          className="w-full px-2 py-1 rounded border border-line bg-surface-input text-content outline-none focus:border-accent font-mono text-[11.5px] leading-snug resize-y placeholder:text-content-ghost" />
+        <div className="flex items-center gap-1.5">
+          <button data-nav disabled={!text.trim() || busy} onClick={go} className="h-[26px] px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-40">Check</button>
+          <button data-nav onClick={() => { setOpen(false); setRes(null); }} className={BTN}>Close</button>
+          <span className="text-[11px] text-content-faint">{busy ? 'Checking…' : 'Ctrl Enter'}</span>
+        </div>
+        {typeof res === 'string' && <div className="text-[12px] text-err select-text">{res}</div>}
+        {res && typeof res !== 'string' && (errs.length === 0
+          ? <div className="flex items-center gap-1.5 text-[12px] text-ok"><Icons.Check size={13} />Matches {name} ({res.media.replace('application/', '')}).</div>
+          : <div className="flex flex-col gap-1 select-text">{errs.map((p, i) => <div key={i} className="text-[12px] text-err leading-snug">{p.message}</div>)}</div>)}
+      </div>
+    </Sec>
+  );
+}
 // What can go into an extracted trait, in the order RAML usually writes them.
 const TRAIT_PARTS = ['queryParameters', 'queryString', 'headers', 'securedBy', 'body', 'responses'];
 
-export function Inspector({ file, text, line, isMain, readOnly, outline, model, onEdit, onGoLine, onOpen, onOpenAt, onRename, onMove, onDelete, onJsonSchema }: {
+export function Inspector({ file, text, line, isMain, readOnly, outline, model, onEdit, onGoLine, onOpen, onOpenAt, onRename, onMove, onDelete, onCopyType, onCheckSample }: {
   file: string; text: string; line: number; isMain: boolean; readOnly: boolean | string; outline: Outline | null; model: AmfModel | null;
   onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void; onOpen: (file: string, from: number) => void;
   onRename: (from: number) => void; onMove: (d: Decl) => void; onDelete: (d: Decl) => void;
-  onOpenAt: (at: At) => void; onJsonSchema: (name: string, file: string) => void;
+  onOpenAt: (at: At) => void; onCopyType: (name: string, file: string, as: 'jsonSchema' | 'ramlType') => void; onCheckSample: (name: string, file: string, payload: string) => Promise<SampleResult>;
 }) {
   const E = useMemo(() => entries(text), [text]);
   const L = useMemo(() => text.split('\n'), [text]);
@@ -511,7 +542,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         <div className="mt-3 flex flex-wrap gap-1.5">
           {d && <button onClick={() => onRename(d.from)} className={BTN}>Rename…</button>}
           {d && isType && isMain && <button onClick={() => onMove(d)} className={BTN}>Move to library…</button>}
-          {isType && amfType && <button data-nav onClick={() => onJsonSchema(node.name, file)} className={BTN} title="AMF renders this type as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>}
+          {isType && amfType && <button data-nav onClick={() => onCopyType(node.name, file, 'jsonSchema')} className={BTN} title="AMF renders this type as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>}
           {d && node.sect !== 'securitySchemes' && node.sect !== 'annotationTypes' && <button onClick={() => onDelete(d)} className={BTN + ' hover:!text-err'}>Delete…</button>}
         </div>
         {/* Declared in its own file (name: !include file.raml): the form for it is in that file. */}
@@ -610,6 +641,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           </Sec>
         )}
         {!included && isType && enumK < 0 && params(node.path, 'properties', 'Properties', 'Add property', 'No properties.')}
+        {isType && <SampleCheck key={node.name} name={node.name} run={(p) => onCheckSample(node.name, file, p)} />}
         {isType && <UsedBy uses={used} onOpenAt={onOpenAt} />}
       </>
     );
@@ -715,9 +747,9 @@ function setOasType(text: string, p: string[], t: string): string {
   return S.addChild(text, p, arr ? ['type: array', 'items:', ...one(b).map((l) => '  ' + l)] : one(b), true);
 }
 
-export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLine, onOpenAt, onJsonSchema }: {
+export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLine, onOpenAt, onCopyType, onCheckSample }: {
   file: string; text: string; line: number; readOnly: boolean | string; model: AmfModel | null;
-  onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void; onOpenAt: (at: At) => void; onJsonSchema: (name: string, file: string) => void;
+  onEdit: (fn: (t: string) => string) => void; onGoLine: (line: number) => void; onOpenAt: (at: At) => void; onCopyType: (name: string, file: string, as: 'jsonSchema' | 'ramlType') => void; onCheckSample: (name: string, file: string, payload: string) => Promise<SampleResult>;
 }) {
   const E = useMemo(() => entries(text), [text]);
   const L = useMemo(() => text.split('\n'), [text]);
@@ -848,7 +880,9 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
         <span className="font-mono text-[13.5px] font-bold break-all">{kp[2]}</span>
         <div className="mt-1 text-[12.5px] text-content-secondary">Schema</div>
         {k >= 0 && loc(k)}
-        {amfSchema && <div className="mt-3"><button data-nav onClick={() => onJsonSchema(kp[2], file)} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button></div>}
+        {amfSchema && <div className="mt-3 flex flex-wrap gap-1.5"><button data-nav onClick={() => onCopyType(kp[2], file, 'jsonSchema')} className={BTN} title="AMF renders this schema as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>
+          <button data-nav onClick={() => onCopyType(kp[2], file, 'ramlType')} className={BTN} title="AMF renders this schema as a RAML data type and puts it on the clipboard">Copy as RAML type</button></div>}
+        {amfSchema && <SampleCheck key={kp[2]} name={kp[2]} run={(p) => onCheckSample(kp[2], file, p)} />}
         <Sec title="Type">{typeCell(p)}</Sec>
         <div className="mt-3">{field(p, 'description', 'Description', false, true)}</div>
         {at([...p, 'enum']) >= 0 ? (

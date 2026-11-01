@@ -19,7 +19,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, autoUpdates, NOTES } from './Brand';
 import { WindowControls, isTauri, isVsCode } from './components/WindowControls';
-import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
+import { Inspector, OasInspector, type AmfModel, type At, type SampleResult } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection, oasJsonAdd } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
 import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus, autoStartError } from './mcp';
@@ -703,6 +703,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     renameSymbol: async (name, nu, file) => { const d = declFor(name, file); if (!d) throw new Error(`${name} isn't a declared type, trait, resource type or security scheme.`); return doRename(d, nu); },
     convert: async (path, to, syntax) => { await syncOverlays(); return (await amf('convert', { path, to, syntax })).text; },
     jsonSchema: async (name, file) => { await syncOverlays(); return (await amf('jsonSchema', { name, file })).text; },
+    ramlType: async (name, file) => { await syncOverlays(); return (await amf('ramlType', { name, file })).text; },
+    checkPayload: (name, file, payload) => checkSample(name, file, payload),
     mockPort: async () => { await syncOverlays(); return (await amf('mock', { on: true })).port; },
     show: async (path, line) => { await openFile(path); if (line) goLine(line - 1); },
     reload: async () => { await syncRef.current?.reload(); },
@@ -1422,13 +1424,19 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     v.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) }); v.focus();
   }
   // AMF's JSON Schema for a declared type, onto the clipboard.
-  async function copyJsonSchema(name: string, file: string) {
+  // AMF renders one type: as JSON Schema, or (an OAS schema) as a RAML data type.
+  async function copyType(name: string, file: string, as: 'jsonSchema' | 'ramlType') {
     try {
       await syncOverlays();
-      const r = await amf('jsonSchema', { name, file });
+      const r = await amf(as, { name, file });
       await navigator.clipboard.writeText(r.text);
-      setNotice({ text: `Copied ${name} as JSON Schema.`, err: false });
+      setNotice({ text: `Copied ${name} as ${as === 'jsonSchema' ? 'JSON Schema' : 'a RAML data type'}.`, err: false });
     } catch (e) { fail(e); }
+  }
+  // A sample body against a type, by AMF's payload validator, unsaved edits included.
+  async function checkSample(name: string, file: string, payload: string) {
+    await syncOverlays();
+    return await amf('validatePayload', { name, file, payload }) as SampleResult;
   }
   function jumpTo(from: number) {
     const v = view.current!; v.dispatch({ selection: { anchor: from }, scrollIntoView: true }); v.focus();
@@ -1470,13 +1478,13 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             <Boundary resetKey={doc ? doc.path + ":" + doc.line : ""} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {e}. The code editor still works; move the cursor to try again.</div>}>
             {doc && active === doc.path && /\.raml$/i.test(doc.path) && !doc.text.startsWith('#%RAML 0.8') ? (
               <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} outline={outline} model={amfModel}
-                onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)} onOpenAt={revealAt} onJsonSchema={copyJsonSchema}
+                onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)} onOpenAt={revealAt} onCopyType={copyType} onCheckSample={checkSample}
                 onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }}
                 onMove={openMove} onDelete={deleteDecl} />
             ) : doc && active === doc.path && isOasYaml(doc.path, doc.text) ? (
-              <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
+              <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onCopyType={copyType} onCheckSample={checkSample} />
             ) : doc && active === doc.path && isOasJson(doc.path, doc.text) ? (
-              <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
+              <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onCopyType={copyType} onCheckSample={checkSample} />
             ) : (
               <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.' : 'Forms are for RAML 1.0 and OAS 3.0 specs.'}</div>
             )}

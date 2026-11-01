@@ -20,6 +20,7 @@ import amf.core.client.platform.validation.AMFValidationResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import amf.core.client.common.validation.ValidationMode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.*;
@@ -154,6 +155,8 @@ public class Main {
       }
       case "convert" -> send(convert(req));
       case "jsonSchema" -> send(jsonSchema(req));
+      case "ramlType" -> send(ramlType(req));
+      case "validatePayload" -> send(validatePayload(req));
       case "lesson" -> send(lesson(req));
       default -> send(JSON.createObjectNode().put("id", req.path("id").asLong()).put("ok", false).put("error", "unknown op"));
     }
@@ -292,21 +295,56 @@ public class Main {
 
   // A declared type as JSON Schema, by AMF (the Inspector's "Copy as JSON Schema"). Parsed without the unit
   // cache: rendering may resolve the shape, and cached units are shared between checks.
-  static ObjectNode jsonSchema(JsonNode req) throws Exception {
+  // A declared type, by name and file (element ids can differ between two parses), from a fresh parse of the
+  // open spec, unsaved edits included. Used by jsonSchema, ramlType and validatePayload.
+  static amf.shapes.client.platform.model.domain.AnyShape declaredType(JsonNode req) throws Exception { return declaredType(req, false); }
+  // resolved: inheritance, unions and links applied (the payload validator needs it: a closed type's
+  // inherited properties are only its own once resolved).
+  static amf.shapes.client.platform.model.domain.AnyShape declaredType(JsonNode req, boolean resolved) throws Exception {
     if (root == null) throw new IllegalStateException("no project open");
     AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient().parse(fileUrl(root.resolve(main))).get();
-    // By name and file: element ids can differ between two parses.
+    BaseUnit top = !resolved ? parsed.baseUnit()
+      : APIConfiguration.fromSpec(parsed.sourceSpec()).withResourceLoaders(loaders()).baseUnitClient().transform(parsed.baseUnit(), PipelineId.Editing()).baseUnit();
     String name = req.path("name").asText(), file = req.path("file").asText();
-    Deque<BaseUnit> units = new ArrayDeque<>(List.of(parsed.baseUnit())); Set<String> seen = new HashSet<>();
+    Deque<BaseUnit> units = new ArrayDeque<>(List.of(top)); Set<String> seen = new HashSet<>();
     while (!units.isEmpty()) {
       BaseUnit u = units.pop();
       if (!seen.add(u.id())) continue;
       units.addAll(u.references());
-      if (u instanceof amf.core.client.platform.model.document.DeclaresModel dm && rel(u.location()).equalsIgnoreCase(file)) for (var d : dm.declares()) {
-        if (d instanceof amf.shapes.client.platform.model.domain.AnyShape s && name.equals(s.name().value())) return reply(req).put("text", APIConfiguration.API().elementClient().toJsonSchema(s));
+      if (u instanceof amf.core.client.platform.model.document.DeclaresModel dm && (file.isEmpty() || rel(u.location()).equalsIgnoreCase(file))) for (var d : dm.declares()) {
+        if (d instanceof amf.shapes.client.platform.model.domain.AnyShape s && name.equals(s.name().value())) return s;
       }
     }
-    throw new IllegalArgumentException("That type isn't in the spec any more. Check again after the spec is read.");
+    throw new IllegalArgumentException("No type named " + name + " in the spec. Check again after the spec is read.");
+  }
+  static ObjectNode jsonSchema(JsonNode req) throws Exception {
+    return reply(req).put("text", APIConfiguration.API().elementClient().toJsonSchema(declaredType(req)));
+  }
+  // AMF's own RAML for a type (an OAS schema as a RAML data type).
+  static ObjectNode ramlType(JsonNode req) throws Exception {
+    return reply(req).put("text", RAMLConfiguration.RAML10().elementClient().toRamlDatatype(declaredType(req)));
+  }
+  // A sample (JSON, XML or YAML) against a type, with AMF's payload validator: what Design Center's mocking
+  // service and API Manager check a body with. Strict: "42" is not a number.
+  static ObjectNode validatePayload(JsonNode req) throws Exception {
+    var s = declaredType(req, true);
+    String payload = req.path("payload").asText(), t = payload.trim();
+    String media = req.hasNonNull("media") ? req.path("media").asText() : t.startsWith("<") ? "application/xml" : t.startsWith("{") || t.startsWith("[") || t.startsWith("\"") ? "application/json" : "application/yaml";
+    ObjectNode r = reply(req).put("media", media);
+    ArrayNode out = r.putArray("problems");
+    // Broken JSON first, in words: the validator's own message for it reads like a binary file.
+    if (media.contains("json")) try { JSON.readTree(payload); } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+      out.addObject().put("severity", "error").put("message", "Not valid JSON: " + e.getOriginalMessage() + " (line " + e.getLocation().getLineNr() + ")");
+      return r.put("conforms", false);
+    }
+    var report = APIConfiguration.API().elementClient().payloadValidatorFor(s, media, ValidationMode.StrictValidationMode()).syncValidate(payload);
+    r.put("conforms", report.conforms());
+    for (var res : report.results()) {
+      String m = res.message() == null ? "" : res.message().trim();
+      if (m.startsWith("Unsupported validation for mediatype")) m = "AMF can't check " + media.replace("application/", "").toUpperCase() + " against this type. Paste it as JSON or YAML.";
+      out.addObject().put("severity", "Violation".equals(res.severityLevel()) ? "error" : "warning").put("message", m);
+    }
+    return r;
   }
 
   // ---------- The API as AMF reads it, for the Inspector (op check with model:true) ----------
