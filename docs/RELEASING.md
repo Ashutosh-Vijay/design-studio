@@ -2,6 +2,8 @@
 
 A tag `vX.Y.Z` builds and publishes everything: the desktop app for Windows, macOS (Apple Silicon and Intel) and Linux with the updater's `latest.json`, and a `.vsix` per platform, all on one GitHub release; the `.vsix` also goes to the Marketplace once `VSCE_PAT` is set. The workflow (`.github/workflows/release.yml`) has no version numbers of its own: it reads the tag, and its first step, `npm run release:check`, stops the release if anything below disagrees.
 
+**While in beta, VS Code only:** `DESKTOP: "false"` at the top of `release.yml` skips the desktop builds; the tag then makes a pre-release named "Design Studio for VS Code vX.Y.Z (BETA)" with the four `.vsix` and VS Code-only notes (`release-notes.mjs --vscode`). The extension's display name carries "(BETA)". Set `DESKTOP` to `"true"` and drop "(BETA)" when the desktop app ships.
+
 Adapted from DataWeave Studio's routine, including what it learned the hard way.
 
 ## 1. Decide the version

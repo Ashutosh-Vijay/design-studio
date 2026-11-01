@@ -1,6 +1,6 @@
 {
   "name": "design-studio-mulesoft",
-  "displayName": "Design Studio for MuleSoft",
+  "displayName": "Design Studio for MuleSoft (BETA)",
   "description": "A fast designer for Anypoint Design Center API specs, RAML and OAS, inside VS Code. Every edit is checked by AMF as you type, and it syncs with Design Center and Exchange.",
   "version": "0.1.0",
   "preview": true,

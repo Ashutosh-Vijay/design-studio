@@ -12,6 +12,9 @@ permissions:
   contents: write
 
 env:
+  # "false" while the beta ships only as the VS Code extension: no desktop builds, a pre-release with the
+  # four .vsix and VS Code-only notes. Set to "true" when the desktop app ships.
+  DESKTOP: "false"
   NODE_OPTIONS: --max-old-space-size=4096
   # linuxdeploy and appimagetool are AppImages themselves; runners have no FUSE, so they self-extract.
   APPIMAGE_EXTRACT_AND_RUN: "1"
@@ -24,6 +27,17 @@ jobs:
     steps:
       - name: Delete an existing release of this tag
         run: gh release delete "${{ github.ref_name }}" --repo "${{ github.repository }}" --yes 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # With the desktop app, tauri-action makes the draft release; without it, it's made here.
+      - uses: actions/checkout@v4
+        if: env.DESKTOP != 'true'
+      - name: Make the draft release (VS Code only)
+        if: env.DESKTOP != 'true'
+        run: |
+          node scripts/release-notes.mjs "$GITHUB_REF_NAME" --vscode > notes.md
+          gh release create "$GITHUB_REF_NAME" --repo "${{ github.repository }}" --draft --prerelease --title "Design Studio for VS Code $GITHUB_REF_NAME (BETA)" --notes-file notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -58,10 +72,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        if: env.DESKTOP == 'true'
         with:
           targets: ${{ matrix.target }}
 
       - uses: swatinem/rust-cache@v2
+        if: env.DESKTOP == 'true'
         with:
           workspaces: src-tauri -> target
 
@@ -81,7 +97,7 @@ jobs:
           cache: maven
 
       - name: Install Linux build deps
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && env.DESKTOP == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
@@ -120,6 +136,7 @@ jobs:
           { echo 'body<<NOTES_END'; node scripts/release-notes.mjs "$GITHUB_REF_NAME"; echo 'NOTES_END'; } >> "$GITHUB_OUTPUT"
 
       - name: Build the app
+        if: env.DESKTOP == 'true'
         uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -137,7 +154,7 @@ jobs:
           args: --target ${{ matrix.target }} ${{ runner.os == 'Linux' && '--verbose' || '' }}
 
       - name: Zip the Windows installer (for proxies that block .exe)
-        if: matrix.platform == 'windows-latest'
+        if: matrix.platform == 'windows-latest' && env.DESKTOP == 'true'
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}".TrimStart('v')
@@ -152,7 +169,7 @@ jobs:
 
       # Portable: the installer's payload extracted with 7-Zip (no install, no admin), zipped.
       - name: Build the portable Windows zip
-        if: matrix.platform == 'windows-latest'
+        if: matrix.platform == 'windows-latest' && env.DESKTOP == 'true'
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}".TrimStart('v')

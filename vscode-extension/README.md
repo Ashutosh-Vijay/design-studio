@@ -1,4 +1,4 @@
-# Design Studio for MuleSoft
+# Design Studio for MuleSoft (BETA)
 
 A fast designer for Anypoint Design Center API specs, RAML and OAS, right inside VS Code.
 

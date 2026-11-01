@@ -2,9 +2,22 @@
 // open an unsigned build. release.yml passes it to the release; run it yourself to preview.
 import { readFileSync } from 'node:fs';
 const releases = JSON.parse(readFileSync(new URL('../src/releases.json', import.meta.url), 'utf8'));
-const want = (process.argv[2] ?? JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version).replace(/^v/, '');
+// --vscode: a release with only the VS Code extension (release.yml's DESKTOP off): no desktop items or downloads.
+const vscodeOnly = process.argv.includes('--vscode');
+const want = (process.argv.slice(2).find((a) => !a.startsWith('--')) ?? JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version).replace(/^v/, '');
 const r = releases.find((x) => x.version === want);
 if (!r) { console.error(`src/releases.json has no ${want}.`); process.exit(1); }
+if (vscodeOnly) {
+  console.log(`## ${r.headline}
+
+${r.highlights.filter((h) => h.only !== 'desktop').map((h) => `- **${h.title}**: ${h.desc}`).join('\n')}
+
+### Install
+Search for **Design Studio for MuleSoft** in VS Code's Extensions view, or download the \`.vsix\` for your platform below and use **Extensions view, ..., Install from VSIX**.
+
+Everything is included: the AMF engine and a small Java runtime, so you don't need Java installed.`);
+  process.exit(0);
+}
 const item = (h) => `- **${h.title}**${h.only === 'vscode' ? ' (VS Code)' : h.only === 'desktop' ? ' (desktop app)' : ''}: ${h.desc}`;
 console.log(`## ${r.headline}
 
