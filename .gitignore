@@ -17,3 +17,7 @@ vscode-extension/webview-dist/
 vscode-extension/dist/
 vscode-extension/resources/
 vscode-extension/*.vsix
+
+# Other tools' local files (agent briefs, design critiques)
+AGENTS.md
+.impeccable/
