@@ -375,6 +375,10 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
   // While publishing, Design Center rewrites exchange.json and the app pulls it back at the end: in between it
   // looks a change ahead, so nothing is checked until the publish is over.
   const publishing = useRef(false);
+  // The checks run from a timer and window events set up once per project, so they read these, not old state.
+  const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
+  const busyRef = useRef(busy); busyRef.current = busy;
+  const autoPull = useRef<() => void>(() => {});
 
   const refresh = async (remote = true) => {
     if (publishing.current) return;
@@ -385,7 +389,12 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     for (const p of [...ch.added, ...ch.modified]) { const t = await invoke<string>('read_text_file', { root, path: p }).catch(() => ''); marked += t.split(S.MARK).length - 1; }
     setConflicts(marked);
     if (remote) {
-      S.remoteState(l).then((r) => { setBehind(r.behind); setLockedBy(r.lockedBy); }, () => {});
+      S.remoteState(l).then((r) => {
+        setBehind(r.behind); setLockedBy(r.lockedBy);
+        // Design Center moved and nothing here differs from what was last pulled or pushed (no unsaved edit, no
+        // saved change to push): take theirs straight away. With changes here, Pull stays a button, as before.
+        if (r.behind && !ch.count && !dirtyRef.current && !busyRef.current && !publishing.current) autoPull.current();
+      }, () => {});
       S.projectPermissions(l.projectId).then(setPerms, () => {});
       invoke<Me | null>('anypoint_status').then((m) => setReadOnly(!!m?.read_only), () => {});
     }
@@ -422,13 +431,18 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     const r = await S.push(root, (await S.readLink(root))!, await listFiles()).finally(() => { setHolding(false); lockTried.current = 0; });
     onNotice(r.sent ? `Pushed ${r.sent} ${r.sent === 1 ? 'change' : 'changes'} to Design Center.` : 'Nothing to push.', false);
   });
-  const pull = () => run('Pulling…', async () => {
+  const pull = (auto = false) => run('Pulling…', async () => {
+    // A pull by itself checks again first: an edit made since the check means it's left to the button.
+    if (auto && (dirtyRef.current || (await S.localChanges(root, (await S.readLink(root))!, await listFiles())).count)) return;
     const r = await S.pull(root, (await S.readLink(root))!);
     await onChanged();
+    if (auto && r.upToDate) return;
+    if (auto && !r.conflicts.length && !depsNote(r.deps)) { onNotice(`Pulled ${r.updated.length + r.removed.length} ${r.updated.length + r.removed.length === 1 ? 'change' : 'changes'} from Design Center by itself: nothing here was changed.`, false); return; }
     const dn = depsNote(r.deps); if (dn) { onNotice(dn, true); return; }
     if (r.conflicts.length) onNotice(`Pulled. ${r.conflicts.length === 1 ? 'One file needs' : `${r.conflicts.length} files need`} a look: ${r.conflicts.map((c) => c.kind === 'lines' ? `${c.path} (both changed the same lines; the file holds both versions between <<<<<<< and >>>>>>>)` : `${c.path} (${c.kind}, the changed version was kept)`).join('; ')}.`, true);
     else onNotice(r.upToDate ? 'Already up to date.' : `Pulled ${r.updated.length + r.removed.length} ${r.updated.length + r.removed.length === 1 ? 'change' : 'changes'} from Design Center.`, false);
   });
+  autoPull.current = () => { pull(true); };
   const openBranches = async (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setMenu({ x: r.left + r.width / 2 - 130, y: r.bottom + 4, branches: [] });
@@ -451,7 +465,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
         {busy ? <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />{busy}</span>
           : dirty ? null
           : conflicts ? <span title="Pick Keep mine, Keep theirs or Keep both on each one in the editor, then push">{conflicts} {conflicts === 1 ? 'conflict' : 'conflicts'} to sort out before pushing</span>
-          : behind ? <><span>Design Center has changes</span><button onClick={pull} className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Pull</button></>
+          : behind ? <><span>Design Center has changes</span><button onClick={() => pull()} className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Pull</button></>
           : toPush && readOnly ? <span title="This connection is read only. Turn it off in settings to push.">Saved on this computer · read only, {toPush} {toPush === 1 ? 'change' : 'changes'} not sent</span>
           : toPush && perms.canModify === false ? <span title="Design Center shares this project with you as a Viewer. Your changes stay on this computer.">Saved on this computer · view only in Design Center</span>
           : toPush && lockedBy ? <span title="Push when they're done. If they change the same lines, a Pull shows both versions.">Saved on this computer · {lockedBy} is editing in Design Center</span>
