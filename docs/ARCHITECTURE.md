@@ -126,15 +126,15 @@ As built: there is one `check` op (a newer queued check makes an older one answe
 ```jsonc
 {
   "spec": "RAML 1.0",
-  "title": "crm-sapi", "version": "v1",
-  "resources": [ { "path": "/order-process", "file": "main.raml", "range": [57,0,181,0],
+  "title": "system-api", "version": "v1",
+  "resources": [ { "path": "/orders", "file": "main.raml", "range": [57,0,181,0],
                    "methods": [ { "method": "get", "range": [...], "is": ["client-id-policy"] } ],
                    "children": [ ... ] } ],
-  "types":  [ { "name": "LoanApplication", "library": "ordersLib", "file": "data-types/order-process.raml", "range": [...] } ],
+  "types":  [ { "name": "Order", "library": "orderLib", "file": "data-types/order.raml", "range": [...] } ],
   "traits": [ ... ], "resourceTypes": [ ... ], "securitySchemes": [ ... ],
   "libraries": [ { "alias": "quoteLib", "path": "data-types/quote.raml", "usedIn": ["main.raml"] } ],
   "files": [ "main.raml", "data-types/quote.raml", "examples/....json", ... ],
-  "uses":  [ { "from": {"file": "...", "range": [...]}, "to": "type:ordersLib.LoanApplication" } ]
+  "uses":  [ { "from": {"file": "...", "range": [...]}, "to": "type:orderLib.Order" } ]
 }
 ```
 
@@ -177,7 +177,7 @@ ALS 7.1.6 is pinned to **AMF 5.9.2** (plus AMF modules for GraphQL, MCP and agen
 
 **M0.5 result (2026-10-05): don't adopt ALS for the editor; keep it as a reference.**
 
-Code: `spikes/m0-5-als/run.mjs`. ALS 7.1.6 (73 jars, 61 MB, AMF 5.9.2), `org.mulesoft.als.server.lsp4j.Main`, run on `crm-sapi` (2,202 lines). Two setup lessons:
+Code: `spikes/m0-5-als/run.mjs`. ALS 7.1.6 (73 jars, 61 MB, AMF 5.9.2), `org.mulesoft.als.server.lsp4j.Main`, run on `system-api` (2,202 lines). Two setup lessons:
 - **Talk over a socket** (`--port N --listen`). ALS writes its debug logs to stdout, about 600 lines per run, which corrupts LSP over stdio.
 - **Declare the main file first:** `workspace/executeCommand` `didChangeConfiguration` with `{mainPath, folder, dependencies}`. Without it, cross-file features silently fail: references 0, a rename that edits only the declaration (which would break the spec), definition 6.4 s.
 
@@ -189,7 +189,7 @@ Code: `spikes/m0-5-als/run.mjs`. ALS 7.1.6 (73 jars, 61 MB, AMF 5.9.2), `org.mul
 | References and rename of a library type | correct across files (1 reference; rename edits both files, as in M0.2) |
 | Code actions | 0.2 to 0.3 s: "Delete declaration (Cascade)", "Extract to Declaration", "Extract resource type". The extract edit touched 6 lines |
 | **Re-check after an edit** | **3.0 s**, against 0.38 s for our parse-only tier (M0.1) |
-| **Completion after `type:`** | 13 built-in types only. In an empty `type:` it offers the 36 library aliases (`shipmentsLib.`) but took **3.3 s** after an edit; after `alias.` it gave 0 items in this test |
+| **Completion after `type:`** | 13 built-in types only. In an empty `type:` it offers the 36 library aliases (`billingLib.`) but took **3.3 s** after an edit; after `alias.` it gave 0 items in this test |
 | Hover on a type reference | generic keyword text ("Defines a data type"), not the type |
 
 **Why not adopt it:**
@@ -218,7 +218,7 @@ Code: `spikes/m0-5-als/run.mjs`. ALS 7.1.6 (73 jars, 61 MB, AMF 5.9.2), `org.mul
 - **One editor state per file,** created lazily. Big example JSON files open only when clicked.
 - **Undo:** an edit operation touching several files is applied as one undo group per file, plus an app-level "undo last operation" that reverts all its files together.
 
-**Where am I?** A fast `yaml` parse of the current file, debounced at about 50 ms and done in the webview, gives the YAML path at the cursor: for example `/order-process > get > responses > 200 > body > application/json > type`. That drives autocomplete context, the tree selection, breadcrumbs and which form to show.
+**Where am I?** A fast `yaml` parse of the current file, debounced at about 50 ms and done in the webview, gives the YAML path at the cursor: for example `/orders > get > responses > 200 > body > application/json > type`. That drives autocomplete context, the tree selection, breadcrumbs and which form to show.
 
 **Autocomplete** (M1, all local and instant), by context:
 - `type:`, `items:`, a type expression: types from the outline, qualified by the **current file's** aliases;
@@ -300,11 +300,11 @@ CodeMirror 6 has:
 
 Its costs: no reuse of DataWeave Studio's editor glue, more completion UI to polish ourselves, and no built-in minimap.
 
-**M0.4 (half a day):** load the 2,201-line `crm-sapi.raml` in both editors, with RAML highlighting, context-aware type completion (from a fixed outline) and AMF problem markers. Compare the feel, typing and scroll speed with a big file, ten small instances on one screen, layout behaviour inside a resizable pane, and the amount of code. The winner is recorded here.
+**M0.4 (half a day):** load the 2,201-line `system-api.raml` in both editors, with RAML highlighting, context-aware type completion (from a fixed outline) and AMF problem markers. Compare the feel, typing and scroll speed with a big file, ten small instances on one screen, layout behaviour inside a resizable pane, and the amount of code. The winner is recorded here.
 
 **M0.4 result (2026-10-05): CodeMirror 6.**
 
-Code: `spikes/m0-4-editor` (`bench.mjs`, `leak.mjs`). Monaco 0.52.2 (core plus YAML only) against CodeMirror 6 (view 6.43, lang-yaml 6.1). Each page has the 2,202-line `crm-sapi.raml`, type and trait completion, the two AMF markers, a breadcrumb and 10 small editors. Measured in headless Edge, three runs each.
+Code: `spikes/m0-4-editor` (`bench.mjs`, `leak.mjs`). Monaco 0.52.2 (core plus YAML only) against CodeMirror 6 (view 6.43, lang-yaml 6.1). Each page has the 2,202-line `system-api.raml`, type and trait completion, the two AMF markers, a breadcrumb and 10 small editors. Measured in headless Edge, three runs each.
 
 | | Monaco | CodeMirror 6 |
 |---|---|---|
@@ -314,7 +314,7 @@ Code: `spikes/m0-4-editor` (`bench.mjs`, `leak.mjs`). Monaco 0.52.2 (core plus Y
 | Scrolling (per 40-line jump) | 10 to 14 ms | 7 to 8.5 ms |
 | Cursor context (YAML key path) | 11 to 18 ms (re-parses the file) | **~0.01 ms** (the incremental Lezer tree) |
 | Bundle | ~3.8 MB (3.4 MB JS, worker, CSS, font) | **0.43 MB** |
-| Small editor, typing "loan" | **suggested words from the big spec** (`ordersLib`, `loanCreate`, ...) | nothing (extensions are per editor) |
+| Small editor, typing "ord" | **suggested words from the big spec** (`orderLib`, `orderCreate`, ...) | nothing (extensions are per editor) |
 | Code for the same page | 86 lines | 85 lines |
 
 **Why CodeMirror 6:**

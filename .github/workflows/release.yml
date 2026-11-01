@@ -236,7 +236,8 @@ jobs:
           npm ci
           npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
           node scripts/bundle-resources.mjs
-          npx --yes @vscode/vsce@3 package --target ${{ matrix.vsixTarget }} --no-dependencies --skip-license --allow-missing-repository -o "design-studio-${GITHUB_REF_NAME#v}-${{ matrix.vsixTarget }}.vsix"
+          cp ../LICENSE ../NOTICE .
+          npx --yes @vscode/vsce@3 package --target ${{ matrix.vsixTarget }} --no-dependencies --allow-missing-repository -o "design-studio-${GITHUB_REF_NAME#v}-${{ matrix.vsixTarget }}.vsix"
           gh release upload "$GITHUB_REF_NAME" *.vsix --repo "${{ github.repository }}" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

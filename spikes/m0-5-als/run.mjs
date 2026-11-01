@@ -86,7 +86,9 @@ const firstDiag = nextDiagnostics();
 notify('textDocument/didOpen', { textDocument: { uri: mainUri, languageId: 'raml', version: 1, text } });
 await timed('first diagnostics', async () => { const d = await firstDiag; return `${d.diagnostics.length} problems (${(performance.now() - t0).toFixed(0)} ms since start)`; });
 
-const typeLine = lines.findIndex((x) => /type:\s*ordersLib\.\w+/.test(x));
+// The first property typed by a library type (alias.Type): which library doesn't matter.
+const typeLine = lines.findIndex((x) => /type:\s*\w+Lib\.\w+/.test(x));
+const alias = lines[typeLine].match(/type:\s*(\w+Lib)\./)[1];
 const typeCol = lines[typeLine].indexOf('type:') + 'type: '.length;
 await timed('completion after type:', async () => {
   const r = await request('textDocument/completion', { textDocument: { uri: mainUri }, position: { line: typeLine, character: typeCol } });
@@ -94,7 +96,7 @@ await timed('completion after type:', async () => {
   return `${items.length} items, e.g. ${items.slice(0, 6).map((i) => i.label).join(', ')}`;
 });
 const NL = String.fromCharCode(10);
-const dotCol = lines[typeLine].indexOf('ordersLib.') + 'ordersLib.'.length;
+const dotCol = lines[typeLine].indexOf(alias + '.') + alias.length + 1;
 await timed('completion after alias.', async () => {
   const r = await request('textDocument/completion', { textDocument: { uri: mainUri }, position: { line: typeLine, character: dotCol } });
   const items = Array.isArray(r) ? r : r?.items ?? [];

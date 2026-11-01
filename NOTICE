@@ -4,3 +4,16 @@ The Exchange and Design Center logos used in the app (src/components/Icons.tsx, 
 "DesignCenter") come from MuleSoft's Anypoint icon set. They are MuleSoft's property, used only to
 point at Anypoint Exchange and Design Center, and are not covered by this project's licence.
 Anypoint, Design Center, Exchange and MuleSoft are trademarks of Salesforce, Inc. This project is not affiliated with or endorsed by Salesforce or MuleSoft.
+
+Bundled software, each under its own licence (not this project's):
+
+- AMF (the checking engine, in amf-server.jar), by MuleSoft: Apache License 2.0.
+  https://github.com/aml-org/amf
+- AMF Custom Validator (governance), by MuleSoft: ISC License.
+  https://github.com/aml-org/amf-custom-validator
+- The Java runtime shipped with the app and the extension, built from Eclipse Temurin (OpenJDK):
+  GNU General Public License, version 2, with the Classpath Exception.
+  https://adoptium.net/
+- Open-source JavaScript, Java and Rust libraries, under the MIT, ISC, BSD and Apache 2.0 licences,
+  as listed in package-lock.json, vscode-extension/package-lock.json, amf-server/pom.xml and
+  src-tauri/Cargo.lock.
