@@ -1248,6 +1248,7 @@
     ]
   },
   "scripts": {
+    "verify": "node scripts/files-verify.mjs && node scripts/renew-verify.mjs",
     "check-types": "tsc --noEmit",
     "compile": "npm run check-types && node esbuild.js",
     "package": "npm run check-types && node esbuild.js --production",
@@ -1256,7 +1257,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.20.0",
-    "adm-zip": "^0.5.16"
+    "adm-zip": "^0.6.1"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.7",

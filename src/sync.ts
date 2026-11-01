@@ -165,10 +165,11 @@ export async function push(root: string, l: Link, paths: string[]) {
   if (!ch.count) return { sent: 0 };
   for (const p of [...ch.added, ...ch.modified]) if ((await readLocal(root, p))?.includes(MARK)) throw new Error(`${p} still has conflict markers from the last pull. Sort them out, then push.`);
   await invoke('anypoint_hold_lock', { project: l.projectId, branch: l.branch });
+  let commit = '';
+  const texts = new Map<string, string>();
   try {
     // Someone may have committed between the check above and taking the lock.
     if ((await head(l)) !== l.baseCommit) throw new Error("Design Center has changes you don't have yet. Pull first, then push.");
-    const texts = new Map<string, string>();
     for (const p of [...ch.added, ...ch.modified]) texts.set(p, (await readLocal(root, p))!);
     // A file deleted here whose text reappears under a new name is a move (Design Center keeps its history).
     const moves: [string, string][] = [];
@@ -182,13 +183,21 @@ export async function push(root: string, l: Link, paths: string[]) {
     for (const d of ch.deleted.filter((x) => !moves.some((m) => m[0] === x))) must(await api('DELETE', `${branchPath(l)}/files/${filePath(d)}`), `Deleting ${d}`);
     const save = [...texts].filter(([p]) => !moves.some((m) => m[1] === p)).map(([path, content]) => ({ path, type: 'FILE', content }));
     if (save.length) must(await api('POST', `${branchPath(l)}/save`, save), 'Saving');
+    // The commit this push made, read while the lock still keeps everyone else out.
+    commit = await head(l);
   } finally {
     await invoke('anypoint_release_lock');
   }
-  // In step again: the base is now what was sent.
+  // In step again: the base is what Design Center now has. That's the old base with exactly the texts sent,
+  // never the files as they are now: an edit saved during the upload wasn't sent, so it must still show as a change.
   const files = new Map<string, string>();
-  for (const p of paths.filter((x) => !x.startsWith('exchange_modules/'))) { const t = await readLocal(root, p); if (t != null) files.set(p, t); }
-  await writeBase(root, { ...l, baseCommit: await head(l) }, files);
+  for (const p of Object.keys(l.files)) {
+    if (p.startsWith('exchange_modules/') || ch.deleted.includes(p)) continue;
+    const t = (await readLocal(root, BASE + p)) ?? (await readLocal(root, p)); // no base copy (damaged folder): the file as it is
+    if (t != null) files.set(p, t);
+  }
+  for (const [p, t] of texts) files.set(p, t);
+  await writeBase(root, { ...l, baseCommit: commit }, files);
   return { sent: ch.count };
 }
 

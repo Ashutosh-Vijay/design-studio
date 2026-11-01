@@ -92,8 +92,15 @@ function regionOf(host: string) {
   return 'us';
 }
 
+// One renewal at a time: a refresh token works once (Anypoint rotates it), and a pull makes eight calls at once,
+// so calls that find the session expired wait for the renewal already under way and share its result.
+let renewing: Promise<{ token: string; me: Me; host: string }> | null = null;
 async function access(): Promise<{ token: string; me: Me; host: string }> {
   if (session && Date.now() < session.expires) return { token: session.access, me: session.me, host: session.conn.host };
+  renewing ??= renew().finally(() => { renewing = null; });
+  return renewing;
+}
+async function renew(): Promise<{ token: string; me: Me; host: string }> {
   const conn = readConn(); if (!conn) throw new Error('Not signed in to Anypoint.');
   const refresh = await ctx.secrets.get('refresh-token');
   const secret = await ctx.secrets.get('client-secret');

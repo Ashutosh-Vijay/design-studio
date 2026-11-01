@@ -105,14 +105,7 @@ fn read_text_file(root: String, path: String) -> Result<String, String> {
 // gets CRLF back, so a save never turns every line into a diff. New files are LF.
 #[tauri::command]
 fn save_text_file(root: String, path: String, text: String) -> Result<(), String> {
-  plain_rel(&path)?;
-  let root_path = PathBuf::from(&root).canonicalize().map_err(|e| e.to_string())?;
-  let full = root_path.join(&path);
-  let parent = full.parent().ok_or("Bad path")?;
-  fs::create_dir_all(parent).map_err(|e| format!("Couldn't create the folder for {}: {}", path, e))?;
-  if !parent.canonicalize().map_err(|e| e.to_string())?.starts_with(&root_path) {
-    return Err(format!("{} is outside the project.", path));
-  }
+  let full = inside_make(&root, &path, true)?;
   // A mixed file keeps the ending most of its lines use.
   let crlf = fs::read(&full).map(|b| { let n = b.windows(2).filter(|w| *w == b"\r\n").count(); n > 0 && n * 2 >= b.iter().filter(|&&c| c == b'\n').count() }).unwrap_or(false);
   let lf = text.replace("\r\n", "\n");
@@ -129,26 +122,30 @@ fn plain_rel(path: &str) -> Result<(), String> {
   Ok(())
 }
 
-// Inside the project, or an error. The file itself may not exist yet.
-fn inside(root: &str, path: &str) -> Result<PathBuf, String> {
+// Inside the project, or an error. The file itself may not exist yet. Every part that exists is checked where it
+// really is (links and junctions followed): the nearest existing folder before any folder is made (with make),
+// then the folder, then the file if it's there, so a link inside the project can't lead a write outside it.
+fn inside_make(root: &str, path: &str, make: bool) -> Result<PathBuf, String> {
   plain_rel(path)?;
   let root_path = PathBuf::from(root).canonicalize().map_err(|e| e.to_string())?;
   let full = root_path.join(path);
-  let parent = full.parent().ok_or("Bad path")?.canonicalize().map_err(|_| format!("The folder for {} doesn't exist.", path))?;
-  if !parent.starts_with(&root_path) {
-    return Err(format!("{} is outside the project.", path));
-  }
+  let outside = || format!("{} is outside the project.", path);
+  let mut at = full.parent().ok_or("Bad path")?.to_path_buf();
+  while !at.exists() { match at.parent() { Some(p) => at = p.to_path_buf(), None => break } }
+  if !at.canonicalize().map_err(|e| e.to_string())?.starts_with(&root_path) { return Err(outside()); }
+  let parent = full.parent().ok_or("Bad path")?;
+  if make { fs::create_dir_all(parent).map_err(|e| format!("Couldn't create the folder for {}: {}", path, e))?; }
+  let parent = parent.canonicalize().map_err(|_| format!("The folder for {} doesn't exist.", path))?;
+  if !parent.starts_with(&root_path) { return Err(outside()); }
+  if full.exists() && !full.canonicalize().map_err(|e| e.to_string())?.starts_with(&root_path) { return Err(outside()); }
   Ok(full)
 }
+fn inside(root: &str, path: &str) -> Result<PathBuf, String> { inside_make(root, path, false) }
 
 #[tauri::command]
 fn rename_file(root: String, from: String, to: String) -> Result<(), String> {
   let src = inside(&root, &from)?;
-  plain_rel(&to)?;
-  if let Some(dir) = PathBuf::from(&root).join(&to).parent() {
-    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-  }
-  let dst = inside(&root, &to)?;
+  let dst = inside_make(&root, &to, true)?;
   // Only the letter case changes: on Windows and macOS that's the same file, not a clash.
   let same = dst.exists() && src.canonicalize().ok() == dst.canonicalize().ok();
   if dst.exists() && !same {
@@ -249,8 +246,7 @@ struct Imported { written: Vec<String>, existing: Vec<String> }
 #[tauri::command]
 fn import_into(root: String, folder: String, sources: Vec<String>, overwrite: bool) -> Result<Imported, String> {
   let root_path = PathBuf::from(&root).canonicalize().map_err(|e| e.to_string())?;
-  let dest = root_path.join(&folder);
-  if !dest.starts_with(&root_path) || folder.contains("..") { return Err(format!("{} is outside the project.", folder)); }
+  let dest = if folder.is_empty() { root_path.clone() } else { inside_make(&root, &folder, true)? };
   let rel = |p: &Path| p.strip_prefix(&root_path).unwrap_or(p).to_string_lossy().replace('\\', "/");
   // Where each source lands: a file by its name, a zip by its entries.
   let mut targets: Vec<PathBuf> = Vec::new();
@@ -300,14 +296,7 @@ async fn fetch_url(url: String) -> Result<String, String> {
 fn write_file_exact(root: String, path: String, text: String) -> Result<(), String> {
   let root_path = PathBuf::from(&root);
   fs::create_dir_all(&root_path).map_err(|e| format!("Couldn't create {}: {}", root, e))?;
-  plain_rel(&path)?;
-  let root_path = root_path.canonicalize().map_err(|e| e.to_string())?;
-  let full = root_path.join(&path);
-  let parent = full.parent().ok_or("Bad path")?;
-  fs::create_dir_all(parent).map_err(|e| format!("Couldn't create the folder for {}: {}", path, e))?;
-  if !parent.canonicalize().map_err(|e| e.to_string())?.starts_with(&root_path) {
-    return Err(format!("{} is outside the project.", path));
-  }
+  let full = inside_make(&root, &path, true)?;
   fs::write(&full, text).map_err(|e| format!("Couldn't write {}: {}", path, e))
 }
 

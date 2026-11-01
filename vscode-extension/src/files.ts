@@ -3,6 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import * as zlib from 'zlib';
 import AdmZip from 'adm-zip';
 
 const SKIP_DIRS = ['.git', 'node_modules', '.apidesigner', 'target', '.idea'];
@@ -40,30 +41,73 @@ function plainRel(p: string) {
   if (!p || path.isAbsolute(p) || /^[a-zA-Z]:/.test(p) || slash(p).split('/').some((s) => s === '..')) throw new Error(`${p} is outside the project.`);
 }
 const real = (p: string) => fs.realpathSync.native(p);
-function inside(root: string, p: string) {
+// Is `full` the root or under it, by path components (a sibling "project-outside" isn't inside "project"; Windows
+// compares case-insensitively in path.relative). Both are real paths, so links and junctions are already followed.
+const within = (r: string, full: string) => { const rel = path.relative(r, full); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); };
+// A project file's full path, checked: plain relative names, and every part that exists (the nearest existing
+// folder, before any folder is made; the file itself, if it's there) really inside the project.
+function inside(root: string, p: string, make = false) {
   plainRel(p);
   const r = real(root), full = path.join(r, p);
-  let parent: string;
-  try { parent = real(path.dirname(full)); } catch { throw new Error(`The folder for ${p} doesn't exist.`); }
-  if (!(parent + path.sep).toLowerCase().startsWith(r.toLowerCase() + path.sep) && parent.toLowerCase() !== r.toLowerCase()) throw new Error(`${p} is outside the project.`);
+  let at = path.dirname(full);
+  while (!fs.existsSync(at) && at !== path.dirname(at)) at = path.dirname(at);
+  if (!within(r, real(at))) throw new Error(`${p} is outside the project.`);
+  if (make) fs.mkdirSync(path.dirname(full), { recursive: true });
+  else if (!fs.existsSync(path.dirname(full))) throw new Error(`The folder for ${p} doesn't exist.`);
+  if (!within(r, real(path.dirname(full))) || (fs.existsSync(full) && !within(r, real(full)))) throw new Error(`${p} is outside the project.`);
   return full;
 }
 
-function unzipInto(zip: AdmZip, dest: string) {
+// A spec project's zip, not an archive of anything: limits that stop a crafted zip (a decompression bomb, a
+// million entries) from filling the disk or memory. Each size is checked on what was really unpacked.
+const ZIP_ENTRIES = 5000, ZIP_FILE = 50 * 1024 * 1024, ZIP_TOTAL = 500 * 1024 * 1024;
+// A zip's files, read here with Node's zlib rather than adm-zip: a Design Center or Exchange zip can hold the same
+// name twice (the last one wins, as Design Center unpacks it, and as the desktop app's zip crate does), and adm-zip
+// 0.6 refuses such a zip outright. Sizes come from the central directory (right even when a local header defers
+// them), and inflating stops at the per-file limit, whatever the zip declares.
+function zipEntries(buf: Buffer): { name: string; data: () => Buffer }[] {
+  const bad = () => new Error("That isn't a readable zip.");
+  const end = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (end < 0 || end + 22 > buf.length) throw bad();
+  const count = buf.readUInt16LE(end + 10);
+  let p = buf.readUInt32LE(end + 16);
+  if (count === 0xffff || p === 0xffffffff) throw new Error('That zip is too large to open here.');
+  if (count > ZIP_ENTRIES) throw new Error(`That zip has ${count} entries; a spec project has far fewer, so it wasn't opened.`);
+  const out: { name: string; data: () => Buffer }[] = [];
+  for (let i = 0; i < count; i++) {
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) throw bad();
+    const flags = buf.readUInt16LE(p + 8), method = buf.readUInt16LE(p + 10), csize = buf.readUInt32LE(p + 20), nl = buf.readUInt16LE(p + 28), off = buf.readUInt32LE(p + 42);
+    const name = buf.toString(flags & 0x800 ? 'utf8' : 'latin1', p + 46, p + 46 + nl);
+    p += 46 + nl + buf.readUInt16LE(p + 30) + buf.readUInt16LE(p + 32);
+    out.push({ name, data: () => {
+      if (flags & 1) throw new Error(`${name} is encrypted, so the zip can't be opened.`);
+      if (off + 30 > buf.length || buf.readUInt32LE(off) !== 0x04034b50) throw bad();
+      const start = off + 30 + buf.readUInt16LE(off + 26) + buf.readUInt16LE(off + 28);
+      const raw = buf.subarray(start, start + csize);
+      if (method === 0) { if (raw.length > ZIP_FILE) throw new Error(`${name} is over 50 MB, so the zip was stopped.`); return Buffer.from(raw); }
+      if (method !== 8) throw new Error(`${name} uses a compression this app can't read.`);
+      try { return zlib.inflateRawSync(raw, { maxOutputLength: ZIP_FILE }); }
+      catch (e) { throw new Error(e instanceof RangeError ? `${name} is over 50 MB unpacked, so the zip was stopped.` : `${name} in the zip is damaged.`); }
+    } });
+  }
+  return out;
+}
+// Zip-slip: entries named outside the folder are skipped.
+const safeEntry = (name: string) => !name.endsWith('/') && !name.split('/').some((s) => s === '..') && !path.isAbsolute(name) && !/^[a-zA-Z]:/.test(name);
+function unzipInto(buf: Buffer, dest: string) {
   const seen = new Set<string>(), duplicates: string[] = [];
-  let count = 0;
-  for (const e of zip.getEntries()) {
-    if (e.isDirectory) continue;
-    const name = slash(e.entryName);
-    if (name.split('/').some((s) => s === '..') || path.isAbsolute(name) || /^[a-zA-Z]:/.test(name)) continue; // zip-slip
+  let count = 0, total = 0;
+  for (const e of zipEntries(buf)) {
+    const name = slash(e.name);
+    if (!safeEntry(name)) continue;
     if (seen.has(name.toLowerCase())) duplicates.push(name); else { seen.add(name.toLowerCase()); count++; }
-    const out = path.join(dest, name);
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.writeFileSync(out, e.getData()); // the last copy wins
+    const data = e.data();
+    if ((total += data.length) > ZIP_TOTAL) throw new Error('The zip unpacks to more than 500 MB, so it was stopped.');
+    fs.writeFileSync(inside(dest, name, true), data); // the last copy wins; never through a link out of the folder
   }
   return { count, duplicates };
 }
-export function unzipBuffer(buf: Buffer, dest: string) { return unzipInto(new AdmZip(buf), dest).count; }
+export function unzipBuffer(buf: Buffer, dest: string) { return unzipInto(buf, dest).count; }
 
 let watcher: fs.FSWatcher | null = null;
 const IGNORED = ['.git', 'node_modules', '.apidesigner', 'target'];
@@ -80,18 +124,14 @@ export async function fileCommand(cmd: string, a: Record<string, any>, emit: (ev
       return { root, name: path.basename(root.replace(/[\\/]+$/, '')) || root, main: findMain(root, files), files, dirs };
     }
     case 'read_text_file': {
-      const r = real(a.root); let full: string;
-      try { full = real(path.join(r, a.path)); } catch { throw new Error(`File not found: ${a.path}`); }
-      if (!full.toLowerCase().startsWith(r.toLowerCase())) throw new Error(`${a.path} is outside the project.`);
+      const full = inside(a.root, a.path);
+      if (!fs.existsSync(full)) throw new Error(`File not found: ${a.path}`);
       const bytes = fs.readFileSync(full);
       const text = new TextDecoder('utf-8', { fatal: true });
       try { return text.decode(bytes); } catch { throw new Error(`${a.path} isn't UTF-8 text, so it can't be opened here.`); }
     }
     case 'save_text_file': {
-      plainRel(a.path);
-      const r = real(a.root), full = path.join(r, a.path);
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      if (!real(path.dirname(full)).toLowerCase().startsWith(r.toLowerCase())) throw new Error(`${a.path} is outside the project.`);
+      const full = inside(a.root, a.path, true);
       // The editor works in LF; a file mostly in CRLF gets CRLF back, so a save never turns every line into a diff.
       let crlf = false;
       try { const b = fs.readFileSync(full, 'latin1'); const n = (b.match(/\r\n/g) ?? []).length; crlf = n > 0 && n * 2 >= (b.match(/\n/g) ?? []).length; } catch { /* a new file */ }
@@ -100,19 +140,13 @@ export async function fileCommand(cmd: string, a: Record<string, any>, emit: (ev
       return null;
     }
     case 'write_file_exact': {
-      plainRel(a.path);
       fs.mkdirSync(a.root, { recursive: true });
-      const r = real(a.root), full = path.join(r, a.path);
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      if (!real(path.dirname(full)).toLowerCase().startsWith(r.toLowerCase())) throw new Error(`${a.path} is outside the project.`);
-      fs.writeFileSync(full, a.text);
+      fs.writeFileSync(inside(a.root, a.path, true), a.text);
       return null;
     }
     case 'rename_file': {
       const src = inside(a.root, a.from);
-      plainRel(a.to);
-      fs.mkdirSync(path.dirname(path.join(a.root, a.to)), { recursive: true });
-      const dst = inside(a.root, a.to);
+      const dst = inside(a.root, a.to, true);
       // Only the letter case changes: on Windows and macOS that's the same file, not a clash.
       if (fs.existsSync(dst) && real(src) !== real(dst)) throw new Error(`${a.to} already exists.`);
       fs.renameSync(src, dst);
@@ -143,25 +177,22 @@ export async function fileCommand(cmd: string, a: Record<string, any>, emit: (ev
     case 'import_zip': {
       if (fs.existsSync(a.dest) && fs.readdirSync(a.dest).length) throw new Error(`${a.dest} already has files in it. Pick an empty or new folder.`);
       fs.mkdirSync(a.dest, { recursive: true });
-      let zip: AdmZip;
-      try { zip = new AdmZip(a.zipPath); } catch (e) { throw new Error(`That isn't a readable zip: ${e instanceof Error ? e.message : e}`); }
-      const r = unzipInto(zip, a.dest);
+      const r = unzipInto(fs.readFileSync(a.zipPath), a.dest);
       return { root: a.dest, files: r.count, duplicates: r.duplicates };
     }
     case 'import_into': {
-      const r = real(a.root), dest = path.join(r, a.folder ?? '');
-      if (String(a.folder ?? '').includes('..')) throw new Error(`${a.folder} is outside the project.`);
+      const r = real(a.root), dest = a.folder ? inside(a.root, a.folder, true) : r;
       const rel = (p: string) => slash(path.relative(r, p));
       const targets: string[] = [];
       for (const s of a.sources as string[]) {
-        if (/\.zip$/i.test(s)) for (const e of new AdmZip(s).getEntries()) { if (!e.isDirectory && !slash(e.entryName).split('/').includes('..')) targets.push(path.join(dest, e.entryName)); }
+        if (/\.zip$/i.test(s)) for (const e of zipEntries(fs.readFileSync(s))) { if (safeEntry(slash(e.name))) targets.push(path.join(dest, e.name)); }
         else targets.push(path.join(dest, path.basename(s)));
       }
       const existing = targets.filter((t) => fs.existsSync(t)).map(rel);
       if (!a.overwrite && existing.length) return { written: [], existing };
       fs.mkdirSync(dest, { recursive: true });
       for (const s of a.sources as string[]) {
-        if (/\.zip$/i.test(s)) unzipInto(new AdmZip(s), dest);
+        if (/\.zip$/i.test(s)) unzipInto(fs.readFileSync(s), dest);
         else { const to = path.join(dest, path.basename(s)); if (fs.existsSync(to) && real(s) === real(to)) continue; fs.copyFileSync(s, to); }
       }
       return { written: targets.map(rel), existing };

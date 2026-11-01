@@ -10,6 +10,7 @@
     "release:check": "node scripts/release-check.mjs",
     "academy:verify": "node scripts/academy-verify.mjs",
     "starters:verify": "node scripts/starters-verify.mjs",
+    "sync:verify": "node scripts/sync-verify.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

@@ -88,6 +88,9 @@ struct LockHold {
 pub struct Anypoint {
   session: Mutex<Option<Session>>,
   lock: Mutex<Option<LockHold>>,
+  // Held while the session is renewed: a refresh token works once (Anypoint rotates it), and a pull makes eight
+  // calls at once, so the others wait here and then use the session the first one made.
+  renewing: Mutex<()>,
 }
 
 fn keychain(name: &str) -> Result<keyring::Entry, String> {
@@ -236,6 +239,11 @@ pub async fn anypoint_broker_regions(app: AppHandle) -> Result<Vec<String>, Stri
 
 fn access(app: &AppHandle) -> Result<(String, Me, String), String> {
   let state = app.state::<Arc<Anypoint>>();
+  if let Some(s) = state.session.lock().unwrap().as_ref() {
+    if Instant::now() < s.expires { return Ok((s.access.clone(), s.me.clone(), s.conn.host.clone())); }
+  }
+  let _renewing = state.renewing.lock().unwrap_or_else(|e| e.into_inner());
+  // Renewed by another call while this one waited.
   if let Some(s) = state.session.lock().unwrap().as_ref() {
     if Instant::now() < s.expires { return Ok((s.access.clone(), s.me.clone(), s.conn.host.clone())); }
   }
