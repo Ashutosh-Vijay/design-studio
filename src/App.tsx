@@ -31,7 +31,7 @@ import { DocsPanel } from './Docs';
 import { ApiMap } from './ApiMap';
 import { CreateDialog, NewFileDialog } from './Create';
 import { rulesets as projectRulesets, readSettings as readGovSettings, writeSettings as writeGovSettings, profileFor, type Finding, type Settings as GovSettings } from './governance';
-import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find } from './splice';
+import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find, freeName } from './splice';
 import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
 // What the Rust side returns for an opened folder (src-tauri/src/lib.rs, open_project).
@@ -411,6 +411,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const [shelfOpen, setShelfOpen] = useState(true);
   const [inspOpen, setInspOpen] = useState(() => { try { return localStorage.getItem('ads.inspector') !== '0'; } catch { return true; } });
   const [rpanel, setRpanel] = useState<'insp' | 'docs'>('insp');
+  // Design Center's "Guide me through it", minus its one-way door: the forms take the middle and the code sits
+  // beside them, both live. Per project; Create sets it for a project started that way.
+  const guidedKey = 'ads.guided:' + project.root;
+  const [guided, setGuidedState] = useState(() => { try { return localStorage.getItem(guidedKey) === '1'; } catch { return false; } });
+  const setGuided = (on: boolean) => { setGuidedState(on); try { if (on) localStorage.setItem(guidedKey, '1'); else localStorage.removeItem(guidedKey); } catch { /* ignore */ } };
   useEffect(() => { try { localStorage.setItem('ads.inspector', inspOpen ? '1' : '0'); } catch { /* ignore */ } }, [inspOpen]);
   // What the Inspector shows: the active file's text and the cursor's line.
   const [doc, setDoc] = useState<{ path: string; text: string; line: number } | null>(null);
@@ -548,6 +553,32 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const v = view.current; if (!v || !activeRef.current || isReadOnly(activeRef.current)) return;
     const t = v.state.doc.toString(), nt = fn(t); if (nt === t) return;
     v.dispatch({ changes: diff(t, nt), userEvent: 'input.form' });
+  }
+  // The API tree's +: adds a resource, type, trait, resource type or security scheme to the root file, named as
+  // Design Center names new ones, and puts the cursor in it so its form opens. One undo step, as any form edit.
+  async function addToApi(sec: string) {
+    const main = project.main; if (!main) return;
+    if (activeRef.current !== main) await openFile(main);
+    const v = view.current; if (!v || activeRef.current !== main) return;
+    const t = v.state.doc.toString();
+    const free = (base: string, has: (n: string) => boolean) => { let n = base, i = 2; while (has(n)) n = base + i++; return n; };
+    let path: string[], nt: string;
+    if (sec === 'Resources') {
+      const E = entries(t), n = free('/new-resource', (x) => find(E, [x]) >= 0);
+      path = [n]; nt = addChild(t, [], [n + ':']);
+    } else {
+      const [key, base, lines] = ({
+        Types: ['types', 'DataType', ['type: object']],
+        Traits: ['traits', 'newTrait', null],
+        'Resource types': ['resourceTypes', 'newResourceType', null],
+        'Security schemes': ['securitySchemes', 'SecurityScheme', ['type: OAuth 2.0']],
+      } as Record<string, [string, string, string[] | null]>)[sec];
+      const n = freeName(t, key, base);
+      path = [key, n]; nt = addChild(t, [key], lines ? [n + ':', ...lines.map((l) => '  ' + l)] : [n + ': {}']);
+    }
+    v.dispatch({ changes: diff(t, nt), userEvent: 'input.form' });
+    const E = entries(nt), k = find(E, path);
+    if (k >= 0) goLine(E[k].line);
   }
   function goOffset(pos: number) {
     const v = view.current; if (!v) return;
@@ -1391,6 +1422,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const pickRef = useRef((_f: string, _from: number, _id: string) => {});
   pickRef.current = (file, from, id) => { setSelId(id); reveal(file, from); };
   const treePick = useMemo(() => (file: string, from: number, id: string) => pickRef.current(file, from, id), []);
+  const addRef = useRef(addToApi); addRef.current = addToApi;
+  const treeAdd = useMemo(() => (sec: string) => { addRef.current(sec).catch(fail); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The + buttons need a RAML 1.0 API as the root file (not a fragment, not 0.8) that this person may edit.
+  const rootHead = (project.main && textOf(project.main)) || '';
+  const canAdd = !!project.main && /\.raml$/i.test(project.main) && !viewOnly && !isReadOnly(project.main) && !/^(\uFEFF)?#%RAML (0\.8|1\.0 \w)/.test(rootHead);
 
   // Folders first, then files; a filter shows matching files with their folders open.
   const rows = useMemo(() => {
@@ -1409,6 +1445,26 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     return out;
   }, [project, filter, openDirs]);
 
+  // Files the forms can edit: RAML 1.0 and OAS 3.0 (YAML or JSON).
+  const formable = !!doc && active === doc.path && ((/\.raml$/i.test(doc.path) && !doc.text.startsWith('#%RAML 0.8')) || isOasYaml(doc.path, doc.text) || isOasJson(doc.path, doc.text));
+  const front = guided && formable;
+  // The forms for the open file: in the right panel, or in the middle when the forms are in front.
+  const inspector = (
+            <Boundary resetKey={doc ? doc.path + ":" + doc.line : ""} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {e}. The code editor still works; move the cursor to try again.</div>}>
+            {doc && active === doc.path && /\.raml$/i.test(doc.path) && !doc.text.startsWith('#%RAML 0.8') ? (
+              <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} outline={outline} model={amfModel}
+                onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)} onOpenAt={revealAt} onJsonSchema={copyJsonSchema}
+                onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }}
+                onMove={openMove} onDelete={deleteDecl} />
+            ) : doc && active === doc.path && isOasYaml(doc.path, doc.text) ? (
+              <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
+            ) : doc && active === doc.path && isOasJson(doc.path, doc.text) ? (
+              <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
+            ) : (
+              <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.' : 'Forms are for RAML 1.0 and OAS 3.0 specs.'}</div>
+            )}
+            </Boundary>
+  );
   return (
     <>
       <div className="flex-1 min-h-0 flex">
@@ -1439,7 +1495,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           </label>
           {rail === 'api' ? (
             <ApiTree outline={outline} rootFile={project.main ?? ''} filter={filter} selId={selId} closed={closedSecs} setClosed={setClosedSecs} noRoot={!project.main}
-              onPick={treePick} />
+              onPick={treePick} onAdd={canAdd ? treeAdd : null} />
           ) : (
           <div className="flex-1 overflow-auto pb-3">
             {rows.map((r) => r.kind === 'dir' ? (
@@ -1505,11 +1561,21 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
               </span>
             ))}
             {active && !viewOnly && isExchangeFile(active) && <span className="ml-auto flex items-center gap-1"><Icons.Lock size={11} />Read-only: managed by Exchange</span>}
+            {/* Forms or code in front: Design Center's visual editor and its RAML editor, but you can always switch back. */}
+            {formable && <span className={`${active && !viewOnly && isExchangeFile(active) ? 'ml-3' : 'ml-auto'} flex items-center h-5 p-px rounded-md border border-line bg-bg`}>
+              {([[false, 'Code', 'The code in front, the forms in the Inspector'], [true, 'Forms', 'Guide me through it: the forms in front, the code beside them']] as const).map(([on, label, tip]) => (
+                <button key={label} title={tip} onClick={() => setGuided(on)}
+                  className={`h-full px-2 rounded-[5px] text-[11px] ${guided === on ? 'bg-surface-3 text-content font-medium' : 'text-content-faint hover:text-content-secondary'}`}>{label}</button>
+              ))}
+            </span>}
           </div>
           {viewOnly && <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-[color-mix(in_oklch,var(--warn)_40%,transparent)] bg-[color-mix(in_oklch,var(--warn)_10%,transparent)] text-[12px]">
             <Icons.Lock size={13} /><span><b>View only.</b> Your Design Center role on this project lets you look, not edit. Ask an owner for Editor access to change it.</span></div>}
-          <div ref={host} className="flex-1 min-h-0 select-text" style={{ display: active ? 'block' : 'none' }} />
-          {active === project.main && shelf && (
+          <div className="flex-1 min-h-0 flex">
+            {front && <div className="flex-1 min-w-0 flex flex-col bg-surface"><div className="flex-1 min-h-0 flex flex-col w-full max-w-[760px] mx-auto">{inspector}</div></div>}
+            <div ref={host} className={`min-h-0 min-w-0 select-text ${front ? 'w-[42%] shrink-0 border-l border-line' : 'flex-1'}`} style={{ display: active ? 'block' : 'none' }} />
+          </div>
+          {active === project.main && shelf && !front && (
             <Shelf ctx={shelf} open={shelfOpen} setOpen={setShelfOpen} onPick={shelfInsert}
               types={(outline?.types ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} traits={(outline?.traits ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} />
           )}
@@ -1542,30 +1608,19 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             </Boundary>
           </aside>
         )}
-        {inspOpen && rpanel === 'insp' && (
+        {inspOpen && rpanel === 'insp' && !front && (
           <aside className="w-[330px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
-            <Boundary resetKey={doc ? doc.path + ":" + doc.line : ""} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {e}. The code editor still works; move the cursor to try again.</div>}>
-            {doc && active === doc.path && /\.raml$/i.test(doc.path) && !doc.text.startsWith('#%RAML 0.8') ? (
-              <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} outline={outline} model={amfModel}
-                onEdit={applyForm} onGoLine={goLine} onOpen={(f, from) => reveal(f, from)} onOpenAt={revealAt} onJsonSchema={copyJsonSchema}
-                onRename={(from) => { const v = view.current; if (v) renameSymbol(doc.path, v.state, from); }}
-                onMove={openMove} onDelete={deleteDecl} />
-            ) : doc && active === doc.path && isOasYaml(doc.path, doc.text) ? (
-              <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
-            ) : doc && active === doc.path && isOasJson(doc.path, doc.text) ? (
-              <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onJsonSchema={copyJsonSchema} />
-            ) : (
-              <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.' : 'Forms are for RAML 1.0 and OAS 3.0 specs.'}</div>
-            )}
-            </Boundary>
+            {inspector}
           </aside>
         )}
         <nav className="w-10 shrink-0 bg-rail border-l border-line flex flex-col items-center py-2.5">
           {([['insp', 'Inspector (Ctrl Alt B)', <Icons.Target size={17} />], ['docs', 'Documentation', <Icons.Book size={17} />]] as const).map(([id, title, icon]) => {
-            const on = inspOpen && rpanel === id;
+            // With the forms in front, the Inspector is the middle panel: its button puts the code back in front.
+            const on = id === 'insp' && front ? true : inspOpen && rpanel === id;
             return (
-              <button key={id} title={title} onClick={() => { if (on) setInspOpen(false); else { setRpanel(id); setInspOpen(true); } }}
+              <button key={id} title={id === 'insp' && front ? 'Inspector (in front): put the code back in front' : title}
+                onClick={() => { if (id === 'insp' && front) { setGuided(false); setRpanel('insp'); setInspOpen(true); } else if (on) setInspOpen(false); else { setRpanel(id); setInspOpen(true); } }}
                 className={`relative w-8 h-9 my-0.5 rounded-md flex items-center justify-center ${on ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
                 {on && <span className="absolute -right-1 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
                 {icon}
@@ -1643,9 +1698,11 @@ function MethodBadge({ m }: { m: string }) {
   return <span className={`font-mono text-[9.5px] font-bold w-[38px] h-4 rounded-[3px] shrink-0 inline-flex items-center justify-center ${METHOD_STYLE[m] ?? ''}`}>{m.toUpperCase()}</span>;
 }
 
-const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed, setClosed, noRoot, onPick }: {
+const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed, setClosed, noRoot, onPick, onAdd }: {
   outline: Outline | null; rootFile: string; filter: string; selId: string | null; closed: Set<string>; setClosed: (s: Set<string>) => void; noRoot: boolean;
   onPick: (file: string, from: number, id: string) => void;
+  // Design Center's + on each section: adds one to the root file and opens its form. Null when the root can't take it.
+  onAdd: ((sec: string) => void) | null;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   if (!outline) return <div className="p-3 text-[12px] text-content-faint">{noRoot ? 'No root file found, so there is no API to show. Open a file from Files.' : 'Reading the API…'}</div>;
@@ -1660,14 +1717,16 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
       {tail && <span className="ml-auto flex items-center gap-1">{tail}</span>}
     </div>
   );
-  const sec = (name: string, count: ReactNode, body: ReactNode[]) => {
+  const sec = (name: string, count: ReactNode, body: ReactNode[], add?: string) => {
     const isClosed = closed.has(name) && !q;
     return (
       <div key={name}>
         <div onClick={() => { const n = new Set(closed); n.has(name) ? n.delete(name) : n.add(name); setClosed(n); }}
-          className="flex items-center gap-1 h-[26px] mt-1.5 pl-1.5 pr-2.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint cursor-pointer hover:text-content-secondary">
+          className="group/sec flex items-center gap-1 h-[26px] mt-1.5 pl-1.5 pr-1.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint cursor-pointer hover:text-content-secondary">
           {isClosed ? <Icons.ChevronRight size={11} /> : <Icons.ChevronDown size={11} />}{name}
           <span className="ml-auto normal-case tracking-normal font-medium text-[11px] text-content-ghost">{count}</span>
+          {add && onAdd && <button title={add} onClick={(e) => { e.stopPropagation(); if (isClosed) { const n = new Set(closed); n.delete(name); setClosed(n); } onAdd(name); }}
+            className="w-5 h-5 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.Plus size={12} /></button>}
         </div>
         {!isClosed && body}
       </div>
@@ -1697,11 +1756,13 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
   return (
     <div className="flex-1 overflow-auto pb-3">
       {/* OAS uses its own words: paths and schemas, and has no traits, resource types or libraries. */}
-      {sec(oas ? 'Paths' : 'Resources', `${all.length} · ${nMethods} ${oas ? 'operations' : 'methods'}`, resRows)}
-      {sec(oas ? 'Schemas' : 'Types', outline.types.length, declRows(outline.types, oas ? 'S' : 'T', 'text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]'))}
-      {!oas && sec('Traits', outline.traits.length, declRows(outline.traits, 'Tr', 'text-violet bg-violet-tint'))}
-      {!oas && sec('Resource types', outline.resourceTypes.length, declRows(outline.resourceTypes, 'RT', 'text-cyan bg-cyan-tint'))}
-      {sec('Security schemes', outline.securitySchemes.length, declRows(outline.securitySchemes, 'S', 'text-warn bg-warn-tint'))}
+      {/* Design Center's API Summary: the API's own form (title, version, base URI, protocols, docs). */}
+      {!oas && !q && <div className="mt-1.5">{row('root', 0, <><span className="w-3.5" /><span className="text-content-faint flex"><Icons.ApiSpec size={13} /></span><span className="font-medium">API Summary</span></>, () => onPick(rootFile, 0, 'root'))}</div>}
+      {sec(oas ? 'Paths' : 'Resources', `${all.length} · ${nMethods} ${oas ? 'operations' : 'methods'}`, resRows, oas ? undefined : 'Add a resource')}
+      {sec(oas ? 'Schemas' : 'Types', outline.types.length, declRows(outline.types, oas ? 'S' : 'T', 'text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]'), oas ? undefined : 'Add a data type')}
+      {!oas && sec('Traits', outline.traits.length, declRows(outline.traits, 'Tr', 'text-violet bg-violet-tint'), 'Add a trait')}
+      {!oas && sec('Resource types', outline.resourceTypes.length, declRows(outline.resourceTypes, 'RT', 'text-cyan bg-cyan-tint'), 'Add a resource type')}
+      {sec('Security schemes', outline.securitySchemes.length, declRows(outline.securitySchemes, 'S', 'text-warn bg-warn-tint'), oas ? undefined : 'Add a security scheme')}
       {!oas && sec('Libraries', outline.libraries.length, outline.libraries.filter((l) => match(l.alias)).map((l) =>
         row('lib:' + l.alias, 0, <><span className="w-3.5" /><span className="font-mono text-[9.5px] font-bold w-4 h-4 rounded-[3px] inline-flex items-center justify-center text-accent bg-accent-dim">L</span><span className="truncate">{l.alias}</span></>,
           () => onPick(l.path, 0, 'lib:' + l.alias), l.path.startsWith('exchange_modules/') ? <span className="text-[9.5px] font-semibold px-1 rounded border border-cyan-border text-cyan">Exchange</span> : null)))}

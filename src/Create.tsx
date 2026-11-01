@@ -73,13 +73,20 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
   const [kind, setKind] = useState<Kind>(what === 'api' ? 'raml' : 'library');
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [inDc, setInDc] = useState(true);
+  // Design Center's two ways to start an API: its visual editor or its code editor. Here it only picks
+  // which is in front; the switch above the editor flips it any time.
+  const [guide, setGuide] = useState(true);
   const [busy, setBusy] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null);
   useEffect(() => { invoke<Me | null>('anypoint_status').then(setMe, () => setMe(null)); }, []);
   const dcOk = !!me && !me.read_only;
   const dc = dcOk && inDc;
   const go = async () => {
     const n = name.trim(); setErr(null);
-    try { onCreated(await makeProject(n, kind, dc, me ?? null, setBusy), null); }
+    try {
+      const root = await makeProject(n, kind, dc, me ?? null, setBusy);
+      try { if (what === 'api' && guide) localStorage.setItem('ads.guided:' + root, '1'); } catch { /* ignore */ }
+      onCreated(root, null);
+    }
     catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(null); }
   };
   const list = what === 'api' ? API_KINDS : FRAGMENTS;
@@ -92,6 +99,14 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && name.trim() && !busy) go(); }} spellCheck={false} className={field} /></label>
         <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">{what === 'api' ? 'Language' : 'Fragment type'}</span>
           <Select value={kind} onChange={(v) => setKind(v as Kind)} className="w-full" options={list.map((k) => ({ value: k, label: KINDS[k].label }))} /></label>
+        {what === 'api' && <div className="flex flex-col gap-1.5">
+          <span className="text-[11.5px] text-content-faint">How do you want to start?</span>
+          {([[true, 'Guide me through it', 'Forms for each part, with the code next to them'], [false, "I'm comfortable designing it on my own", 'The code in front, the forms on the side']] as const).map(([v, label, sub]) => (
+            <label key={label} className="flex items-start gap-2 cursor-pointer">
+              <input type="radio" checked={guide === v} onChange={() => setGuide(v)} className="mt-[3px] accent-[var(--accent)]" />
+              <span>{label}<span className="block text-[11.5px] text-content-faint">{sub}</span></span></label>
+          ))}
+        </div>}
         <div className="flex flex-col gap-1.5">
           <span className="text-[11.5px] text-content-faint">Where</span>
           {([[true, 'In Design Center, and here to work on'], [false, 'Only on this computer']] as const).map(([v, label]) => (

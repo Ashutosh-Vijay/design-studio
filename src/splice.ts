@@ -66,7 +66,8 @@ export function setInItem(text: string, path: Path, n: number, key: string, valu
 
 // The file's indent step (2 in nearly every spec), from the smallest indent in use.
 function step(E: Entry[]) {
-  const s = E.map((e) => e.ind).filter((i) => i > 0);
+  // A list item's key sits 2 past its dash ("  - title"): the dash's column is the indent.
+  const s = E.map((e) => (e.dash ? e.ind - 2 : e.ind)).filter((i) => i > 0);
   return s.length ? Math.min(...s) : 2;
 }
 const childInd = (E: Entry[], k: number) => (k < 0 ? 0 : kids(E, k)[0] != null ? E[kids(E, k)[0]].ind : E[k].ind + step(E));
@@ -164,6 +165,12 @@ function insertLines(text: string, E: Entry[], parent: number, lines: string[], 
   const later = key && parent >= 0 && rank(key) >= 0 ? kids(E, parent).find((j) => rank(E[j].key) > rank(key) || (rank(key) <= 4 && rank(E[j].key) < 0)) : undefined;
   const firstRes = E.find((e) => e.ind === 0 && e.key.startsWith('/'));
   if (first && parent >= 0) at = E[parent].line + 1;
+  else if (first && parent < 0) {
+    // A new root key (version, protocols, securedBy) goes in the header, after the last of title, version and
+    // the like, rather than after the resources at the end of the file.
+    const head = E.filter((e) => e.ind === 0 && ['title', 'description', 'version', 'baseUri', 'baseUriParameters', 'protocols', 'mediaType', 'securedBy'].includes(e.key));
+    at = head.length ? blockEnd(E, L, E.indexOf(head[head.length - 1])) : /^(﻿)?#%/.test(L[0]) ? 1 : 0;
+  }
   else if (later != null) at = E[later].line;
   else if (parent < 0 && key && !key.startsWith('/') && firstRes) {
     // A new top-level declaration (types:, traits:, uses:) goes before the resources, above any comment
@@ -231,6 +238,13 @@ export function setScalar(text: string, path: Path, key: string, value: string |
   if (k < 0) {
     const p = path.length ? find(E, path) : -1;
     if (path.length && p < 0) return addChild(text, path, body(' '.repeat(step(E))), true);
+    // A facet (example, pattern, maxLength) goes after the node's type:, which reads first.
+    const tk = p >= 0 && rank(key) < 0 ? kid(E, p, 'type') : undefined;
+    if (tk != null) {
+      const L = text.split('\n');
+      L.splice(blockEnd(E, L, tk), 0, ...body(' '.repeat(step(E))).map((l) => (l ? ' '.repeat(E[tk].ind) + l : '')));
+      return L.join('\n');
+    }
     // Known keys go in their usual place; others (title, version, usage) first.
     return rank(key) >= 0 && p >= 0 ? insertLines(text, E, p, body(' '.repeat(step(E))), false, key) : insertLines(text, E, p, body(' '.repeat(step(E))), true);
   }
@@ -293,7 +307,7 @@ export function setList(text: string, path: Path, items: string[]): string {
   if (!items.length) return k >= 0 ? remove(text, path, false) : text;
   if (k < 0) {
     const flow = `${key}: [ ${items.map(quote).join(', ')} ]`;
-    if (!parent.length) return insertLines(text, E, -1, [flow]);
+    if (!parent.length) return insertLines(text, E, -1, [flow], true);
     text = ensure(text, parent);
     const E2 = entries(text);
     return insertLines(text, E2, find(E2, parent), [flow], false, key);

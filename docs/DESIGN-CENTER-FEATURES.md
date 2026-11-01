@@ -92,7 +92,7 @@ Design Center gets these from ALS (the AML Language Server, M0.5).
 
 ## 8. Visual editor (the one we're beating)
 
-Three panels: left (API name, add resources, data types, security schemes, all inline in one file), middle (forms), right (read-only RAML and OAS viewers, plus the mock). RAML 1.0 or OAS 2.0 and 3.0 JSON. **"Edit RAML" or "Edit OAS" switches to the text editor for good: you can't go back.** That one-way switch is exactly the gap our two-way forms (M2) fill.
+Three panels: left (API name, add resources, data types, security schemes, all inline in one file), middle (forms), right (read-only RAML and OAS viewers, plus the mock). RAML 1.0 or OAS 2.0 and 3.0 JSON. **"Edit RAML" or "Edit OAS" switches to the text editor for good: you can't go back.** That one-way switch is exactly the gap our two-way forms (M2) fill. **Built 2026-11-01:** Create asks "Guide me through it" or "I'm comfortable designing it on my own"; the first puts the forms in the middle and the code beside them (the Code / Forms switch above the editor flips it any time, per project). The API tree has API Summary and a + per section (resource, data type, trait, resource type, security scheme), named as Design Center names them. The forms gained protocols, securedBy, documentation pages, an editable resource path, security scheme settings and responses, and per-parameter details (description, example, default, enum, pattern, lengths, minimum and maximum).
 
 ## 9. Things the release notes tell us
 

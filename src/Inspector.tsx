@@ -222,6 +222,31 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     );
   };
 
+  // A parameter's or property's details, under its row: description, example, default and the facets its
+  // type takes. A short "name: string" turns into a block the first time one is set.
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  const facets = (p: string[]) => {
+    const t = S.typeOf(text, p).replace(/\?$/, '') || 'string';
+    const num = ['number', 'integer'].includes(t), raw = num || t === 'boolean';
+    const box = (key: string, label: string, isRaw = raw) => (
+      <label className="flex flex-col gap-0.5 min-w-0 flex-1"><span className="text-[10.5px] text-content-faint">{label}</span>
+        <Field mono value={S.scalar(text, [...p, key]) ?? ''} onCommit={(v) => onEdit((x) => S.setScalar(x, p, key, v.trim() || null, isRaw))} /></label>
+    );
+    return (
+      <div className="mt-1 mb-1 ml-2 pl-2.5 border-l-2 border-line flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
+        <Field multiline value={S.scalar(text, [...p, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, p, 'description', v || null))} />
+        <div className="flex gap-1.5">{box('example', 'Example')}{box('default', 'Default')}</div>
+        {t === 'string' && <>
+          <label className="flex flex-col gap-0.5"><span className="text-[10.5px] text-content-faint">Allowed values (enum), separated by commas</span>
+            <Field mono value={(S.list(text, [...p, 'enum']) ?? []).join(', ')} onCommit={(v) => onEdit((x) => S.setList(x, [...p, 'enum'], v.split(',').map((s) => s.trim()).filter(Boolean)))} /></label>
+          {box('pattern', 'Pattern')}
+          <div className="flex gap-1.5">{box('minLength', 'Minimum length', true)}{box('maxLength', 'Maximum length', true)}</div>
+        </>}
+        {num && <div className="flex gap-1.5">{box('minimum', 'Minimum')}{box('maximum', 'Maximum')}</div>}
+      </div>
+    );
+  };
+
   // Query parameters, headers, URI parameters and type properties share one editor: name, type, required.
   const params = (parent: string[], key: string, title: string, addLabel: string, hint?: string) => {
     const k = at([...parent, key]);
@@ -241,14 +266,19 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           const r = kid(E, j, 'required');
           const optional = E[j].key.endsWith('?') || (r != null && E[r].val === 'false');
           const name = E[j].key.replace(/\?$/, '');
+          const id = p.join('\0'), open = openRow === id;
           return (
-            <div key={E[j].key} className={rowCls(j) + ' flex items-center gap-1 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
-              <span className="w-[38%] shrink-0"><Field value={name} mono focus={justAdded === p.join('\0')} onFocused={() => setJustAdded(null)} onCommit={(v) => v && onEdit((x) => S.renameKey(x, p, E[j].key.endsWith('?') ? v + '?' : v))} /></span>
-              {typeCell(p)}
-              <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
-                <input type="checkbox" checked={!optional} onChange={(e) => onEdit((x) => S.setOptional(x, p, !e.target.checked))} className="accent-[var(--accent)]" />req
-              </label>
-              <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, p))}><Icons.X size={11} /></IconBtn></span>
+            <div key={E[j].key} className={rowCls(j) + ' py-[3px]'} onClick={() => onGoLine(E[j].line)}>
+              <div className="flex items-center gap-1">
+                <span className="w-[38%] shrink-0"><Field value={name} mono focus={justAdded === id} onFocused={() => setJustAdded(null)} onCommit={(v) => v && onEdit((x) => S.renameKey(x, p, E[j].key.endsWith('?') ? v + '?' : v))} /></span>
+                {typeCell(p)}
+                <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked={!optional} onChange={(e) => onEdit((x) => S.setOptional(x, p, !e.target.checked))} className="accent-[var(--accent)]" />req
+                </label>
+                <IconBtn title={open ? 'Fewer details' : 'Description, example, default and limits'} onClick={() => setOpenRow(open ? null : id)}>{open ? <Icons.ChevronDown size={12} /> : <Icons.ChevronRight size={12} />}</IconBtn>
+                <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, p))}><Icons.X size={11} /></IconBtn></span>
+              </div>
+              {open && facets(p)}
             </div>
           );
         })}
@@ -319,6 +349,24 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     );
   };
 
+  // securedBy on the API or a method: chips of the declared security schemes.
+  const schemeNames = (outline?.securitySchemes ?? []).map((d) => (d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name));
+  const secured = (parent: string[]) => {
+    const k = at([...parent, 'securedBy']);
+    const cur = S.list(text, [...parent, 'securedBy']) ?? [];
+    if (k >= 0 && (E[k].val.includes('{') || cur.some((t) => t.endsWith(':')))) return <Sec title="Secured by"><div className="font-mono text-[11.5px] text-content-secondary break-all">{E[k].val || cur.join(', ')} <span className="font-sans text-content-faint">(with parameters: edit them in the code)</span></div></Sec>;
+    return (
+      <Sec title="Secured by" count={cur.length || undefined} add={<AddSelect label="Add" options={schemeNames.filter((t) => !cur.includes(t))} onPick={(t) => onEdit((x) => S.setList(x, [...parent, 'securedBy'], [...cur, t]))} />}>
+        {cur.length ? <div className="flex flex-wrap gap-[5px]">{cur.map((t) => (
+          <span key={t} className="inline-flex items-center gap-1 h-[22px] pl-2 pr-0.5 rounded font-mono text-[11.5px] text-warn bg-warn-tint border border-[color-mix(in_oklch,var(--warn)_25%,transparent)]">
+            {t}<IconBtn title="Remove" onClick={() => onEdit((x) => S.setList(x, [...parent, 'securedBy'], cur.filter((c) => c !== t)))}><Icons.X size={10} /></IconBtn>
+          </span>
+        ))}</div>
+          : <div className="text-[11.5px] text-content-faint">{schemeNames.length ? 'Not secured.' : 'Not secured. Add a security scheme in the API tree first.'}</div>}
+      </Sec>
+    );
+  };
+
   const docs = (path: string[], what: string) => (
     <div className="mt-3 flex flex-col gap-1.5">
       <Field value={S.scalar(text, [...path, 'displayName']) ?? ''} placeholder={`Display name for this ${what}`} onCommit={(v) => onEdit((x) => S.setScalar(x, path, 'displayName', v || null))} />
@@ -378,6 +426,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           (name, parts) => onEdit((x) => S.extractTrait(x, node.path, parts, name)), at([...node.path, 'is']) >= 0 && E[at([...node.path, 'is'])].val.includes('{'))}
         {docs(node.path, 'method')}
         {traits(node.path)}
+        {secured(node.path)}
         {uri.length > 0 && (
           <Sec title="URI parameters" count={uri.length}>
             {uri.map((u) => <div key={u.name} className="flex items-center gap-2 py-[3px] text-[12px]"><span className="font-mono">{u.name}</span><span className="font-mono text-[var(--syn-type)]">{u.type}</span>{!u.declared && <span className="ml-auto text-[10.5px] text-content-faint">from the path</span>}</div>)}
@@ -415,9 +464,12 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     const methods = ch.filter((j) => METHODS.includes(E[j].key));
     const nested = ch.filter((j) => E[j].key.startsWith('/'));
     const rt = k >= 0 ? kid(E, k, 'type') : undefined;
+    const last = node.path[node.path.length - 1], above = node.path.slice(0, -1).join('');
     h = (
       <>
-        {title(<span className="font-mono text-[13.5px] font-bold break-all">{node.url}</span>)}
+        {/* The path of this resource, editable: the part it adds to the one above it. */}
+        {title(<>{above && <span className="font-mono text-[12px] text-content-faint shrink-0 max-w-[45%] truncate" title={above}>{above}</span>}
+          <Field mono value={last} className="!text-[13px] font-bold" onCommit={(v) => { const r = v.trim().replace(/^\/*/, '/'); if (r !== '/' && r !== last) onEdit((x) => S.renameKey(x, node.path, r)); }} /></>)}
         {k >= 0 && loc(k)}
         <div className="mt-1 text-[12.5px] text-content-secondary">{methods.length} {methods.length === 1 ? 'method' : 'methods'}{nested.length ? `, ${nested.length} nested` : ''}</div>
         {rt == null && methods.length > 0 && extractPanel('rt', 'Extract to resource type…', [],
@@ -495,8 +547,61 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
             <Select value={S.scalar(text, [...node.path, 'type']) ?? ''} onChange={(v) => onEdit((x) => S.setScalar(x, node.path, 'type', v || null))} mono className="w-full text-[12px]"
               options={['', 'OAuth 2.0', 'OAuth 1.0', 'Basic Authentication', 'Digest Authentication', 'Pass Through'].concat((S.scalar(text, [...node.path, 'type']) ?? '').startsWith('x-') ? [S.scalar(text, [...node.path, 'type'])!] : []).map((t) => ({ value: t, label: t || 'Choose a type' }))} />
           </Sec>
+          {/* Design Center's Settings tab: what each scheme type takes. */}
+          {(() => {
+            const st = S.scalar(text, [...node.path, 'type']) ?? '', sp = [...node.path, 'settings'];
+            const set = (key: string, label: string, ph: string) => (
+              <label className="flex items-center gap-2 py-[3px]"><span className="w-[112px] shrink-0 text-[11.5px] text-content-faint">{label}</span>
+                <Field mono value={S.scalar(text, [...sp, key]) ?? ''} placeholder={ph} onCommit={(v) => onEdit((x) => S.setScalar(x, sp, key, v.trim() || null))} /></label>
+            );
+            const checks = (key: string, label: string, all: string[]) => {
+              const cur = S.list(text, [...sp, key]) ?? [];
+              return (
+                <div className="py-[3px]"><div className="text-[11.5px] text-content-faint mb-1">{label}</div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">{all.map((g) => (
+                    <label key={g} className="flex items-center gap-1 font-mono text-[11.5px] cursor-pointer">
+                      <input type="checkbox" checked={cur.includes(g)} className="accent-[var(--accent)]"
+                        onChange={(e) => onEdit((x) => S.setList(x, [...sp, key], e.target.checked ? [...cur, g] : cur.filter((c) => c !== g)))} />{g}</label>
+                  ))}</div></div>
+              );
+            };
+            if (st === 'OAuth 2.0') return (
+              <Sec title="Settings">
+                {set('authorizationUri', 'Authorization URI', 'https://example.com/authorize')}
+                {set('accessTokenUri', 'Access token URI', 'https://example.com/token')}
+                {checks('authorizationGrants', 'Authorization grants', ['authorization_code', 'client_credentials', 'password', 'implicit'])}
+                <label className="flex flex-col gap-0.5 py-[3px]"><span className="text-[11.5px] text-content-faint">Scopes, separated by commas</span>
+                  <Field mono value={(S.list(text, [...sp, 'scopes']) ?? []).join(', ')} onCommit={(v) => onEdit((x) => S.setList(x, [...sp, 'scopes'], v.split(',').map((s) => s.trim()).filter(Boolean)))} /></label>
+              </Sec>
+            );
+            if (st === 'OAuth 1.0') return (
+              <Sec title="Settings">
+                {set('requestTokenUri', 'Request token URI', 'https://example.com/request')}
+                {set('authorizationUri', 'Authorization URI', 'https://example.com/authorize')}
+                {set('tokenCredentialsUri', 'Token URI', 'https://example.com/token')}
+                {checks('signatures', 'Signatures', ['HMAC-SHA1', 'RSA-SHA1', 'PLAINTEXT'])}
+              </Sec>
+            );
+            return null;
+          })()}
           {params([...node.path, 'describedBy'], 'headers', 'Headers it needs', 'Add')}
           {params([...node.path, 'describedBy'], 'queryParameters', 'Query parameters it needs', 'Add')}
+          {(() => {
+            const rp = [...node.path, 'describedBy', 'responses'], rk = at(rp), codes = rk < 0 ? [] : kids(E, rk);
+            return (
+              <Sec title="Responses" count={codes.length || undefined}
+                add={<AddSelect label="Add response" options={Object.keys(CODES).filter((c) => !codes.some((j) => E[j].key === c))} onPick={(c) => onEdit((x) => S.addChild(x, rp, [`${c}:`, `  description: ${CODES[c]}`]))} />}>
+                {codes.map((j) => (
+                  <div key={E[j].key} className={rowCls(j) + ' flex items-center gap-2 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
+                    <span className="font-mono font-bold text-[11.5px] px-1.5 rounded-[3px]" style={{ color: codeColor(E[j].key), background: `color-mix(in oklch, ${codeColor(E[j].key)} 13%, transparent)` }}>{E[j].key}</span>
+                    <Field value={S.scalar(text, [...rp, E[j].key, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, [...rp, E[j].key], 'description', v || null))} />
+                    <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => S.remove(x, [...rp, E[j].key]))}><Icons.X size={11} /></IconBtn></span>
+                  </div>
+                ))}
+                {!codes.length && <div className="text-[11.5px] text-content-faint">None. A 401 is usual for an expired or missing token.</div>}
+              </Sec>
+            );
+          })()}
         </>}
         {!included && isType && enumK >= 0 && (
           <Sec title="Values" count={(S.list(text, [...node.path, 'enum']) ?? []).length}>
@@ -510,7 +615,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     );
   } else if (node.kind === 'root') {
     const field = (key: string, placeholder: string, mono = false) => (
-      <label className="flex items-center gap-2 py-[3px]"><span className="w-[72px] shrink-0 text-[11.5px] text-content-faint">{key}</span>
+      <label className="flex items-center gap-2 py-[3px]"><span className="w-[72px] shrink-0 text-[11.5px] text-content-faint" title={key}>{({ title: 'Title', version: 'Version', baseUri: 'Base URI', mediaType: 'Media type' } as Record<string, string>)[key] ?? key}</span>
         <Field value={S.scalar(text, [key]) ?? ''} mono={mono} placeholder={placeholder} onCommit={(v) => onEdit((x) => S.setScalar(x, [], key, v || null))} /></label>
     );
     const all: number[] = []; const walk = (k: number) => { all.push(k); kids(E, k).filter((j) => E[j].key.startsWith('/')).forEach(walk); };
@@ -540,7 +645,38 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           {field('mediaType', 'application/json', true)}
         </Sec>
         <div className="mt-3"><Field multiline value={S.scalar(text, ['description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, [], 'description', v || null))} /></div>
-        <div className="mt-4 text-[11.5px] text-content-faint">Put the cursor in a resource, method or type, or pick one in the API tree, to edit it here.</div>
+        {(() => {
+          const cur = (S.list(text, ['protocols']) ?? []).map((p) => p.toUpperCase());
+          return (
+            <Sec title="Protocols">
+              <div className="flex gap-4">{['HTTP', 'HTTPS'].map((p) => (
+                <label key={p} className="flex items-center gap-1.5 font-mono text-[11.5px] cursor-pointer">
+                  <input type="checkbox" checked={cur.includes(p)} className="accent-[var(--accent)]" onChange={(e) => onEdit((x) => S.setList(x, ['protocols'], e.target.checked ? [...cur, p] : cur.filter((c) => c !== p)))} />{p}</label>
+              ))}<span className="text-[11px] text-content-faint">None ticked: the base URI's own.</span></div>
+            </Sec>
+          );
+        })()}
+        {secured([])}
+        {(() => {
+          const dk = at(['documentation']), pages = dk < 0 ? [] : S.items(E, dk);
+          return (
+            <Sec title="Documentation" count={pages.length || undefined}
+              add={<button onClick={() => onEdit((x) => S.addItem(x, ['documentation'], ['title: New page', 'content: Write this page in Markdown.']))}
+                className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />Add page</button>}>
+              {pages.map((j, n) => (
+                <div key={n} className={rowCls(j) + ' border border-line rounded-md p-2 mb-1.5 mx-0 bg-bg flex flex-col gap-1'} onClick={() => onGoLine(E[j].line)}>
+                  <div className="flex items-center gap-1">
+                    <Field value={S.scalar(text, ['documentation', '#' + n, 'title']) ?? ''} placeholder="Title" onCommit={(v) => onEdit((x) => S.setInItem(x, ['documentation'], n, 'title', v))} />
+                    <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove this page" onClick={() => onEdit((x) => S.removeItem(x, ['documentation'], n))}><Icons.X size={11} /></IconBtn></span>
+                  </div>
+                  <Field multiline value={S.scalar(text, ['documentation', '#' + n, 'content']) ?? ''} placeholder="Content, in Markdown" onCommit={(v) => onEdit((x) => S.setInItem(x, ['documentation'], n, 'content', v))} />
+                </div>
+              ))}
+              {!pages.length && <div className="text-[11.5px] text-content-faint">No pages. A getting-started page helps people using the API.</div>}
+            </Sec>
+          );
+        })()}
+        <div className="mt-4 text-[11.5px] text-content-faint">Add resources, types and security schemes with + in the API tree. Pick one there, or put the cursor in it, to edit it here.</div>
       </>
     );
   } else {
