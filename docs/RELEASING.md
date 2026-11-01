@@ -1,6 +1,6 @@
 # Releasing
 
-A tag `vX.Y.Z` builds and publishes everything: the desktop app for Windows, macOS (Apple Silicon and Intel) and Linux with the updater's `latest.json`, and a `.vsix` per platform, all on one GitHub release; the `.vsix` also goes to the Marketplace once `VSCE_PAT` is set. The workflow (`.github/workflows/release.yml`) has no version numbers of its own: it reads the tag, and its first step, `npm run release:check`, stops the release if anything below disagrees.
+A tag `vX.Y.Z` checks first (versions and notes, then a `verify` job with every check in step 5), then builds, then publishes only if every platform built. A release that's already published is never replaced: bump the version. It builds and publishes everything: the desktop app for Windows, macOS (Apple Silicon and Intel) and Linux with the updater's `latest.json`, and a `.vsix` per platform, all on one GitHub release; the `.vsix` also goes to the Marketplace once `VSCE_PAT` is set. The workflow (`.github/workflows/release.yml`) has no version numbers of its own: it reads the tag, and its first step, `npm run release:check`, stops the release if anything below disagrees.
 
 **While in beta, VS Code only:** `DESKTOP: "false"` at the top of `release.yml` skips the desktop builds; the tag then makes a pre-release named "Design Studio for VS Code vX.Y.Z (BETA)" with the four `.vsix` and VS Code-only notes (`release-notes.mjs --vscode`). The extension's display name carries "(BETA)". Set `DESKTOP` to `"true"` and drop "(BETA)" when the desktop app ships.
 
@@ -42,11 +42,11 @@ npx tsc --noEmit -p . && npm run build && npm run build:vscode
 ```
 
 ```bash
-cd amf-server && mvn -q package && cd .. && npm run academy:verify && npm run starters:verify
+cd amf-server && mvn -q package && cd .. && npm run academy:verify && npm run starters:verify && npm run sync:verify
 ```
 
 ```bash
-cd vscode-extension && npm run compile
+cd vscode-extension && npm run compile && npm run verify
 ```
 
 - `cargo check` fails with "os error 32" while `tauri dev` runs (the exe is locked): use `CARGO_TARGET_DIR` outside `src-tauri/target`, or stop the dev app.

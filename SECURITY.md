@@ -25,11 +25,12 @@ The app's data folder is `%APPDATA%\com.designstudio.desktop` on Windows, `~/Lib
 ## Network activity: the complete list
 
 1. **Update check (desktop app, not the Store or VS Code builds).** A few seconds after starting, the app asks GitHub Releases for the newest version (`github.com/Ashutosh-Vijay/design-studio/releases/latest/download/latest.json`) and downloads a newer, signed installer if there is one. It can be turned off in Settings.
-2. **The sign-in client list.** When you open the sign-in form, sign in, or a sign-in is renewed, the app reads the public list of Design Studio's Connected Apps from `raw.githubusercontent.com` or `cdn.jsdelivr.net` (repository `Ashutosh-Vijay/design-studio-auth`). It contains client IDs only for this app's own Connected Apps, one per Anypoint cloud.
+2. **The sign-in client list.** When you open the sign-in form, sign in, or a sign-in is renewed, the app reads the public list of Design Studio's Connected Apps from `raw.githubusercontent.com` or `cdn.jsdelivr.net` (repository `Ashutosh-Vijay/design-studio-auth`). It holds this app's own Connected Apps, one per Anypoint cloud: each one's client ID and its secret. The secret is public on purpose: Anypoint asks for one even from an app that can't keep it, so it protects nothing here. What keeps a sign-in yours is PKCE and the login going back only to this computer (see Sign-in design).
 3. **Anypoint.** After you sign in: your Anypoint cloud's host (for example `anypoint.mulesoft.com` or `eu1.anypoint.mulesoft.com`) for sign-in, token renewal, Design Center (your projects, pull, push, locks, publish) and Exchange (search, versions, dependencies). Exchange files download from the signed links Exchange gives.
 4. **The sign-in broker (fallback only).** For an Anypoint cloud that has no client in the list above, Sign in with Anypoint goes through a small broker at `ashutosh-vijay.dev` (or `ashutosh-vijay.pages.dev`), which holds that Connected App's secret and turns the login code into tokens. It stores nothing. The sign-in form also asks it which clouds it supports. Using your own Connected App never touches it.
-5. **Import from URL.** Only the address you type.
-6. **Links you click** (Exchange, Design Center, the maker's pages) open in your browser.
+5. **Addresses in your specs.** When a spec includes or refers to an `http` or `https` address (`!include https://...` in RAML, a `$ref` to a URL in OAS or AsyncAPI), AMF reads that address each time it checks the spec, as Design Center does. Nothing is sent but the request for that address. A spec that only refers to its own files makes no such request.
+6. **Import from URL.** Only the address you type.
+7. **Links you click** (Exchange, Design Center, the maker's pages) open in your browser.
 
 ### Ports on your computer (127.0.0.1 only)
 

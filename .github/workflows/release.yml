@@ -1,7 +1,8 @@
 name: Build & Release
 
-# A tag like v1.0.0 builds every platform, attaches the installers and the updater's latest.json to a draft
-# release, then publishes it. Copied from DataWeave Studio's release.yml and adapted.
+# A tag like v1.0.0: check (versions and notes, then every verification), build every platform into a draft
+# release, and only when all of that succeeded publish it (the Marketplace, then the release). A release that's
+# already published is never touched: bump the version instead. Copied from DataWeave Studio's release.yml.
 on:
   push:
     tags:
@@ -25,14 +26,25 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete an existing release of this tag
-        run: gh release delete "${{ github.ref_name }}" --repo "${{ github.repository }}" --yes 2>/dev/null || true
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Versions, notes and changelog agree with the tag (docs/RELEASING.md), before anything else.
+      - name: Check the release
+        run: node scripts/release-check.mjs "$GITHUB_REF_NAME"
+      # A draft left by a failed run is replaced; a published release is never deleted.
+      - name: Clear a draft of this tag
+        run: |
+          state=$(gh release view "$GITHUB_REF_NAME" --repo "${{ github.repository }}" --json isDraft --jq .isDraft 2>/dev/null || echo none)
+          if [ "$state" = "false" ]; then echo "::error::$GITHUB_REF_NAME is already published. Bump the version and tag again."; exit 1; fi
+          if [ "$state" = "true" ]; then gh release delete "$GITHUB_REF_NAME" --repo "${{ github.repository }}" --yes; fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # With the desktop app, tauri-action makes the draft release; without it, it's made here.
-      - uses: actions/checkout@v4
-        if: env.DESKTOP != 'true'
       - name: Make the draft release (VS Code only)
         if: env.DESKTOP != 'true'
         run: |
@@ -41,8 +53,31 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build:
+  # Every verification the release checklist asks for (docs/RELEASING.md), on the engine built here.
+  verify:
     needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - run: npm ci
+      - name: Build the AMF engine
+        run: cd amf-server && mvn -B -q -DskipTests package
+      - name: Academy, starters and sync
+        run: npm run academy:verify && npm run starters:verify && npm run sync:verify
+      - name: The VS Code extension's file boundary and sign-in renewal
+        run: cd vscode-extension && npm ci && npm run verify
+
+  build:
+    needs: [prepare, verify]
     strategy:
       fail-fast: false
       matrix:
@@ -203,16 +238,23 @@ jobs:
           node scripts/bundle-resources.mjs
           npx --yes @vscode/vsce@3 package --target ${{ matrix.vsixTarget }} --no-dependencies --skip-license --allow-missing-repository -o "design-studio-${GITHUB_REF_NAME#v}-${{ matrix.vsixTarget }}.vsix"
           gh release upload "$GITHUB_REF_NAME" *.vsix --repo "${{ github.repository }}" --clobber
-          # To the Marketplace too, once the VSCE_PAT secret is set (docs/RELEASING.md); until then it's only on the release.
-          if [ -n "$VSCE_PAT" ]; then npx --yes @vscode/vsce@3 publish --packagePath *.vsix --pat "$VSCE_PAT"; else echo "::notice::VSCE_PAT isn't set, so the .vsix wasn't published to the Marketplace."; fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
+  # Only after every platform built: the four .vsix to the Marketplace together, then the release.
   publish:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Publish the extension to the Marketplace
+        run: |
+          if [ -z "$VSCE_PAT" ]; then echo "::notice::VSCE_PAT isn't set, so the .vsix wasn't published to the Marketplace."; exit 0; fi
+          gh release download "$GITHUB_REF_NAME" --repo "${{ github.repository }}" --pattern '*.vsix'
+          [ "$(ls *.vsix | wc -l)" = "4" ] || { echo "::error::Expected four .vsix on the release."; exit 1; }
+          for f in *.vsix; do npx --yes @vscode/vsce@3 publish --packagePath "$f" --pat "$VSCE_PAT"; done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
       - name: Publish the release
         run: gh release edit "${{ github.ref_name }}" --draft=false --repo "${{ github.repository }}"
         env:
