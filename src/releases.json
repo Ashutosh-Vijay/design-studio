@@ -12,7 +12,7 @@
       {
         "title": "Forms and code in step",
         "tag": "NEW",
-        "desc": "Build a new API from the forms, as with Design Center's Guide me through it, or edit any spec with them: resources, methods, types, parameters, security schemes and responses for RAML 1.0 and OAS 3.0. Switch between forms and code any time, and a form changes only the lines it must. Rename a type everywhere, find its uses, extract to a library, or delete with cascade."
+        "desc": "Build a new API from the forms, as with Design Center's Guide me through it, or edit any spec with them: resources, methods, types, parameters, security schemes and responses for RAML 1.0 and OAS 3.0. Switch between forms and code any time, and a form changes only the lines it must. Or start from a secured starter that passes MuleSoft's best-practice and OWASP security rulesets. Rename a type everywhere, find its uses, extract to a library, or delete with cascade."
       },
       {
         "title": "Design Center and Exchange",

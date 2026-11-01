@@ -1,0 +1,245 @@
+#%RAML 1.0
+title: Orders API
+description: Create, read, update and delete orders.
+version: v1
+baseUri: https://api.example.com/api/v1
+protocols: [ HTTPS ]
+mediaType: application/json
+
+documentation:
+  - title: Getting started
+    content: |
+      Every call needs HTTPS and an OAuth 2.0 access token (client credentials grant) in the
+      Authorization header. Send an X-Correlation-ID header to trace a call.
+
+securitySchemes:
+  oauth2:
+    description: OAuth 2.0 with the client credentials grant.
+    type: OAuth 2.0
+    describedBy:
+      headers:
+        Authorization:
+          description: The access token, as Bearer and the token.
+          type: string
+          pattern: ^Bearer [A-Za-z0-9._~+/-]+=*$
+          example: Bearer 5a3f0c9e1b2d
+      responses:
+        401:
+          description: The access token is missing, expired or invalid.
+          headers:
+            Content-Type: { description: The media type of the body., type: ContentType }
+          body:
+            type: Error
+            example:
+              code: UNAUTHORIZED
+              message: The access token is missing, expired or invalid.
+        403:
+          description: The access token doesn't allow this call.
+          headers:
+            Content-Type: { description: The media type of the body., type: ContentType }
+          body:
+            type: Error
+            example:
+              code: FORBIDDEN
+              message: The access token doesn't allow this call.
+    settings:
+      accessTokenUri: https://auth.example.com/oauth2/token
+      authorizationGrants: [ client_credentials ]
+
+securedBy: [ oauth2 ]
+
+types:
+  ContentType:
+    description: The media type of the body.
+    type: string
+    pattern: ^application/json(;.*)?$
+    example: application/json
+  Error:
+    description: What went wrong.
+    type: object
+    additionalProperties: false
+    properties:
+      code:
+        description: A short, stable code for the error.
+        type: string
+      message:
+        description: A sentence about the error.
+        type: string
+    example:
+      code: NOT_FOUND
+      message: No order has this id.
+  NewOrder:
+    description: The fields a client sends to create or replace an order.
+    type: object
+    additionalProperties: false
+    properties:
+      status:
+        description: Where the order is.
+        type: string
+        enum: [ open, shipped, closed ]
+      total:
+        description: The order's total amount.
+        type: number
+        minimum: 0
+    example:
+      status: open
+      total: 42.5
+  Order:
+    description: An order.
+    type: NewOrder
+    additionalProperties: false
+    properties:
+      id:
+        description: The order's id.
+        type: string
+        pattern: ^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$
+    example:
+      id: 3f2b8c1e-9a4d-4e7b-b6c5-2d1f0e9a8b7c
+      status: open
+      total: 42.5
+  Orders:
+    description: A page of orders.
+    type: array
+    items: Order
+    example:
+      - id: 3f2b8c1e-9a4d-4e7b-b6c5-2d1f0e9a8b7c
+        status: open
+        total: 42.5
+
+traits:
+  correlated:
+    headers:
+      X-Correlation-ID?:
+        description: An id to trace the call through every system it reaches.
+        type: string
+        pattern: ^[A-Za-z0-9-]{1,64}$
+        example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+    responses:
+      400:
+        description: The request isn't valid.
+        headers:
+          Content-Type: { description: The media type of the body., type: ContentType }
+        body:
+          type: Error
+          example:
+            code: BAD_REQUEST
+            message: The request isn't valid.
+      429:
+        description: Too many requests. Wait, then try again.
+        headers:
+          Content-Type: { description: The media type of the body., type: ContentType }
+        body:
+          type: Error
+          example:
+            code: TOO_MANY_REQUESTS
+            message: Too many requests. Wait, then try again.
+      500:
+        description: Something went wrong on the server.
+        headers:
+          Content-Type: { description: The media type of the body., type: ContentType }
+        body:
+          type: Error
+          example:
+            code: SERVER_ERROR
+            message: Something went wrong on the server.
+  pageable:
+    queryParameters:
+      offset?:
+        description: How many orders to skip.
+        type: integer
+        minimum: 0
+        default: 0
+        example: 0
+      limit?:
+        description: How many orders to return, at most.
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+        example: 20
+
+/orders:
+  displayName: Orders
+  description: All orders.
+  get:
+    displayName: List orders
+    description: A page of orders, newest first.
+    is: [ correlated, pageable ]
+    responses:
+      200:
+        description: A page of orders.
+        headers:
+          Content-Type: { description: The media type of the body., type: ContentType }
+        body:
+          type: Orders
+  post:
+    displayName: Create an order
+    description: Adds a new order.
+    is: [ correlated ]
+    body:
+      type: NewOrder
+    responses:
+      201:
+        description: The order was created.
+        headers:
+          Content-Type: { description: The media type of the body., type: ContentType }
+        body:
+          type: Order
+  /{id}:
+    displayName: Order
+    description: One order.
+    uriParameters:
+      id:
+        description: The order's id.
+        type: string
+        pattern: ^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$
+        example: 3f2b8c1e-9a4d-4e7b-b6c5-2d1f0e9a8b7c
+    get:
+      displayName: Get an order
+      description: One order by its id.
+      is: [ correlated ]
+      responses:
+        200:
+          description: The order.
+          headers:
+            Content-Type: { description: The media type of the body., type: ContentType }
+          body:
+            type: Order
+        404:
+          description: No order has this id.
+          headers:
+            Content-Type: { description: The media type of the body., type: ContentType }
+          body:
+            type: Error
+    put:
+      displayName: Replace an order
+      description: Replaces an order's fields.
+      is: [ correlated ]
+      body:
+        type: NewOrder
+      responses:
+        200:
+          description: The order, replaced.
+          headers:
+            Content-Type: { description: The media type of the body., type: ContentType }
+          body:
+            type: Order
+        404:
+          description: No order has this id.
+          headers:
+            Content-Type: { description: The media type of the body., type: ContentType }
+          body:
+            type: Error
+    delete:
+      displayName: Delete an order
+      description: Removes an order.
+      is: [ correlated ]
+      responses:
+        204:
+          description: The order was deleted.
+        404:
+          description: No order has this id.
+          headers:
+            Content-Type: { description: The media type of the body., type: ContentType }
+          body:
+            type: Error

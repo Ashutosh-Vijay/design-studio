@@ -6,6 +6,10 @@ import { Modal, Spinner, btn, btnPrimary } from './App';
 import { Select } from './components/Popup';
 import type { Me } from './SyncUI';
 import * as S from './sync';
+import { parse } from 'yaml';
+import { quote } from './splice';
+import securedRaml from './starters/secured.raml?raw';
+import securedOas from './starters/secured.yaml?raw';
 
 // Every kind of file: label, extension, and for fragments the subType Design Center's API takes (probed).
 export const KINDS = {
@@ -30,13 +34,23 @@ export const KINDS = {
 export type Kind = keyof typeof KINDS;
 const API_KINDS: Kind[] = ['raml', 'oas3yaml', 'oas3json', 'oas2json', 'oas2yaml'];
 const FRAGMENTS: Kind[] = ['library', 'type', 'trait', 'resourceType', 'example', 'docs', 'annotationType', 'securityScheme', 'overlay', 'extension'];
-export const starter = (k: Kind, name: string) => KINDS[k].head.split('{name}').join(name);
+// The secured starter (src/starters): HTTPS only, OAuth 2.0 on every call, errors, rate limits, correlation ids
+// and patterns on every string parameter. Proven clean on AMF and MuleSoft's rulesets (Anypoint Best Practices,
+// OWASP API Security, transport and authentication security, documentation, OpenAPI): scripts/starters-verify.mjs.
+export const SECURED: Kind[] = ['raml', 'oas3yaml', 'oas3json'];
+export const starter = (k: Kind, name: string, secured = false) => {
+  if (!secured || !SECURED.includes(k)) return KINDS[k].head.split('{name}').join(name);
+  if (k === 'raml') return securedRaml.replace('title: Orders API', 'title: ' + quote(name));
+  if (k === 'oas3yaml') return securedOas.replace('  title: Orders API', '  title: ' + quote(name));
+  const o = parse(securedOas); o.info.title = name;
+  return JSON.stringify(o, null, 2) + '\n';
+};
 const fileName = (k: Kind, name: string) => (KINDS[k].ext && !name.toLowerCase().endsWith('.' + KINDS[k].ext) ? `${name}.${KINDS[k].ext}` : name);
 const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input text-[12.5px] outline-none focus:border-accent';
 
 // ---------- Create: a new project, in Design Center and here, or only here ----------
 // The work itself, shared by the dialog and the AI tools (create_project). Returns the new folder.
-export async function makeProject(n: string, kind: Kind, dc: boolean, me: Me | null, busy: (s: string) => void = () => {}) {
+export async function makeProject(n: string, kind: Kind, dc: boolean, me: Me | null, busy: (s: string) => void = () => {}, secured = false) {
   if (dc) {
     busy('Creating it in Design Center…');
     const id = await S.createProject(n, KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment', (KINDS[kind] as { sub?: string }).sub);
@@ -44,10 +58,11 @@ export async function makeProject(n: string, kind: Kind, dc: boolean, me: Me | n
     busy('Pulling it here…');
     await S.clone(root, id, n, 'master');
     // Design Center starts every OAS project as OAS 2.0 JSON: another flavour is written here and pushed.
-    if (kind !== 'oas2json' && kind.startsWith('oas')) {
+    // So is the secured starter, over Design Center's own starter file.
+    if ((kind !== 'oas2json' && kind.startsWith('oas')) || (secured && SECURED.includes(kind))) {
       const x = (await S.readDescriptor(root))!;
-      const file = fileName(kind, n), old = x.d.main;
-      await invoke('write_file_exact', { root, path: file, text: starter(kind, n) });
+      const file = kind === 'raml' && x.d.main ? x.d.main : fileName(kind, n), old = x.d.main;
+      await invoke('write_file_exact', { root, path: file, text: starter(kind, n, secured) });
       if (old && old !== file) await invoke('delete_file', { root, path: old });
       await S.writeDescriptor(root, x.text, (d) => { d.main = file; });
       busy('Sending the starter file…');
@@ -61,7 +76,7 @@ export async function makeProject(n: string, kind: Kind, dc: boolean, me: Me | n
   let root = home + n.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-');
   if ((await invoke<{ files: unknown[] }>('open_project', { root }).then((p) => p.files.length, () => 0))) root += ` (${Date.now().toString(36)})`;
   const file = fileName(kind, n.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-'));
-  await invoke('write_file_exact', { root, path: file, text: starter(kind, n) });
+  await invoke('write_file_exact', { root, path: file, text: starter(kind, n, secured) });
   // Design Center's descriptor, so the root file, Publish and Exchange see it the same way later.
   const classifier = KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment';
   await invoke('write_file_exact', { root, path: 'exchange.json', text: JSON.stringify({ main: file, name: n, classifier, tags: [], version: '1.0.0', dependencies: [] }, null, 2) + '\n' });
@@ -76,6 +91,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
   // Design Center's two ways to start an API: its visual editor or its code editor. Here it only picks
   // which is in front; the switch above the editor flips it any time.
   const [guide, setGuide] = useState(true);
+  const [secured, setSecured] = useState(false);
   const [busy, setBusy] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null);
   useEffect(() => { invoke<Me | null>('anypoint_status').then(setMe, () => setMe(null)); }, []);
   const dcOk = !!me && !me.read_only;
@@ -86,7 +102,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
     const n = name.trim(); setErr(null);
     if (!n) { setNoName(true); nameRef.current?.focus(); return; }
     try {
-      const root = await makeProject(n, kind, dc, me ?? null, setBusy);
+      const root = await makeProject(n, kind, dc, me ?? null, setBusy, secured && SECURED.includes(kind));
       try { if (what === 'api' && guide) localStorage.setItem('ads.guided:' + root, '1'); } catch { /* ignore */ }
       onCreated(root, null);
     }
@@ -104,6 +120,14 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
           {noName && <span className="text-[11.5px] text-err">Give the project a name.</span>}</label>
         <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">{what === 'api' ? 'Language' : 'Fragment type'}</span>
           <Select value={kind} onChange={(v) => setKind(v as Kind)} className="w-full" options={list.map((k) => ({ value: k, label: KINDS[k].label }))} /></label>
+        {what === 'api' && SECURED.includes(kind) && <div className="flex flex-col gap-1.5">
+          <span className="text-[11.5px] text-content-faint">Start from</span>
+          {([[false, 'An empty spec', 'Just the title'], [true, 'A secured starter', "An Orders API to rename: HTTPS only, OAuth 2.0 on every call, error and rate-limit responses, correlation ids. Passes MuleSoft's best-practice and OWASP security rulesets."]] as const).map(([v, label, sub]) => (
+            <label key={label} className="flex items-start gap-2 cursor-pointer">
+              <input type="radio" checked={secured === v} onChange={() => setSecured(v)} className="mt-[3px] accent-[var(--accent)]" />
+              <span>{label}<span className="block text-[11.5px] text-content-faint">{sub}</span></span></label>
+          ))}
+        </div>}
         {what === 'api' && <div className="flex flex-col gap-1.5">
           <span className="text-[11.5px] text-content-faint">How do you want to start?</span>
           {([[true, 'Guide me through it', 'Forms for each part, with the code next to them'], [false, "I'm comfortable designing it on my own", 'The code in front, the forms on the side']] as const).map(([v, label, sub]) => (

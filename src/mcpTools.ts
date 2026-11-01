@@ -92,14 +92,14 @@ export const TOOLS: Tool[] = [
     props: { path: str('The project folder') }, required: ['path'],
     run: async (a) => { await openAndWait(String(a.path)); return `Opened ${host.project!.name}.`; } },
   { name: 'create_project', description: "Create a new API specification or fragment project, as Design Center's Create does, and open it. With in_design_center it is created in Design Center too (needs changes allowed and a sign-in that isn't read only).",
-    props: { name: str('Project name'), kind: { type: 'string', description: 'Language or fragment type', enum: ['raml', 'oas3yaml', 'oas3json', 'oas2json', 'oas2yaml', 'library', 'type', 'trait', 'resourceType', 'example', 'docs', 'annotationType', 'securityScheme', 'overlay', 'extension'] }, in_design_center: bool('Also create it in Design Center (default false)') }, required: ['name', 'kind'],
+    props: { name: str('Project name'), kind: { type: 'string', description: 'Language or fragment type', enum: ['raml', 'oas3yaml', 'oas3json', 'oas2json', 'oas2yaml', 'library', 'type', 'trait', 'resourceType', 'example', 'docs', 'annotationType', 'securityScheme', 'overlay', 'extension'] }, in_design_center: bool('Also create it in Design Center (default false)'), secured: bool("Start from the secured starter (raml, oas3yaml, oas3json): an Orders API with HTTPS only, OAuth 2.0 on every call, error and rate-limit responses and correlation ids, clean on MuleSoft's best-practice and OWASP rulesets. Rename it to the person's API (default false)") }, required: ['name', 'kind'],
     run: async (a) => {
       const dc = a.in_design_center === true;
       if (dc && !remoteOk()) throw new Error(REMOTE_OFF);
       const me = dc ? await invoke<Me | null>('anypoint_status') : null;
       if (dc && (!me || me.read_only)) throw new Error(!me ? 'Not signed in to Anypoint.' : 'The Anypoint connection is read only.');
       const { makeProject } = await import('./Create'); // loaded when used: Create pulls in the whole UI
-      const root = await makeProject(String(a.name).trim(), a.kind as Kind, dc, me);
+      const root = await makeProject(String(a.name).trim(), a.kind as Kind, dc, me, undefined, a.secured === true);
       await openAndWait(root);
       return `Created ${a.name} at ${root} and opened it.`;
     } },

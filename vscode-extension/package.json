@@ -284,6 +284,10 @@
             "in_design_center": {
               "type": "boolean",
               "description": "Also create it in Design Center (default false)"
+            },
+            "secured": {
+              "type": "boolean",
+              "description": "Start from the secured starter (raml, oas3yaml, oas3json): an Orders API with HTTPS only, OAuth 2.0 on every call, error and rate-limit responses and correlation ids, clean on MuleSoft's best-practice and OWASP rulesets. Rename it to the person's API (default false)"
             }
           },
           "required": [

@@ -1,0 +1,364 @@
+openapi: 3.0.0
+info:
+  title: Orders API
+  description: Create, read, update and delete orders. Every call needs HTTPS and an OAuth 2.0 access token (client credentials grant).
+  version: v1
+  contact:
+    name: API team
+    email: api-team@example.com
+  license:
+    name: Proprietary
+    url: https://example.com/license
+externalDocs:
+  description: Getting started
+  url: https://example.com/docs/orders-api
+servers:
+  - url: https://api.example.com/api/v1
+    description: Production
+security:
+  - oauth2: []
+tags:
+  - name: orders
+    description: Orders and their status.
+paths:
+  /orders:
+    description: All orders.
+    get:
+      tags: [ orders ]
+      operationId: list-orders
+      summary: List orders
+      description: A page of orders, newest first.
+      parameters:
+        - $ref: '#/components/parameters/correlationId'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: A page of orders.
+          headers:
+            Content-Type:
+              $ref: '#/components/headers/ContentType'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Orders'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [ orders ]
+      operationId: create-order
+      summary: Create an order
+      description: Adds a new order.
+      parameters:
+        - $ref: '#/components/parameters/correlationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewOrder'
+      responses:
+        '201':
+          description: The order was created.
+          headers:
+            Content-Type:
+              $ref: '#/components/headers/ContentType'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /orders/{id}:
+    description: One order.
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The order's id.
+        schema:
+          type: string
+          pattern: '^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$'
+        example: 3f2b8c1e-9a4d-4e7b-b6c5-2d1f0e9a8b7c
+    get:
+      tags: [ orders ]
+      operationId: get-order
+      summary: Get an order
+      description: One order by its id.
+      parameters:
+        - $ref: '#/components/parameters/correlationId'
+      responses:
+        '200':
+          description: The order.
+          headers:
+            Content-Type:
+              $ref: '#/components/headers/ContentType'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [ orders ]
+      operationId: replace-order
+      summary: Replace an order
+      description: Replaces an order's fields.
+      parameters:
+        - $ref: '#/components/parameters/correlationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewOrder'
+      responses:
+        '200':
+          description: The order, replaced.
+          headers:
+            Content-Type:
+              $ref: '#/components/headers/ContentType'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [ orders ]
+      operationId: delete-order
+      summary: Delete an order
+      description: Removes an order.
+      parameters:
+        - $ref: '#/components/parameters/correlationId'
+      responses:
+        '204':
+          description: The order was deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+components:
+  securitySchemes:
+    oauth2:
+      description: OAuth 2.0 with the client credentials grant.
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.com/oauth2/token
+          scopes: {}
+  parameters:
+    correlationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      description: An id to trace the call through every system it reaches.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9-]{1,64}$'
+      example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+    offset:
+      name: offset
+      in: query
+      required: false
+      description: How many orders to skip.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      example: 0
+    limit:
+      name: limit
+      in: query
+      required: false
+      description: How many orders to return, at most.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+  headers:
+    ContentType:
+      description: The media type of the body.
+      schema:
+        type: string
+        pattern: '^application/json(;.*)?$'
+      example: application/json
+  responses:
+    BadRequest:
+      description: The request isn't valid.
+      headers:
+        Content-Type:
+          $ref: '#/components/headers/ContentType'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: BAD_REQUEST
+            message: The request isn't valid.
+    Unauthorized:
+      description: The access token is missing, expired or invalid.
+      headers:
+        Content-Type:
+          $ref: '#/components/headers/ContentType'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: UNAUTHORIZED
+            message: The access token is missing, expired or invalid.
+    Forbidden:
+      description: The access token doesn't allow this call.
+      headers:
+        Content-Type:
+          $ref: '#/components/headers/ContentType'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: FORBIDDEN
+            message: The access token doesn't allow this call.
+    NotFound:
+      description: No order has this id.
+      headers:
+        Content-Type:
+          $ref: '#/components/headers/ContentType'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: NOT_FOUND
+            message: No order has this id.
+    TooManyRequests:
+      description: Too many requests. Wait, then try again.
+      headers:
+        Content-Type:
+          $ref: '#/components/headers/ContentType'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: TOO_MANY_REQUESTS
+            message: Too many requests. Wait, then try again.
+    ServerError:
+      description: Something went wrong on the server.
+      headers:
+        Content-Type:
+          $ref: '#/components/headers/ContentType'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: SERVER_ERROR
+            message: Something went wrong on the server.
+  schemas:
+    Error:
+      description: What went wrong.
+      type: object
+      additionalProperties: false
+      required: [ code, message ]
+      properties:
+        code:
+          description: A short, stable code for the error.
+          type: string
+        message:
+          description: A sentence about the error.
+          type: string
+      example:
+        code: NOT_FOUND
+        message: No order has this id.
+    NewOrder:
+      description: The fields a client sends to create or replace an order.
+      type: object
+      additionalProperties: false
+      required: [ status, total ]
+      properties:
+        status:
+          description: Where the order is.
+          type: string
+          enum: [ open, shipped, closed ]
+        total:
+          description: The order's total amount.
+          type: number
+          minimum: 0
+      example:
+        status: open
+        total: 42.5
+    Order:
+      description: An order.
+      type: object
+      additionalProperties: false
+      required: [ id, status, total ]
+      properties:
+        id:
+          description: The order's id.
+          type: string
+          pattern: '^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$'
+        status:
+          description: Where the order is.
+          type: string
+          enum: [ open, shipped, closed ]
+        total:
+          description: The order's total amount.
+          type: number
+          minimum: 0
+      example:
+        id: 3f2b8c1e-9a4d-4e7b-b6c5-2d1f0e9a8b7c
+        status: open
+        total: 42.5
+    Orders:
+      description: A page of orders.
+      type: array
+      items:
+        $ref: '#/components/schemas/Order'
+      example:
+        - id: 3f2b8c1e-9a4d-4e7b-b6c5-2d1f0e9a8b7c
+          status: open
+          total: 42.5

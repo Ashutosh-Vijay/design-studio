@@ -42,7 +42,7 @@ npx tsc --noEmit -p . && npm run build && npm run build:vscode
 ```
 
 ```bash
-cd amf-server && mvn -q package && cd .. && npm run academy:verify
+cd amf-server && mvn -q package && cd .. && npm run academy:verify && npm run starters:verify
 ```
 
 ```bash
