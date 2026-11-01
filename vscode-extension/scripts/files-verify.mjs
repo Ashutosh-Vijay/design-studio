@@ -48,6 +48,13 @@ check(readFileSync(join(root, 'api.raml'), 'utf8').includes('title: B'), 'saving
 await fileCommand('rename_file', { root, from: 'api.raml', to: 'specs/api.raml' }, () => {});
 check(existsSync(join(root, 'specs/api.raml')), 'renaming into a new folder works');
 
+// A file starting with a UTF-8 BOM keeps it through a read and an unchanged save, byte for byte.
+const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('#%RAML 1.0\r\ntitle: BOM\r\n')]);
+writeFileSync(join(root, 'bom.raml'), bom);
+const bt = await fileCommand('read_text_file', { root, path: 'bom.raml' }, () => {});
+await fileCommand('save_text_file', { root, path: 'bom.raml', text: bt.replace(/\r\n/g, '\n') }, () => {}); // the editor works in LF
+check(readFileSync(join(root, 'bom.raml')).equals(bom), 'a BOM and CRLF file is unchanged by read and save');
+
 // Zips (adm-zip): duplicates, an entry climbing out, an entry through a junction, a bomb, and a round trip.
 const AdmZip = createRequire(import.meta.url)('adm-zip');
 const zipOf = (entries) => { const z = new AdmZip(); for (const [n, d] of entries) z.addFile(n, Buffer.isBuffer(d) ? d : Buffer.from(d)); const f = join(base, `z${Math.random().toString(36).slice(2)}.zip`); z.writeZip(f); return f; };

@@ -127,7 +127,7 @@ export async function fileCommand(cmd: string, a: Record<string, any>, emit: (ev
       const full = inside(a.root, a.path);
       if (!fs.existsSync(full)) throw new Error(`File not found: ${a.path}`);
       const bytes = fs.readFileSync(full);
-      const text = new TextDecoder('utf-8', { fatal: true });
+      const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }); // a BOM stays in the text, as on the desktop, so a save keeps it
       try { return text.decode(bytes); } catch { throw new Error(`${a.path} isn't UTF-8 text, so it can't be opened here.`); }
     }
     case 'save_text_file': {

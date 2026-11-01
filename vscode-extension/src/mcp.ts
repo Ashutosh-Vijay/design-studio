@@ -45,15 +45,22 @@ export async function mcpCommand(cmd: string, a: Record<string, any>, version: s
         const origin = String(req.headers.origin ?? '');
         if (!loopback(String(req.headers.host ?? '')) || (origin && !loopback(origin.split('://')[1] ?? ''))) { res.writeHead(403).end('Refused.'); return; }
         if (!(req.url ?? '').startsWith('/mcp')) { res.writeHead(404).end(); return; }
-        const chunks: Buffer[] = [];
-        for await (const c of req) chunks.push(c as Buffer);
-        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined;
-        // Stateless: a server and transport per request, as the SDK suggests for simple servers.
-        const t = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-        const s = mcpServer(version, emit);
-        res.on('close', () => { t.close(); s.close(); });
-        await s.connect(t);
-        await t.handleRequest(req, res, body);
+        // A bad request gets an error answer and the server keeps running: a body over 4 MB, JSON that doesn't
+        // parse (JSON-RPC's parse error), or anything the SDK throws.
+        const fail = (code: number, rpc: number, message: string) => { if (!res.headersSent) res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: rpc, message } })); };
+        try {
+          const chunks: Buffer[] = [];
+          let size = 0;
+          for await (const c of req) { size += (c as Buffer).length; if (size > 4 * 1024 * 1024) { fail(413, -32600, 'The request is over 4 MB.'); req.destroy(); return; } chunks.push(c as Buffer); }
+          let body: unknown;
+          try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : undefined; } catch { fail(400, -32700, "The request isn't valid JSON."); return; }
+          // Stateless: a server and transport per request, as the SDK suggests for simple servers.
+          const t = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+          const s = mcpServer(version, emit);
+          res.on('close', () => { t.close(); s.close(); });
+          await s.connect(t);
+          await t.handleRequest(req, res, body);
+        } catch (e) { fail(500, -32603, `Design Studio couldn't handle the request: ${e instanceof Error ? e.message : e}`); }
       });
       await new Promise<void>((ok, fail) => { srv.once('error', (e: NodeJS.ErrnoException) => fail(new Error(e.code === 'EADDRINUSE' ? `Port ${a.port} is in use by another program. Pick another port in the AI tools panel.` : `Couldn't use port ${a.port}: ${e.message}`))); srv.listen(a.port, '127.0.0.1', () => ok()); });
       server = srv; port = a.port; started = Date.now();

@@ -1248,7 +1248,7 @@
     ]
   },
   "scripts": {
-    "verify": "node scripts/files-verify.mjs && node scripts/renew-verify.mjs",
+    "verify": "node scripts/files-verify.mjs && node scripts/renew-verify.mjs && node scripts/mcp-verify.mjs",
     "check-types": "tsc --noEmit",
     "compile": "npm run check-types && node esbuild.js",
     "package": "npm run check-types && node esbuild.js --production",

@@ -1198,15 +1198,21 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         ['Discard', () => { real.forEach((r) => invoke('clear_recovery', { root: project.root, path: r.path })); setNotice(null); }],
       ] });
     });
-    // Journal unsaved text every few seconds; clear it once a file is saved or reverted.
-    const t = window.setInterval(() => {
+    // Journal unsaved text, only what changed since the last write; clear it once a file is saved or reverted.
+    // The desktop asks before closing with unsaved work, so every few seconds is enough. A VS Code tab can't refuse
+    // to close: there it's every half second, and straight away when the tab is hidden or closed.
+    const written = new Map<string, string>();
+    const journal = () => {
       for (const [path, f] of files.current) {
         const text = textOf(path) ?? f.disk;
-        if (text !== f.disk) { invoke('write_recovery', { root: project.root, path, text }); journaled.current.add(path); }
-        else if (journaled.current.has(path)) { invoke('clear_recovery', { root: project.root, path }); journaled.current.delete(path); }
+        if (text !== f.disk) { if (written.get(path) !== text) { invoke('write_recovery', { root: project.root, path, text }); written.set(path, text); journaled.current.add(path); } }
+        else if (journaled.current.has(path)) { invoke('clear_recovery', { root: project.root, path }); journaled.current.delete(path); written.delete(path); }
       }
-    }, 4000);
-    return () => { un.then((f) => f()); clearInterval(t); };
+    };
+    const t = window.setInterval(journal, isVsCode ? 500 : 4000);
+    const hidden = () => { if (document.visibilityState === 'hidden') journal(); };
+    document.addEventListener('visibilitychange', hidden); window.addEventListener('pagehide', journal);
+    return () => { un.then((f) => f()); clearInterval(t); document.removeEventListener('visibilitychange', hidden); window.removeEventListener('pagehide', journal); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- Live errors from amf-server: a quick parse after edits, a full check when idle or on save ----------
