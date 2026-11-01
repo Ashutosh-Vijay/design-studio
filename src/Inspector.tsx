@@ -614,9 +614,9 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
       </>
     );
   } else if (node.kind === 'root') {
-    const field = (key: string, placeholder: string, mono = false) => (
+    const field = (key: string, placeholder: string, mono = false, options?: string[]) => (
       <label className="flex items-center gap-2 py-[3px]"><span className="w-[72px] shrink-0 text-[11.5px] text-content-faint" title={key}>{({ title: 'Title', version: 'Version', baseUri: 'Base URI', mediaType: 'Media type' } as Record<string, string>)[key] ?? key}</span>
-        <Field value={S.scalar(text, [key]) ?? ''} mono={mono} placeholder={placeholder} onCommit={(v) => onEdit((x) => S.setScalar(x, [], key, v || null))} /></label>
+        <Field value={S.scalar(text, [key]) ?? ''} mono={mono} options={options} placeholder={placeholder} onCommit={(v) => onEdit((x) => S.setScalar(x, [], key, v || null))} /></label>
     );
     const all: number[] = []; const walk = (k: number) => { all.push(k); kids(E, k).filter((j) => E[j].key.startsWith('/')).forEach(walk); };
     E.forEach((e, i) => { if (e.ind === 0 && e.key.startsWith('/')) walk(i); });
@@ -642,7 +642,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           {field('title', 'Name of the API')}
           {field('version', 'v1', true)}
           {field('baseUri', 'https://api.example.com/{version}', true)}
-          {field('mediaType', 'application/json', true)}
+          {field('mediaType', 'Pick or type one', true, MEDIA)}
         </Sec>
         <div className="mt-3"><Field multiline value={S.scalar(text, ['description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, [], 'description', v || null))} /></div>
         {(() => {
@@ -652,7 +652,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
               <div className="flex gap-4">{['HTTP', 'HTTPS'].map((p) => (
                 <label key={p} className="flex items-center gap-1.5 font-mono text-[11.5px] cursor-pointer">
                   <input type="checkbox" checked={cur.includes(p)} className="accent-[var(--accent)]" onChange={(e) => onEdit((x) => S.setList(x, ['protocols'], e.target.checked ? [...cur, p] : cur.filter((c) => c !== p)))} />{p}</label>
-              ))}<span className="text-[11px] text-content-faint">None ticked: the base URI's own.</span></div>
+              ))}{!cur.length && <span className="text-[11px] text-content-faint">None ticked: the base URI's own.</span>}</div>
             </Sec>
           );
         })()}

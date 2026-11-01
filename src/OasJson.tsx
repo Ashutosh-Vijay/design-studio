@@ -69,6 +69,14 @@ function removeNode(text: string, n: JNode): string {
   const next = sibs[1];
   return multi ? splice(text, lineStart(text, item.offset), lineStart(text, next.offset), '') : splice(text, item.offset, next.offset, '');
 }
+// The API tree's + on an OAS JSON root file: adds the member under a free name ("/new-resource", "DataType2")
+// and returns the new text with the member's offset, for the cursor.
+export function oasJsonAdd(text: string, parent: string[], base: string, value: unknown): { text: string; at: number } {
+  const tree = parseTree(text);
+  let name = base, i = 2; while (tree && findNodeAtLocation(tree, [...parent, name])) name = base + i++;
+  const t = set(text, [...parent, name], value), n = parseTree(t) && findNodeAtLocation(parseTree(t)!, [...parent, name]);
+  return { text: t, at: n?.parent?.offset ?? 0 };
+}
 const pushItem = (text: string, path: JSONPath, value: unknown) => set(text, [...path, ((parseTree(text) && findNodeAtLocation(parseTree(text)!, path))?.children?.length ?? 0)], value);
 // Rename an object key where it stands, keeping its value and place.
 function renameKey(text: string, path: JSONPath, nu: string): string {

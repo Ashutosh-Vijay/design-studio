@@ -1,6 +1,6 @@
 // Design Center's Create (New API Specification, New Fragment) for the start screen, and New file for the
 // Files panel's + menu. The starter text is Design Center's own where it has one, so new files look the same.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Modal, Spinner, btn, btnPrimary } from './App';
 import { Select } from './components/Popup';
@@ -80,8 +80,11 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
   useEffect(() => { invoke<Me | null>('anypoint_status').then(setMe, () => setMe(null)); }, []);
   const dcOk = !!me && !me.read_only;
   const dc = dcOk && inDc;
+  const [noName, setNoName] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
   const go = async () => {
     const n = name.trim(); setErr(null);
+    if (!n) { setNoName(true); nameRef.current?.focus(); return; }
     try {
       const root = await makeProject(n, kind, dc, me ?? null, setBusy);
       try { if (what === 'api' && guide) localStorage.setItem('ads.guided:' + root, '1'); } catch { /* ignore */ }
@@ -93,10 +96,12 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
   return (
     <Modal title={what === 'api' ? 'New API Specification' : 'New Fragment'} sub={what === 'api' ? 'How the API behaves and what it exchanges' : 'Pieces to reuse across APIs'} onCancel={onClose} width={500}
       footer={<><span className="flex-1 flex items-center gap-2 text-[12px] text-content-muted">{busy && <><Spinner />{busy}</>}</span><button className={btn} onClick={onClose}>Cancel</button>
-        <button className={btnPrimary} disabled={!name.trim() || !!busy || me === undefined} onClick={go}>Create</button></>}>
+        <button className={btnPrimary} disabled={!!busy || me === undefined} onClick={go}>Create</button></>}>
       <div className="flex flex-col gap-3 text-[12.5px]">
-        <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Project name</span>
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && name.trim() && !busy) go(); }} spellCheck={false} className={field} /></label>
+        <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Project name <span className="text-err">*</span></span>
+          <input ref={nameRef} autoFocus value={name} onChange={(e) => { setName(e.target.value); if (e.target.value.trim()) setNoName(false); }} onKeyDown={(e) => { if (e.key === 'Enter' && !busy) go(); }} spellCheck={false}
+            className={field + (noName ? ' !border-err' : '')} />
+          {noName && <span className="text-[11.5px] text-err">Give the project a name.</span>}</label>
         <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">{what === 'api' ? 'Language' : 'Fragment type'}</span>
           <Select value={kind} onChange={(v) => setKind(v as Kind)} className="w-full" options={list.map((k) => ({ value: k, label: KINDS[k].label }))} /></label>
         {what === 'api' && <div className="flex flex-col gap-1.5">

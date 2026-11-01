@@ -20,7 +20,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, autoUpdates, NOTES } from './Brand';
 import { WindowControls, isTauri, isVsCode } from './components/WindowControls';
 import { Inspector, OasInspector, type AmfModel, type At } from './Inspector';
-import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection } from './OasJson';
+import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection, oasJsonAdd } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
 import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus, autoStartError } from './mcp';
 import { AcademyScreen, academyDone } from './Academy';
@@ -563,7 +563,23 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const t = v.state.doc.toString();
     const free = (base: string, has: (n: string) => boolean) => { let n = base, i = 2; while (has(n)) n = base + i++; return n; };
     let path: string[], nt: string;
-    if (sec === 'Resources') {
+    // OAS 3.0: a path, a schema or a security scheme, under paths and components.
+    if (isOasYaml(main, t) || isOasJson(main, t)) {
+      const [parent, base, value] = ({
+        Paths: [['paths'], '/new-resource', {}],
+        Schemas: [['components', 'schemas'], 'DataType', { type: 'object' }],
+        'Security schemes': [['components', 'securitySchemes'], 'SecurityScheme', { type: 'http', scheme: 'bearer' }],
+      } as Record<string, [string[], string, Record<string, string>]>)[sec];
+      if (isOasJson(main, t)) {
+        const r = oasJsonAdd(t, parent, base, value);
+        v.dispatch({ changes: diff(t, r.text), userEvent: 'input.form' });
+        goOffset(r.at);
+        return;
+      }
+      const E = entries(t), n = free(base, (x) => find(E, [...parent, x]) >= 0);
+      const lines = Object.keys(value).length ? [n + ':', ...Object.entries(value).map(([a, b]) => `  ${a}: ${b}`)] : [n + ': {}'];
+      path = [...parent, n]; nt = addChild(t, parent, lines);
+    } else if (sec === 'Resources') {
       const E = entries(t), n = free('/new-resource', (x) => find(E, [x]) >= 0);
       path = [n]; nt = addChild(t, [], [n + ':']);
     } else {
@@ -1424,9 +1440,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const treePick = useMemo(() => (file: string, from: number, id: string) => pickRef.current(file, from, id), []);
   const addRef = useRef(addToApi); addRef.current = addToApi;
   const treeAdd = useMemo(() => (sec: string) => { addRef.current(sec).catch(fail); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // The + buttons need a RAML 1.0 API as the root file (not a fragment, not 0.8) that this person may edit.
+  // The + buttons need a RAML 1.0 API (not a fragment, not 0.8) or an OAS 3.0 spec as the root file, that this person may edit.
   const rootHead = (project.main && textOf(project.main)) || '';
-  const canAdd = !!project.main && /\.raml$/i.test(project.main) && !viewOnly && !isReadOnly(project.main) && !/^(\uFEFF)?#%RAML (0\.8|1\.0 \w)/.test(rootHead);
+  const canAdd = !!project.main && !viewOnly && !isReadOnly(project.main)
+    && ((/\.raml$/i.test(project.main) && !/^(\uFEFF)?#%RAML (0\.8|1\.0 \w)/.test(rootHead)) || isOasYaml(project.main, rootHead) || isOasJson(project.main, rootHead));
 
   // Folders first, then files; a filter shows matching files with their folders open.
   const rows = useMemo(() => {
@@ -1757,12 +1774,12 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
     <div className="flex-1 overflow-auto pb-3">
       {/* OAS uses its own words: paths and schemas, and has no traits, resource types or libraries. */}
       {/* Design Center's API Summary: the API's own form (title, version, base URI, protocols, docs). */}
-      {!oas && !q && <div className="mt-1.5">{row('root', 0, <><span className="w-3.5" /><span className="text-content-faint flex"><Icons.ApiSpec size={13} /></span><span className="font-medium">API Summary</span></>, () => onPick(rootFile, 0, 'root'))}</div>}
-      {sec(oas ? 'Paths' : 'Resources', `${all.length} · ${nMethods} ${oas ? 'operations' : 'methods'}`, resRows, oas ? undefined : 'Add a resource')}
-      {sec(oas ? 'Schemas' : 'Types', outline.types.length, declRows(outline.types, oas ? 'S' : 'T', 'text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]'), oas ? undefined : 'Add a data type')}
+      {!q && <div className="mt-1.5">{row('root', 0, <><span className="w-3.5" /><span className="text-content-faint flex"><Icons.ApiSpec size={13} /></span><span className="font-medium">API Summary</span></>, () => onPick(rootFile, 0, 'root'))}</div>}
+      {sec(oas ? 'Paths' : 'Resources', `${all.length} · ${nMethods} ${oas ? 'operations' : 'methods'}`, resRows, oas ? 'Add a path' : 'Add a resource')}
+      {sec(oas ? 'Schemas' : 'Types', outline.types.length, declRows(outline.types, oas ? 'S' : 'T', 'text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]'), oas ? 'Add a schema' : 'Add a data type')}
       {!oas && sec('Traits', outline.traits.length, declRows(outline.traits, 'Tr', 'text-violet bg-violet-tint'), 'Add a trait')}
       {!oas && sec('Resource types', outline.resourceTypes.length, declRows(outline.resourceTypes, 'RT', 'text-cyan bg-cyan-tint'), 'Add a resource type')}
-      {sec('Security schemes', outline.securitySchemes.length, declRows(outline.securitySchemes, 'S', 'text-warn bg-warn-tint'), oas ? undefined : 'Add a security scheme')}
+      {sec('Security schemes', outline.securitySchemes.length, declRows(outline.securitySchemes, 'S', 'text-warn bg-warn-tint'), 'Add a security scheme')}
       {!oas && sec('Libraries', outline.libraries.length, outline.libraries.filter((l) => match(l.alias)).map((l) =>
         row('lib:' + l.alias, 0, <><span className="w-3.5" /><span className="font-mono text-[9.5px] font-bold w-4 h-4 rounded-[3px] inline-flex items-center justify-center text-accent bg-accent-dim">L</span><span className="truncate">{l.alias}</span></>,
           () => onPick(l.path, 0, 'lib:' + l.alias), l.path.startsWith('exchange_modules/') ? <span className="text-[9.5px] font-semibold px-1 rounded border border-cyan-border text-cyan">Exchange</span> : null)))}
