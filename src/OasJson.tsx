@@ -55,7 +55,10 @@ function addMember(text: string, c: JNode, key: string | null, value: unknown): 
   // On its own line, with its value written like the neighbour's: one line if theirs is.
   const ind = indentAt(text, last.offset);
   const lastVal = last.type === 'property' ? last.children?.[1] : last;
-  const oneLine = !!lastVal && !text.slice(lastVal.offset, lastVal.offset + lastVal.length).includes('\n');
+  // An object or list next to a one-line string stays pretty: only an inline object or list neighbour sets that style.
+  const container = (v: unknown) => !!v && typeof v === 'object' && Object.keys(v).length > 0;
+  const oneLine = !!lastVal && !text.slice(lastVal.offset, lastVal.offset + lastVal.length).includes('\n')
+    && (!container(value) || lastVal.type === 'object' || lastVal.type === 'array');
   return splice(text, end, end, `,\n${ind}${entry(oneLine ? inline(value) : pretty(text, value, ind))}`);
 }
 // Remove a member or item with its comma; a multi-line one takes its whole line.
@@ -320,3 +323,6 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
     </div>
   );
 }
+
+// The AsyncAPI forms (src/AsyncApi.tsx) edit JSON specs with these too.
+export { set as jsonSet, renameKey as jsonRename };

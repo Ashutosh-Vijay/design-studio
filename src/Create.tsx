@@ -118,7 +118,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
     if (!n) { setNoName(true); nameRef.current?.focus(); return; }
     try {
       const root = await makeProject(n, kind, dc, me ?? null, setBusy, secured && SECURED.includes(kind));
-      try { if (what === 'api' && guide && !isAsyncKind(kind)) localStorage.setItem('ads.guided:' + root, '1'); } catch { /* ignore */ }
+      try { if (what === 'api' && guide) localStorage.setItem('ads.guided:' + root, '1'); } catch { /* ignore */ }
       onCreated(root, null);
     }
     catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(null); }
@@ -143,7 +143,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
               <span>{label}<span className="block text-[11.5px] text-content-faint">{sub}</span></span></label>
           ))}
         </div>}
-        {what === 'api' && !isAsyncKind(kind) && <div className="flex flex-col gap-1.5">
+        {what === 'api' && <div className="flex flex-col gap-1.5">
           <span className="text-[11.5px] text-content-faint">How do you want to start?</span>
           {([[true, 'Guide me through it', 'Forms for each part, with the code next to them'], [false, "I'm comfortable designing it on my own", 'The code in front, the forms on the side']] as const).map(([v, label, sub]) => (
             <label key={label} className="flex items-start gap-2 cursor-pointer">

@@ -19,7 +19,8 @@ import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, autoUpdates, NOTES } from './Brand';
 import { WindowControls, isTauri, isVsCode } from './components/WindowControls';
-import { Inspector, OasInspector, AsyncInspector, type AmfModel, type At, type SampleResult } from './Inspector';
+import { AsyncForms } from './AsyncApi';
+import { Inspector, OasInspector, type AmfModel, type At, type SampleResult } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection, oasJsonAdd } from './OasJson';
 import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
 import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus, autoStartError } from './mcp';
@@ -1488,7 +1489,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   }, [project, filter, openDirs]);
 
   // Files the forms can edit: RAML 1.0 and OAS 3.0 (YAML or JSON).
-  const formable = !!doc && active === doc.path && ((/\.raml$/i.test(doc.path) && !doc.text.startsWith('#%RAML 0.8')) || isOasYaml(doc.path, doc.text) || isOasJson(doc.path, doc.text));
+  const formable = !!doc && active === doc.path && ((/\.raml$/i.test(doc.path) && !doc.text.startsWith('#%RAML 0.8')) || isOasYaml(doc.path, doc.text) || isOasJson(doc.path, doc.text) || isAsync(doc.path, doc.text));
   const front = guided && formable;
   // The forms for the open file: in the right panel, or in the middle when the forms are in front.
   const inspector = (
@@ -1503,9 +1504,17 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             ) : doc && active === doc.path && isOasJson(doc.path, doc.text) ? (
               <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onCopyType={copyType} onCheckSample={checkSample} />
             ) : doc && active === doc.path && isAsync(doc.path, doc.text) ? (
-              <AsyncInspector file={doc.path} text={doc.text} line={doc.line} onCopyType={copyType} onCheckSample={checkSample} />
+              // AsyncAPI: a schema uses the OAS schema form (same JSON Schema, same components.schemas); the rest its own.
+              (() => {
+                const ro = viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path), json = /\.json$/i.test(doc.path);
+                const k = keyPathAt(doc.text, doc.line).map((e) => e.key.replace(/^["']|["']$/g, ''));
+                if (k[0] === 'components' && k[1] === 'schemas' && k[2]) return json
+                  ? <OasJsonInspector file={doc.path} text={doc.text} line={doc.line} readOnly={ro} model={amfModel} onEdit={applyForm} onGoOffset={goOffset} onOpenAt={revealAt} onCopyType={copyType} onCheckSample={checkSample} />
+                  : <OasInspector file={doc.path} text={doc.text} line={doc.line} readOnly={ro} model={amfModel} onEdit={applyForm} onGoLine={goLine} onOpenAt={revealAt} onCopyType={copyType} onCheckSample={checkSample} />;
+                return <AsyncForms file={doc.path} text={doc.text} line={doc.line} json={json} readOnly={ro} onEdit={applyForm} onGoLine={goLine} onCopyType={copyType} onCheckSample={checkSample} />;
+              })()
             ) : (
-              <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.' : 'Forms are for RAML 1.0 and OAS 3.0 specs.'}</div>
+              <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.' : 'Forms are for RAML 1.0, OAS 3 and AsyncAPI 2 specs.'}</div>
             )}
             </Boundary>
   );
