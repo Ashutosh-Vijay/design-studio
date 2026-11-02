@@ -135,6 +135,12 @@
         "when": "activeWebviewPanelId == 'designStudio'"
       },
       {
+        "key": "ctrl+j",
+        "command": "designStudio.inApp",
+        "when": "activeWebviewPanelId == 'designStudio'",
+        "mac": "cmd+j"
+      },
+      {
         "key": "ctrl+alt+b",
         "command": "designStudio.inApp",
         "when": "activeWebviewPanelId == 'designStudio'",

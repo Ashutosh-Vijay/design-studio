@@ -12,10 +12,11 @@ import { projectsDir } from './sync';
 import { lockWhileEditing, type Me } from './SyncUI';
 import { isTauri, isVsCode } from './components/WindowControls';
 
-type Section = 'appearance' | 'editor' | 'anypoint' | 'projects' | 'ai' | 'about';
+type Section = 'appearance' | 'editor' | 'shortcuts' | 'anypoint' | 'projects' | 'ai' | 'about';
 const SECTIONS: { id: Section; label: string; icon: keyof typeof Icons; keywords: string[]; desktop?: boolean }[] = [
   { id: 'appearance', label: 'Appearance', icon: 'Panel', keywords: ['theme', 'dark', 'light', 'dusk', 'paper', 'system', 'accent', 'colour', 'color', 'interface size', 'zoom'] },
   { id: 'editor', label: 'Editor', icon: 'Braces', keywords: ['text size', 'font', 'code colours', 'colors', 'design center', 'wrap', 'long lines', 'raml', 'oas'] },
+  { id: 'shortcuts', label: 'Shortcuts', icon: 'Command', keywords: ['keyboard', 'keys', 'hotkey', 'save', 'find', 'replace', 'rename', 'fold', 'comment', 'palette'] },
   { id: 'anypoint', label: 'Anypoint', icon: 'DesignCenter', desktop: true, keywords: ['sign in', 'sign out', 'connect', 'account', 'organization', 'read only', 'lock', 'design center'] },
   { id: 'projects', label: 'Projects', icon: 'Folder', desktop: true, keywords: ['folder', 'location', 'where', 'pull', 'create'] },
   { id: 'ai', label: 'AI tools', icon: 'Sparkle', desktop: true, keywords: ['mcp', 'claude', 'copilot', 'cursor', 'agent'] },
@@ -81,6 +82,7 @@ export function SettingsScreen({ pref, accent, onTheme, onClose, onConnect, onMc
             {visible.length > 0 && <>
               {section === 'appearance' && <Appearance pref={pref} accent={accent} onTheme={onTheme} />}
               {section === 'editor' && <Editor />}
+              {section === 'shortcuts' && <Shortcuts />}
               {section === 'anypoint' && <Anypoint onConnect={onConnect} />}
               {section === 'projects' && <Projects />}
               {section === 'ai' && (
@@ -257,6 +259,64 @@ function About({ onAbout }: { onAbout: () => void }) {
           <Toggle label="Check for updates automatically" on={updates} onChange={(on) => { try { localStorage.setItem('ads.updateCheck', on ? '1' : '0'); } catch { /* ignore */ } setUpdates(on); }} />
         </Row>
       )}
+    </Page>
+  );
+}
+
+// Every key here is one the app or its editor really binds: App.tsx (app and project keys), editor.ts and App.tsx's
+// editor keymaps, and CodeMirror's default, search, fold and completion keymaps. Ctrl is Cmd on a Mac.
+const MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+function Shortcuts() {
+  const C = MAC ? 'Cmd' : 'Ctrl';
+  const groups: [string, [string, string[]][]][] = [
+    ['General', [
+      ['Search files, projects and commands', [`${C} K`]],
+      ['Go to a symbol', [`${C} Shift O`]],
+      ['Commands', ['F1']],
+      ['Open folder', [`${C} O`]],
+      ...(isVsCode ? [] : [['Settings', [`${C} ,`]], ['Interface size', [`${C} Plus`, `${C} Minus`, `${C} 0`]]] as [string, string[]][]),
+      ['Close a dialog or panel', ['Esc']],
+    ]],
+    ['Files and panels', [
+      ['Save', [`${C} S`]], ['Save all', [`${C} Shift S`]], ['Close the tab', [`${C} W`]],
+      ['Next or previous tab', ['Ctrl Tab', 'Ctrl Shift Tab']],
+      ['Project errors', [`${C} J`]], ['Inspector', [`${C} Alt B`]],
+    ]],
+    ['Editing', [
+      ['Suggestions', ['Ctrl Space']],
+      ['Go to definition', ['F12']], ['Find uses', ['Shift F12']], ['Rename everywhere', ['F2']],
+      ['Find', [`${C} F`]], ['Replace', [`${C} H`]], ['Next or previous match', ['F3', 'Shift F3']],
+      ['Select the next match', [`${C} D`]], ['Select every match', [`${C} Shift L`]],
+      ['Go to line', [`${C} Alt G`]],
+      ['Comment or uncomment', [`${C} /`]],
+      ['Move the line up or down', ['Alt Up', 'Alt Down']], ['Copy the line up or down', ['Shift Alt Up', 'Shift Alt Down']],
+      ['Delete the line', [`${C} Shift K`]],
+      ['Indent or outdent', [`${C} ]`, `${C} [`]],
+      ['Grow or shrink the selection', [`${C} Shift Right`, `${C} Shift Left`]],
+      ['Fold or unfold', MAC ? ['Cmd Alt [', 'Cmd Alt ]'] : ['Ctrl Shift [', 'Ctrl Shift ]']],
+      ['Fold or unfold everything', ['Ctrl Alt [', 'Ctrl Alt ]']],
+      ['Add a cursor above or below', [`${C} Alt Up`, `${C} Alt Down`]],
+      ['Undo or redo', [`${C} Z`, MAC ? 'Cmd Shift Z' : 'Ctrl Y']],
+    ]],
+    ['Files and API trees', [
+      ['Move', ['Up', 'Down', 'Home', 'End']], ['Open', ['Enter']], ['Expand or collapse', ['Right', 'Left']],
+    ]],
+  ];
+  return (
+    <Page title="Shortcuts" desc="Keys that work everywhere in Design Studio, in the editor, and in the trees.">
+      {groups.map(([title, rows]) => (
+        <div key={title} className="mb-7">
+          <h4 className="m-0 mb-1 text-[13.5px] font-semibold">{title}</h4>
+          {rows.map(([what, keys]) => (
+            <div key={what} className="flex items-center gap-4 py-2 border-t border-line-subtle first:border-t-0 text-[12.5px]">
+              <span className="flex-1 min-w-0 text-content-secondary">{what}</span>
+              <span className="flex flex-wrap justify-end gap-1.5">
+                {keys.map((k) => <kbd key={k} className="px-1.5 h-[22px] inline-flex items-center rounded-[5px] border border-line bg-surface-2 font-mono text-[11.5px] text-content">{k}</kbd>)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
     </Page>
   );
 }
