@@ -35,7 +35,7 @@ import { readLink, projectPermissions } from './sync';
 import { DocsPanel } from './Docs';
 import { ApiMap } from './ApiMap';
 import { CreateDialog, NewFileDialog } from './Create';
-import { rulesets as projectRulesets, readSettings as readGovSettings, writeSettings as writeGovSettings, profileFor, type Finding, type Settings as GovSettings } from './governance';
+import { rulesets as projectRulesets, readSettings as readGovSettings, profileFor, type Finding, type Settings as GovSettings } from './governance';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find, freeName } from './splice';
 import { ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
@@ -285,7 +285,7 @@ export default function App() {
       {academy && <AcademyScreen onClose={() => setAcademy(false)} onCreate={() => { setAcademy(false); if (project) setPendingNotice('Go back to all projects to create one.'); else setCreating('api'); }} />}
       <Splash />
       {settingsOpen && <SettingsScreen pref={theme.pref} accent={theme.accent} onTheme={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsOpen(false)}
-        onConnect={() => { setSettingsOpen(false); setConnectOpen(true); }} onMcp={() => { setSettingsOpen(false); setMcpOpen(true); }} onAbout={() => { setSettingsOpen(false); setAbout(true); }} />}
+        onConnect={() => { setSettingsOpen(false); setConnectOpen(true); }} onMcp={() => { setSettingsOpen(false); setMcpOpen(true); }} onAbout={() => { setSettingsOpen(false); setAbout(true); }} projectRoot={project?.root} />}
       {paletteOpen !== false && (
         <Palette project={project} recent={recent} start={paletteOpen} lent={project ? paletteRef.current : null} onClose={() => setPaletteOpen(false)}
           onOpenFile={(p) => openFileRef.current(p)} onOpenFolder={(root) => openFolder(root)} onTheme={(pref) => setTheme((t) => ({ ...t, pref }))} />
@@ -1300,7 +1300,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const govSettingsRef = useRef(govSettings); govSettingsRef.current = govSettings;
   // The Dependencies panel says when rulesets or their rules change.
   useEffect(() => {
-    const f = () => { readGovSettings(project.root).then(setGovSettings); govRef.current(); };
+    // Settings turning Auto on or off ('auto') runs only when it's on; rulesets changing always run.
+    const f = (e: Event) => { readGovSettings(project.root).then((s) => { setGovSettings(s); if ((e as CustomEvent).detail !== 'auto' || s.auto) govRef.current(); }); };
     window.addEventListener('ads-governance-changed', f);
     return () => window.removeEventListener('ads-governance-changed', f);
   }, [project.root]);
@@ -1675,8 +1676,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
               types={(outline?.types ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} traits={(outline?.traits ?? []).map((t) => (t.alias ? `${t.alias}.${t.name}` : t.name))} />
           )}
           {checkable && <ProblemsPanel problems={problems} open={problemsOpen} setOpen={setProblemsOpen} engine={engine} onGo={goToProblem}
-            gov={gov} govAuto={govSettings.auto} onGovRun={() => runGovernance()} onGovGo={(f) => f.file && f.r && revealAt({ file: f.file, r: f.r })}
-            onGovAuto={async (auto) => { const st = { ...(await readGovSettings(project.root)), auto }; setGovSettings(st); await writeGovSettings(project.root, st); if (auto) runGovernance(); }}
+            gov={gov} onGovRun={() => runGovernance()} onGovGo={(f) => f.file && f.r && revealAt({ file: f.file, r: f.r })}
             onAddRuleset={() => setRail('deps')} />}
           {publishing != null && <PublishDialog root={project.root} main={project.main} paths={listPaths} model={amfModel} version={publishing || undefined}
             unsaved={dirty.size} saveAll={async () => { await syncRef.current?.saveAll(); }}
@@ -1926,10 +1926,10 @@ function Shelf({ ctx, open, setOpen, onPick, types, traits }: {
 type Problem = { severity: 'error' | 'warning' | 'info'; message: string; file: string; line: number; col: number; endLine: number; endCol: number; phase: string; code: string };
 
 // Design Center's Project Errors: a bar with counts that opens into the list. Click a row to go there.
-function ProblemsPanel({ problems, open, setOpen, engine, onGo, gov, govAuto, onGovRun, onGovGo, onGovAuto, onAddRuleset }: {
+function ProblemsPanel({ problems, open, setOpen, engine, onGo, gov, onGovRun, onGovGo, onAddRuleset }: {
   problems: Problem[]; open: boolean; setOpen: (b: boolean) => void; engine: { state: string; detail: string; ms?: string }; onGo: (p: Problem) => void;
-  gov: { state: string; progress?: number; detail?: string; seconds?: number; rulesets?: number; results: Finding[] }; govAuto: boolean;
-  onGovRun: () => void; onGovGo: (f: Finding) => void; onGovAuto: (on: boolean) => void; onAddRuleset: () => void;
+  gov: { state: string; progress?: number; detail?: string; seconds?: number; rulesets?: number; results: Finding[] };
+  onGovRun: () => void; onGovGo: (f: Finding) => void; onAddRuleset: () => void;
 }) {
   const [tab, setTab] = useState<'problems' | 'gov'>('problems');
   const [levels, setLevels] = useState({ violation: true, warning: true, info: true });
@@ -1970,7 +1970,6 @@ function ProblemsPanel({ problems, open, setOpen, engine, onGo, gov, govAuto, on
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="h-8 shrink-0 flex items-center gap-2 px-3 text-[12px] text-content-faint border-b border-line-subtle">
               <button disabled={gov.state === 'running' || gov.state === 'none'} onClick={onGovRun} className="h-[22px] px-2.5 rounded-md border border-line bg-surface-2 text-content-secondary hover:text-content disabled:opacity-50">Validate</button>
-              <label className="flex items-center gap-1.5 cursor-pointer" title="Validate against the rulesets after each full check"><input type="checkbox" checked={govAuto} onChange={(e) => onGovAuto(e.target.checked)} className="accent-[var(--accent)]" />Auto</label>
               {gov.state === 'done' && (['violation', 'warning', 'info'] as const).map((l) => (
                 <button key={l} onClick={() => setLevels({ ...levels, [l]: !levels[l] })} className={`h-[22px] px-2 rounded-md border ${levels[l] ? 'border-line bg-surface-2 text-content-secondary' : 'border-transparent opacity-50'}`}>
                   {n(l)} {l === 'violation' ? 'violations' : l === 'warning' ? 'warnings' : 'info'}</button>

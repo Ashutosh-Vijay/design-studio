@@ -68,8 +68,6 @@ export function useMcpStatus() {
 export function McpPanel({ onClose }: { onClose: () => void }) {
   const st = useMcpStatus();
   const [port, setPort] = useState(String(savedPort()));
-  const [auto, setAuto] = useState(pref('ads.mcp.auto') === '1');
-  const [remote, setRemote] = useState(remoteOk());
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(autoStartError && `It didn't start when Design Studio opened: ${autoStartError}`);
   const [rows, setRows] = useState(log);
   const [client, setClient] = useState<'claude' | 'vscode' | 'cursor' | 'desktop'>('claude');
@@ -107,9 +105,7 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
           {running ? <span className="font-mono text-[11.5px] select-text">{url}</span>
             : <label className="flex items-center gap-1.5 text-content-faint">Port<input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ''))} className="w-[64px] h-[24px] px-1.5 rounded border border-line bg-surface-input font-mono text-[11.5px] text-content outline-none focus:border-accent" /></label>}
         </div>
-        <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={auto} onChange={(e) => { setAuto(e.target.checked); setPref('ads.mcp.auto', e.target.checked ? '1' : '0'); }} className="accent-[var(--accent)]" />Start when Design Studio opens</label>
-        <label className="flex items-start gap-2 cursor-pointer"><input type="checkbox" checked={remote} onChange={(e) => { setRemote(e.target.checked); setPref('ads.mcp.remote', e.target.checked ? '1' : '0'); }} className="mt-0.5 accent-[var(--accent)]" />
-          <span>Allow changes in Design Center and Exchange<span className="block text-[11.5px] text-content-faint">Push, new branches, new Design Center projects and Publish. Off, an agent can still pull and read. A read only Anypoint connection blocks these either way.</span></span></label>
+        <div className="text-[11.5px] text-content-faint">{pref('ads.mcp.auto') === '1' ? 'Starts when Design Studio opens.' : "Doesn't start by itself."} Changes in Design Center and Exchange are {remoteOk() ? 'allowed' : 'off'}. Both are in Settings, under AI tools.</div>
         <div>
           <div className="flex items-center gap-1 mb-1.5">
             <span className="text-[11.5px] text-content-faint mr-1">Connect</span>

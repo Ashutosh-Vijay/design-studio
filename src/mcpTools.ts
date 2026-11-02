@@ -225,7 +225,7 @@ export const TOOLS: Tool[] = [
   { name: 'remove_dependency', description: 'Remove an Exchange dependency (refused while a file still uses it).', props: { group_id: str('Group id'), asset_id: str('Asset id'), version: str('Version') }, required: ['group_id', 'asset_id', 'version'],
     run: async (a) => { const p = proj(); await S.removeDependency(p.root, await filesNow(p.root), { groupId: String(a.group_id), assetId: String(a.asset_id), version: String(a.version) }); await p.reload(); window.dispatchEvent(new Event('ads-governance-changed')); return `Removed ${a.asset_id}.`; } },
 ];
-export const REMOTE_OFF = "Changes in Design Center and Exchange are off for AI tools. The person can turn on 'Allow changes in Design Center and Exchange' in Design Studio's AI tools panel.";
+export const REMOTE_OFF = "Changes in Design Center and Exchange are off for AI tools. The person can turn on 'Allow changes in Design Center and Exchange' in Design Studio's Settings, under AI tools.";
 
 export const INSTRUCTIONS = `Design Studio is a desktop designer for MuleSoft Anypoint Design Center API specs (RAML 1.0 and OAS 3.0/2.0). These tools act in the person's open Design Studio window: everything a person can do there, you can do, and they watch it happen.
 

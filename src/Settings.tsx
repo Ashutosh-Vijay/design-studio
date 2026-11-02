@@ -11,23 +11,28 @@ import { ACCENTS, isDarkPref, type ThemePref } from './theme';
 import { projectsDir } from './sync';
 import { lockWhileEditing, type Me } from './SyncUI';
 import { isTauri, isVsCode } from './components/WindowControls';
+import { useMcpStatus } from './mcp';
+import { remoteOk } from './mcpTools';
+import { readSettings as readGov, writeSettings as writeGov } from './governance';
 
-type Section = 'appearance' | 'editor' | 'shortcuts' | 'anypoint' | 'projects' | 'ai' | 'about';
+type Section = 'appearance' | 'editor' | 'shortcuts' | 'project' | 'anypoint' | 'projects' | 'ai' | 'about';
 const SECTIONS: { id: Section; label: string; icon: keyof typeof Icons; keywords: string[]; desktop?: boolean }[] = [
   { id: 'appearance', label: 'Appearance', icon: 'Panel', keywords: ['theme', 'dark', 'light', 'dusk', 'paper', 'system', 'accent', 'colour', 'color', 'interface size', 'zoom'] },
   { id: 'editor', label: 'Editor', icon: 'Braces', keywords: ['text size', 'font', 'code colours', 'colors', 'design center', 'wrap', 'long lines', 'raml', 'oas'] },
   { id: 'shortcuts', label: 'Shortcuts', icon: 'Command', keywords: ['keyboard', 'keys', 'hotkey', 'save', 'find', 'replace', 'rename', 'fold', 'comment', 'palette'] },
+  { id: 'project', label: 'This project', icon: 'ApiSpec', keywords: ['governance', 'rulesets', 'rules', 'validate', 'auto', 'conformance'] },
   { id: 'anypoint', label: 'Anypoint', icon: 'DesignCenter', desktop: true, keywords: ['sign in', 'sign out', 'connect', 'account', 'organization', 'read only', 'lock', 'design center'] },
   { id: 'projects', label: 'Projects', icon: 'Folder', desktop: true, keywords: ['folder', 'location', 'where', 'pull', 'create'] },
-  { id: 'ai', label: 'AI tools', icon: 'Sparkle', desktop: true, keywords: ['mcp', 'claude', 'copilot', 'cursor', 'agent'] },
+  { id: 'ai', label: 'AI tools', icon: 'Sparkle', desktop: true, keywords: ['mcp', 'claude', 'copilot', 'cursor', 'agent', 'server', 'start', 'allow changes', 'publish', 'push'] },
   { id: 'about', label: 'About', icon: 'Help', keywords: ['version', 'updates', 'licence', 'license', "what's new"] },
 ];
 
-export function SettingsScreen({ pref, accent, onTheme, onClose, onConnect, onMcp, onAbout }: {
+export function SettingsScreen({ pref, accent, onTheme, onClose, onConnect, onMcp, onAbout, projectRoot }: {
   pref: ThemePref; accent: string; onTheme: (p: ThemePref, a: string) => void; onClose: () => void;
-  onConnect: () => void; onMcp: () => void; onAbout: () => void;
+  onConnect: () => void; onMcp: () => void; onAbout: () => void; projectRoot?: string;
 }) {
-  const sections = SECTIONS.filter((x) => !x.desktop || isTauri);
+  // This project's settings show while one is open.
+  const sections = SECTIONS.filter((x) => (!x.desktop || isTauri) && (x.id !== 'project' || projectRoot));
   const [section, setSection] = useState<Section>('appearance');
   const [search, setSearch] = useState('');
   const visible = useMemo(() => {
@@ -83,15 +88,10 @@ export function SettingsScreen({ pref, accent, onTheme, onClose, onConnect, onMc
               {section === 'appearance' && <Appearance pref={pref} accent={accent} onTheme={onTheme} />}
               {section === 'editor' && <Editor />}
               {section === 'shortcuts' && <Shortcuts />}
+              {section === 'project' && projectRoot && <ThisProject root={projectRoot} />}
               {section === 'anypoint' && <Anypoint onConnect={onConnect} />}
               {section === 'projects' && <Projects />}
-              {section === 'ai' && (
-                <Page title="AI tools" desc="Let AI agents like Claude, Copilot and Cursor work in Design Studio, over MCP.">
-                  <Row label="AI tools (MCP)" desc="Turn the local server on, see the address to give your agent, and choose whether it may change Design Center and Exchange.">
-                    <button className={btn} onClick={onMcp}>Set up…</button>
-                  </Row>
-                </Page>
-              )}
+              {section === 'ai' && <AiTools onMcp={onMcp} />}
               {section === 'about' && <About onAbout={onAbout} />}
             </>}
           </div>
@@ -101,7 +101,7 @@ export function SettingsScreen({ pref, accent, onTheme, onClose, onConnect, onMc
   );
 }
 
-function Page({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {
+function Page({ title, desc, children }: { title: string; desc?: ReactNode; children: ReactNode }) {
   return (
     <div className="max-w-[640px]">
       <h3 className="m-0 text-[18px] font-semibold tracking-tight">{title}</h3>
@@ -222,6 +222,43 @@ function Anypoint({ onConnect }: { onConnect: () => void }) {
           <button className={btn} onClick={onConnect}>{me === 'error' ? 'Sign in again' : 'Connect…'}</button>
         </Row>
       )}
+    </Page>
+  );
+}
+
+function ThisProject({ root }: { root: string }) {
+  const [auto, setAuto] = useState<boolean | null>(null);
+  useEffect(() => { readGov(root).then((s) => setAuto(s.auto), () => setAuto(true)); }, [root]);
+  return (
+    <Page title="This project" desc={<>Kept with the project, in <span className="font-mono text-[11.5px]">.apidesigner/governance.json</span>.</>}>
+      <Row label="Governance after each check" desc="Validates the API against its rulesets (Dependencies) after each full check. Off, press Validate on the Governance tab under Project errors.">
+        <Toggle label="Governance after each check" disabled={auto === null} on={!!auto} onChange={async (on) => {
+          setAuto(on);
+          await writeGov(root, { ...(await readGov(root)), auto: on });
+          window.dispatchEvent(new CustomEvent('ads-governance-changed', { detail: 'auto' }));
+        }} />
+      </Row>
+    </Page>
+  );
+}
+
+function AiTools({ onMcp }: { onMcp: () => void }) {
+  const st = useMcpStatus();
+  const pref = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const [auto, setAuto] = useState(pref('ads.mcp.auto') === '1');
+  const [remote, setRemote] = useState(remoteOk);
+  const set = (k: string, on: boolean) => { try { localStorage.setItem(k, on ? '1' : '0'); } catch { /* ignore */ } };
+  return (
+    <Page title="AI tools" desc="Let AI agents like Claude, Copilot and Cursor work in Design Studio, over MCP.">
+      <Row label="Local server" desc={st?.running ? <>Running at <span className="font-mono text-[11.5px]">127.0.0.1:{st.port}</span>, {st.requests} {st.requests === 1 ? 'call' : 'calls'}.</> : 'Stopped. Start it, then give your agent its address.'}>
+        <button className={btn} onClick={onMcp}>{st?.running ? 'Details…' : 'Set up…'}</button>
+      </Row>
+      <Row label="Start when Design Studio opens">
+        <Toggle label="Start when Design Studio opens" on={auto} onChange={(on) => { set('ads.mcp.auto', on); setAuto(on); }} />
+      </Row>
+      <Row label="Allow changes in Design Center and Exchange" desc="Push, new branches, new Design Center projects and Publish. Off, an agent can still pull and read. A read only Anypoint connection blocks these either way.">
+        <Toggle label="Allow changes in Design Center and Exchange" on={remote} onChange={(on) => { set('ads.mcp.remote', on); setRemote(on); }} />
+      </Row>
     </Page>
   );
 }
