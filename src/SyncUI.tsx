@@ -313,45 +313,6 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
 }
 
 // Settings: who's connected, and a way out.
-export function AnypointSettings({ onConnect }: { onConnect: () => void }) {
-  const [me, setMe] = useState<Me | null | 'error'>(null);
-  const [lockOn, setLockOn] = useState(lockWhileEditing);
-  useEffect(() => { invoke<Me | null>('anypoint_status').then((m) => setMe(m), () => setMe('error')); }, []);
-  return (
-    <div>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Anypoint</div>
-      {me && me !== 'error' ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-[12px]">
-            <span className="min-w-0 flex-1"><span className="block truncate">{me.username}</span><span className="block truncate text-[11px] text-content-faint">{me.org_name}</span></span>
-            <button className={btn} onClick={async () => { await invoke('anypoint_disconnect'); setMe(null); }}>Sign out</button>
-          </div>
-          <label className="flex items-center gap-2 text-[12px] cursor-pointer" title="Read only refuses every change to Design Center before it's sent">
-            <input type="checkbox" checked={me.read_only} className="accent-[var(--accent)]" onChange={async (e) => {
-              const on = e.target.checked;
-              // Turning writes on is the one that needs a second look.
-              if (!on && !(await ask(`Let Design Studio push changes to Design Center in ${me.org_name || 'this organization'}? Pushing saves files, takes the lock and can delete files there.`))) return;
-              await invoke('anypoint_set_read_only', { on }); setMe({ ...me, read_only: on });
-            }} />Read only
-          </label>
-          <label className={`flex items-center gap-2 text-[12px] ${me.read_only ? 'opacity-50' : 'cursor-pointer'}`}
-            title={me.read_only ? 'Needs read only off: locking is a change in Design Center' : 'Your first edit locks the branch in Design Center, so others can only read it until you push or close the project'}>
-            <input type="checkbox" disabled={me.read_only} checked={lockOn && !me.read_only} className="accent-[var(--accent)]" onChange={(e) => {
-              try { localStorage.setItem('ads.lockWhileEditing', e.target.checked ? '1' : '0'); } catch { /* ignore */ }
-              setLockOn(e.target.checked);
-            }} />Lock while I edit{me.read_only && <span className="text-content-faint">(needs read only off)</span>}
-          </label>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 text-[12px]">
-          <span className="flex-1 text-content-faint">{me === 'error' ? 'The sign-in has expired.' : 'Not connected'}</span>
-          <button className={btn} onClick={onConnect}>{me === 'error' ? 'Sign in again' : 'Connect…'}</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // The title bar for a project linked to Design Center: the branch, and what there is to push or pull.
 export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, onPublish }: {
   root: string; dirty: number; listFiles: () => Promise<string[]>; saveAll: () => Promise<void>;

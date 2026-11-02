@@ -1,4 +1,4 @@
-import { Component, memo, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
+import { Component, memo, useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import logo from './assets/logo.svg';
 import govWorkerUrl from './governance.worker.ts?worker&url';
@@ -17,26 +17,27 @@ import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
 import { NavigationTree } from './components/NavigationTree';
 import { PaneDivider } from './components/PaneDivider';
+import { SettingsScreen } from './Settings';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, autoUpdates, NOTES } from './Brand';
+import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, NOTES } from './Brand';
 import { WindowControls, isTauri, isVsCode } from './components/WindowControls';
 import { AsyncForms } from './AsyncApi';
 import { Inspector, OasInspector, type AmfModel, type At, type SampleResult } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection, oasJsonAdd } from './OasJson';
-import { ConnectDialog, AnypointSettings, SyncBar, ProjectMenu, TRASH } from './SyncUI';
+import { ConnectDialog, SyncBar, ProjectMenu, TRASH } from './SyncUI';
 import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus, autoStartError } from './mcp';
 import { AcademyScreen, academyDone } from './Academy';
 import { LESSONS } from './course';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
-import { projectsDir, readLink, projectPermissions } from './sync';
+import { readLink, projectPermissions } from './sync';
 import { DocsPanel } from './Docs';
 import { ApiMap } from './ApiMap';
 import { CreateDialog, NewFileDialog } from './Create';
 import { rulesets as projectRulesets, readSettings as readGovSettings, writeSettings as writeGovSettings, profileFor, type Finding, type Settings as GovSettings } from './governance';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find, freeName } from './splice';
-import { ACCENTS, ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
+import { ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
 
 // What the Rust side returns for an opened folder (src-tauri/src/lib.rs, open_project).
 type Project = { root: string; name: string; main: string | null; files: { path: string; size: number }[]; dirs: string[] };
@@ -74,7 +75,7 @@ export default function App() {
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState(savedTheme);
-  const [settingsAt, setSettingsAt] = useState<DOMRect | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [about, setAbout] = useState(false);
   const [aboutNotes, setAboutNotes] = useState(false); // About opened by itself after an update: What's new unfolded
   // Updates: a quiet check a few seconds after start; once downloaded, one "Update ready" in the title bar.
@@ -197,20 +198,19 @@ export default function App() {
         return;
       }
       // Ctrl , as in DataWeave Studio; in VS Code it stays VS Code's own settings.
-      if (!isVsCode && mod && e.key === ',' && settingsRef.current) { e.preventDefault(); setSettingsAt(settingsAt ? null : settingsRef.current.getBoundingClientRect()); return; }
+      if (!isVsCode && mod && e.key === ',') { e.preventDefault(); setSettingsOpen(!settingsOpen); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(''); }
       else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); setPaletteOpen('@'); }
       else if (e.key === 'F1') { e.preventDefault(); setPaletteOpen('>'); }
       else if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); if (isTauri) openFolder(); }
-      else if (e.key === 'Escape') { setSettingsAt(null); setPaletteOpen(false); }
+      else if (e.key === 'Escape') { setSettingsOpen(false); setPaletteOpen(false); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const settingsRef = useRef<HTMLButtonElement>(null);
   const settingsBtn = (cls: string) => (
-    <button ref={settingsRef} className={cls} title={isVsCode ? 'Settings' : 'Settings (Ctrl ,)'} aria-label="Settings" onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget.getBoundingClientRect())}>
+    <button className={cls} title={isVsCode ? 'Settings' : 'Settings (Ctrl ,)'} aria-label="Settings" onClick={() => setSettingsOpen(true)}>
       <Icons.Settings size={16} />
     </button>
   );
@@ -284,10 +284,8 @@ export default function App() {
       {mcpOpen && <McpPanel onClose={() => setMcpOpen(false)} />}
       {academy && <AcademyScreen onClose={() => setAcademy(false)} onCreate={() => { setAcademy(false); if (project) setPendingNotice('Go back to all projects to create one.'); else setCreating('api'); }} />}
       <Splash />
-      {settingsAt && (
-        <SettingsPopover at={settingsAt} pref={theme.pref} accent={theme.accent} onChange={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsAt(null)}
-          onConnect={() => { setSettingsAt(null); setConnectOpen(true); }} onMcp={() => { setSettingsAt(null); setMcpOpen(true); }} />
-      )}
+      {settingsOpen && <SettingsScreen pref={theme.pref} accent={theme.accent} onTheme={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsOpen(false)}
+        onConnect={() => { setSettingsOpen(false); setConnectOpen(true); }} onMcp={() => { setSettingsOpen(false); setMcpOpen(true); }} onAbout={() => { setSettingsOpen(false); setAbout(true); }} />}
       {paletteOpen !== false && (
         <Palette project={project} recent={recent} start={paletteOpen} lent={project ? paletteRef.current : null} onClose={() => setPaletteOpen(false)}
           onOpenFile={(p) => openFileRef.current(p)} onOpenFolder={(root) => openFolder(root)} onTheme={(pref) => setTheme((t) => ({ ...t, pref }))} />
@@ -2216,8 +2214,8 @@ function ZipDialog({ zip, dest, onOk, onCancel }: { zip: string; dest: string; o
   );
 }
 // Editor text size and wrapping: a CSS variable and a class on <html>, so every open editor follows at once.
-const editorPrefs = (): { size: number; wrap: boolean; colors: 'dc' | 'studio' } => { try { return { size: 12.5, wrap: false, colors: 'dc', ...JSON.parse(localStorage.getItem('ads.editor') ?? '{}') }; } catch { return { size: 12.5, wrap: false, colors: 'dc' }; } };
-function applyEditorPrefs(p = editorPrefs()) {
+export const editorPrefs = (): { size: number; wrap: boolean; colors: 'dc' | 'studio' } => { try { return { size: 12.5, wrap: false, colors: 'dc', ...JSON.parse(localStorage.getItem('ads.editor') ?? '{}') }; } catch { return { size: 12.5, wrap: false, colors: 'dc' }; } };
+export function applyEditorPrefs(p = editorPrefs()) {
   document.documentElement.style.setProperty('--editor-size', `${p.size}px`);
   document.documentElement.classList.toggle('ads-wrap', p.wrap);
   document.documentElement.classList.toggle('ads-dc', p.colors === 'dc');
@@ -2234,108 +2232,6 @@ export function setZoom(z: number) {
   window.dispatchEvent(new Event('ads-zoom'));
 }
 if (isTauri && !isVsCode && savedZoom() !== 1) getCurrentWebview().setZoom(savedZoom()).catch(() => {});
-function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect, onMcp }: {
-  at: DOMRect; pref: ThemePref; accent: string; onChange: (p: ThemePref, a: string) => void; onClose: () => void; onConnect: () => void; onMcp: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [ed, setEdState] = useState(editorPrefs);
-  const setEd = (p: ReturnType<typeof editorPrefs>) => { setEdState(p); try { localStorage.setItem('ads.editor', JSON.stringify(p)); } catch { /* ignore */ } applyEditorPrefs(p); };
-  const [zoom, setZoomState] = useState(savedZoom);
-  useEffect(() => { const f = () => setZoomState(savedZoom()); window.addEventListener('ads-zoom', f); return () => window.removeEventListener('ads-zoom', f); }, []);
-  const [home, setHome] = useState('');
-  const [version, setVersion] = useState('');
-  useEffect(() => { projectsDir().then(setHome); if (isTauri) getVersion().then(setVersion, () => {}); }, []);
-  let custom = false; try { custom = !!localStorage.getItem('ads.projectsDir'); } catch { /* ignore */ }
-  useEffect(() => {
-    const down = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
-    window.addEventListener('mousedown', down);
-    return () => window.removeEventListener('mousedown', down);
-  }, [onClose]);
-  // Opens beside the button that opened it and stays there while the theme changes.
-  const below = at.top < window.innerHeight / 2;
-  const style: CSSProperties = below
-    ? { top: at.bottom + 4, right: Math.max(8, window.innerWidth - at.right) }
-    : { bottom: window.innerHeight - at.top + 4, left: at.right + 6 };
-  const dark = isDarkPref(pref);
-  return (
-    <div ref={ref} style={style} className="fixed z-50 w-[270px] p-3 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mb-2">Theme</div>
-      <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-line">
-        {([['dark', 'Dusk'], ['light', 'Paper'], ['system', 'System']] as const).map(([id, name]) => (
-          <button key={id} onClick={() => onChange(id, accent)}
-            className={`flex-1 h-6 rounded text-[11.5px] ${pref === id ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint'}`}>{name}</button>
-        ))}
-      </div>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Accent</div>
-      <div className="flex gap-2">
-        {ACCENTS.map((a) => (
-          <button key={a.id} title={a.name} onClick={() => onChange(pref, a.id)}
-            className="w-[26px] h-[26px] rounded-full"
-            style={{ background: `oklch(${dark ? 72 : 55}% ${a.chroma} ${a.hue})`, outline: accent === a.id ? '2px solid var(--content)' : 'none', outlineOffset: 2 }} />
-        ))}
-      </div>
-      {/* In VS Code, its own zoom does this (View, Appearance). */}
-      {!isVsCode && <>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Interface size</div>
-      <div className="flex items-center gap-1.5 text-[12px]">
-        <button className={btn + ' !h-6 !w-7 !px-0'} title="Smaller (Ctrl Minus)" disabled={zoom <= ZOOMS[0]} onClick={() => setZoom(ZOOMS[ZOOMS.indexOf(zoom) - 1])}>−</button>
-        <span className="w-12 text-center tabular-nums text-content-secondary">{Math.round(zoom * 100)}%</span>
-        <button className={btn + ' !h-6 !w-7 !px-0'} title="Bigger (Ctrl Plus)" disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onClick={() => setZoom(ZOOMS[ZOOMS.indexOf(zoom) + 1])}>+</button>
-        <span className="flex-1" />
-        {zoom !== 1 && <button className="text-[11.5px] text-accent hover:underline" title="Ctrl 0" onClick={() => setZoom(1)}>Reset</button>}
-      </div>
-      <div className="mt-1 text-[11px] text-content-faint">Everything: icons, panels and text. Ctrl Plus and Ctrl Minus work anywhere.</div>
-      </>}
-      <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Editor</div>
-      <div className="flex items-center gap-2 text-[12px]">
-        <span className="text-content-secondary">Text size</span><span className="flex-1" />
-        <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-line">
-          {([[11.5, 'S'], [12.5, 'M'], [14, 'L']] as const).map(([px, label]) => (
-            <button key={label} title={`${px} px`} onClick={() => setEd({ ...ed, size: px })}
-              className={`w-7 h-6 rounded text-[11.5px] ${ed.size === px ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint'}`}>{label}</button>
-          ))}
-        </div>
-      </div>
-      <div className="mt-2 text-[12px]" title="How specs are coloured: by role as in Design Center (resources and paths, methods, traits, types and schemas), or Design Studio's own colours">
-        <div className="mb-1 text-content-secondary">Code colours</div>
-        <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-line">
-          {([['dc', 'Design Center'], ['studio', 'Design Studio']] as const).map(([id, label]) => (
-            <button key={id} onClick={() => setEd({ ...ed, colors: id })}
-              className={`flex-1 h-6 px-2 rounded text-[11.5px] ${ed.colors === id ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint'}`}>{label}</button>
-          ))}
-        </div>
-      </div>
-      <label className="mt-2 flex items-center gap-2 text-[12px] cursor-pointer" title="Long lines wrap to the editor's width instead of scrolling sideways">
-        <input type="checkbox" checked={ed.wrap} onChange={(e) => setEd({ ...ed, wrap: e.target.checked })} className="accent-[var(--accent)]" />Wrap long lines
-      </label>
-      {isTauri && <>
-        <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">Projects folder</div>
-        <div className="text-[11.5px] text-content-faint leading-snug">Where projects you pull or create go.</div>
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <span className="flex-1 min-w-0 truncate font-mono text-[11px] text-content-secondary" title={home}>{home}</span>
-          <button className={btn + ' !h-6 !px-2 !text-[11.5px]'} onClick={async () => {
-            const d = await openDialog({ directory: true, title: 'Where should projects go?' });
-            if (typeof d === 'string') { try { localStorage.setItem('ads.projectsDir', d.replace(/\\/g, '/')); } catch { /* ignore */ } setHome(d.replace(/\\/g, '/')); }
-          }}>Change…</button>
-        </div>
-        {custom && <button className="mt-1 text-[11.5px] text-accent hover:underline" onClick={async () => { try { localStorage.removeItem('ads.projectsDir'); } catch { /* ignore */ } setHome(await projectsDir()); }}>Use the default</button>}
-      </>}
-      {isTauri && <AnypointSettings onConnect={onConnect} />}
-      {isTauri && <>
-        <div className="text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint mt-3.5 mb-2">AI tools</div>
-        <div className="flex items-center gap-1.5">
-          <span className="flex-1 text-[11.5px] text-content-faint leading-snug">Let agents like Claude, Copilot and Cursor work here (MCP).</span>
-          <button className={btn + ' !h-6 !px-2 !text-[11.5px]'} onClick={onMcp}>Set up…</button>
-        </div>
-      </>}
-      {isTauri && !isVsCode && import.meta.env.VITE_STORE_BUILD !== '1' && <label className="mt-3.5 flex items-center gap-2 text-[12px] cursor-pointer" title="Asks GitHub for a newer version a few seconds after the app starts, and downloads it quietly">
-        <input type="checkbox" defaultChecked={autoUpdates()} onChange={(e) => { try { localStorage.setItem('ads.updateCheck', e.target.checked ? '1' : '0'); } catch { /* ignore */ } }} className="accent-[var(--accent)]" />Check for updates automatically
-      </label>}
-      <div className="mt-3.5 pt-2.5 border-t border-line-subtle text-[11px] text-content-faint">{APP_NAME} {version} · MIT licence</div>
-    </div>
-  );
-}
-
 function Palette({ project, recent, start, lent, onClose, onOpenFile, onOpenFolder, onTheme }: {
   project: Project | null; recent: Recent[]; start: '' | '@' | '>'; lent: { symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null; onClose: () => void;
   onOpenFile: (p: string) => void; onOpenFolder: (root?: string) => void; onTheme: (p: ThemePref) => void;
