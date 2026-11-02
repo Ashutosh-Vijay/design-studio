@@ -67,15 +67,51 @@ const theme = EditorView.theme({
   '.ads-conflict-btns button:hover': { borderColor: 'var(--accent-border)', color: 'var(--content)' },
 });
 
+// The --hl-* variables are set only by Design Center's colours (index.css), in RAML files.
 const highlight = HighlightStyle.define([
-  { tag: [t.propertyName, t.definition(t.propertyName)], color: 'var(--violet)' },
-  { tag: [t.string, t.special(t.string), t.content], color: 'var(--syn-string)' },
-  { tag: t.number, color: 'var(--syn-number)' },
-  { tag: [t.bool, t.null, t.keyword], color: 'var(--syn-number)' },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: 'var(--content-faint)', fontStyle: 'italic' },
+  { tag: [t.propertyName, t.definition(t.propertyName)], color: 'var(--hl-key, var(--violet))' },
+  { tag: [t.string, t.special(t.string), t.content], color: 'var(--hl-string, var(--syn-string))' },
+  { tag: t.number, color: 'var(--hl-number, var(--syn-number))' },
+  { tag: [t.bool, t.null, t.keyword], color: 'var(--hl-bool, var(--syn-number))' },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: 'var(--hl-comment, var(--content-faint))', fontStyle: 'italic' },
   { tag: [t.typeName, t.labelName, t.meta, t.tagName], color: 'var(--syn-fn)', fontStyle: 'italic' },
-  { tag: [t.punctuation, t.separator, t.brace, t.squareBracket], color: 'var(--content-muted)' },
+  { tag: [t.punctuation, t.separator, t.brace, t.squareBracket], color: 'var(--hl-punct, var(--content-muted))' },
 ]);
+
+// Design Center's colours by RAML role, as MuleSoft's API Designer gives them (mulesoft/api-designer,
+// raml-highlight.js): resources, methods and what's under them, and the root sections (traits, resource types,
+// schemas, security schemes; types too, RAML 1.0's schemas) with what's inside them. Other keys keep the key colour.
+// It walks the whole file on each edit, since a key's role depends on the keys above it.
+const DC_METHODS = ['options', 'get', 'head', 'post', 'put', 'delete', 'trace', 'connect', 'patch'];
+const DC_ROOTS: Record<string, string> = { traits: 'trait', resourceTypes: 'trait', schemas: 'trait', types: 'trait', securitySchemes: 'trait' };
+function dcDeco(view: EditorView): DecorationSet {
+  const doc = view.state.doc, out: Range<Decoration>[] = [];
+  let methodLevel = 0, inMethod = false, root = '', literal = -1;
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n), s = line.text, indent = s.length - s.trimStart().length;
+    if (n === 1 && /^#%RAML /.test(s)) { out.push(Decoration.mark({ class: 'ads-k-tag' }).range(line.from, line.to)); continue; }
+    if (literal >= 0) { if (!s.trim() || indent > literal) continue; literal = -1; }
+    const m = /^(\s*(?:-\s+)?)([a-z0-9?/{}._-]+)(?=\s*:)/i.exec(s);
+    if (!m) continue;
+    const key = m[2], bare = key.replace(/\?$/, ''), level = Math.floor(indent / 2);
+    if (/:\s*[|>][-+]?\s*(#.*)?$/.test(s)) literal = indent + (m[1].includes('-') ? 2 : 0);
+    if (level <= methodLevel || key.startsWith('/')) { methodLevel = 0; inMethod = false; }
+    let role = '';
+    if (DC_METHODS.includes(bare)) { methodLevel = level; inMethod = true; role = 'mt'; }
+    else if (inMethod) role = 'mc';
+    else if (level === 0 && DC_ROOTS[key]) { root = key; role = 'rt'; }
+    else if (level === 0) root = '';
+    if (!role && root && level > 0) role = 'rc';
+    if (!role && key.startsWith('/')) role = 'res';
+    if (role) out.push(Decoration.mark({ class: 'ads-k-' + role }).range(line.from + m[1].length, line.from + m[1].length + key.length));
+  }
+  return Decoration.set(out);
+}
+const dcPlugin = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+  constructor(view: EditorView) { this.decorations = dcDeco(view); }
+  update(u: ViewUpdate) { if (u.docChanged) this.decorations = dcDeco(u.view); }
+}, { decorations: (v) => v.decorations });
 
 // RAML on top of plain YAML: resource keys, method keys, status codes, !include paths and alias.Type references.
 const ramlMarks = new MatchDecorator({
@@ -162,7 +198,8 @@ const usesField = StateField.define<DecorationSet>({
 
 export function languageFor(path: string): Extension {
   if (/\.json$/i.test(path)) return json();
-  if (/\.(raml|ya?ml)$/i.test(path)) return [yaml(), ramlPlugin];
+  if (/\.raml$/i.test(path)) return [yaml(), ramlPlugin, dcPlugin, EditorView.editorAttributes.of({ class: 'ads-raml' })];
+  if (/\.ya?ml$/i.test(path)) return [yaml(), ramlPlugin];
   return [];
 }
 

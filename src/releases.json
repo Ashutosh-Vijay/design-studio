@@ -7,7 +7,7 @@
       {
         "title": "Design Center specs, fast",
         "tag": "NEW",
-        "desc": "Open RAML, OAS and AsyncAPI projects of any size in seconds. Every edit is checked by AMF, the engine Design Center uses, so errors show as you type. Suggestions for types, traits and !include paths are instant, and Design Center's shelf sits under the editor."
+        "desc": "Open RAML, OAS and AsyncAPI projects of any size in seconds. Every edit is checked by AMF, the engine Design Center uses, so errors show as you type. Suggestions for types, traits and !include paths are instant, and Design Center's shelf sits under the editor. RAML is coloured as in Design Center, by resource, method, trait and type."
       },
       {
         "title": "Forms and code in step",

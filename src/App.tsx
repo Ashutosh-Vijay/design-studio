@@ -2213,10 +2213,11 @@ function ZipDialog({ zip, dest, onOk, onCancel }: { zip: string; dest: string; o
   );
 }
 // Editor text size and wrapping: a CSS variable and a class on <html>, so every open editor follows at once.
-const editorPrefs = (): { size: number; wrap: boolean } => { try { return { size: 12.5, wrap: false, ...JSON.parse(localStorage.getItem('ads.editor') ?? '{}') }; } catch { return { size: 12.5, wrap: false }; } };
+const editorPrefs = (): { size: number; wrap: boolean; colors: 'dc' | 'studio' } => { try { return { size: 12.5, wrap: false, colors: 'dc', ...JSON.parse(localStorage.getItem('ads.editor') ?? '{}') }; } catch { return { size: 12.5, wrap: false, colors: 'dc' }; } };
 function applyEditorPrefs(p = editorPrefs()) {
   document.documentElement.style.setProperty('--editor-size', `${p.size}px`);
   document.documentElement.classList.toggle('ads-wrap', p.wrap);
+  document.documentElement.classList.toggle('ads-dc', p.colors === 'dc');
   window.dispatchEvent(new Event('ads-editor-prefs'));
 }
 applyEditorPrefs();
@@ -2235,7 +2236,7 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect, onMcp
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [ed, setEdState] = useState(editorPrefs);
-  const setEd = (p: { size: number; wrap: boolean }) => { setEdState(p); try { localStorage.setItem('ads.editor', JSON.stringify(p)); } catch { /* ignore */ } applyEditorPrefs(p); };
+  const setEd = (p: ReturnType<typeof editorPrefs>) => { setEdState(p); try { localStorage.setItem('ads.editor', JSON.stringify(p)); } catch { /* ignore */ } applyEditorPrefs(p); };
   const [zoom, setZoomState] = useState(savedZoom);
   useEffect(() => { const f = () => setZoomState(savedZoom()); window.addEventListener('ads-zoom', f); return () => window.removeEventListener('ads-zoom', f); }, []);
   const [home, setHome] = useState('');
@@ -2289,6 +2290,15 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect, onMcp
           {([[11.5, 'S'], [12.5, 'M'], [14, 'L']] as const).map(([px, label]) => (
             <button key={label} title={`${px} px`} onClick={() => setEd({ ...ed, size: px })}
               className={`w-7 h-6 rounded text-[11.5px] ${ed.size === px ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint'}`}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="mt-2 text-[12px]" title="How RAML is coloured: by role as in Design Center (resources, methods, traits and types), or Design Studio's own colours">
+        <div className="mb-1 text-content-secondary">RAML colours</div>
+        <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-line">
+          {([['dc', 'Design Center'], ['studio', 'Design Studio']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setEd({ ...ed, colors: id })}
+              className={`flex-1 h-6 px-2 rounded text-[11.5px] ${ed.colors === id ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint'}`}>{label}</button>
           ))}
         </div>
       </div>
