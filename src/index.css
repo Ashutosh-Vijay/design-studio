@@ -147,18 +147,18 @@ code, pre, .font-mono { font-family: var(--font-mono); }
 .ads-dialog { color: var(--content); max-height: calc(100dvh - 32px); max-width: calc(100vw - 32px); }
 .ads-dialog::backdrop { background: rgb(0 0 0 / 0.45); }
 
-/* Settings, Editor, Code colours, Design Center: RAML in Design Center's colours (MuleSoft API Designer's Solarized
+/* Settings, Editor, Code colours, Design Center: RAML, OAS and AsyncAPI in Design Center's colours (MuleSoft API Designer's Solarized
    palette, the same in light and dark). Values stay in the text colour; keys get their RAML role (editor.ts, dcDeco). */
-html.ads-dc .ads-raml {
+html.ads-dc .ads-spec {
   --hl-key: #b58900; --hl-string: var(--content); --hl-number: #d33682; --hl-bool: #cb4b16; --hl-punct: #859900; --hl-comment: #586e75;
 }
-html.ads-dc .ads-raml :is(.ads-res, .ads-code, [class*="ads-m-"]), html.ads-dc .ads-raml :is(.ads-res, .ads-code, [class*="ads-m-"]) * { color: inherit; font-weight: inherit; }
-html.ads-dc .ads-raml .ads-k-res, html.ads-dc .ads-raml .ads-k-res * { color: #cb4b16; }
-html.ads-dc .ads-raml .ads-k-mt, html.ads-dc .ads-raml .ads-k-mt * { color: #268bd2; }
-html.ads-dc .ads-raml .ads-k-mc, html.ads-dc .ads-raml .ads-k-mc * { color: #2aa198; }
-html.ads-dc .ads-raml .ads-k-rt, html.ads-dc .ads-raml .ads-k-rt * { color: #d33682; }
-html.ads-dc .ads-raml .ads-k-rc, html.ads-dc .ads-raml .ads-k-rc * { color: #6c71c4; }
-html.ads-dc .ads-raml .ads-k-tag, html.ads-dc .ads-raml .ads-k-tag * { color: #859900; font-style: normal; }
+html.ads-dc .ads-spec :is(.ads-res, .ads-code, [class*="ads-m-"]), html.ads-dc .ads-spec :is(.ads-res, .ads-code, [class*="ads-m-"]) * { color: inherit; font-weight: inherit; }
+html.ads-dc .ads-spec .ads-k-res, html.ads-dc .ads-spec .ads-k-res * { color: #cb4b16; }
+html.ads-dc .ads-spec .ads-k-mt, html.ads-dc .ads-spec .ads-k-mt * { color: #268bd2; }
+html.ads-dc .ads-spec .ads-k-mc, html.ads-dc .ads-spec .ads-k-mc * { color: #2aa198; }
+html.ads-dc .ads-spec .ads-k-rt, html.ads-dc .ads-spec .ads-k-rt * { color: #d33682; }
+html.ads-dc .ads-spec .ads-k-rc, html.ads-dc .ads-spec .ads-k-rc * { color: #6c71c4; }
+html.ads-dc .ads-spec .ads-k-tag, html.ads-dc .ads-spec .ads-k-tag * { color: #859900; font-style: normal; }
 
 /* Settings, Editor, Wrap long lines: what CodeMirror's lineWrapping does, switched from <html>. */
 .ads-wrap .cm-content { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; flex-shrink: 1; }

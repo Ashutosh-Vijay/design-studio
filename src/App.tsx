@@ -196,6 +196,8 @@ export default function App() {
         setZoom(e.key === '0' ? 1 : ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + (e.key === '-' ? -1 : 1)))]);
         return;
       }
+      // Ctrl , as in DataWeave Studio; in VS Code it stays VS Code's own settings.
+      if (!isVsCode && mod && e.key === ',' && settingsRef.current) { e.preventDefault(); setSettingsAt(settingsAt ? null : settingsRef.current.getBoundingClientRect()); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(''); }
       else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); setPaletteOpen('@'); }
       else if (e.key === 'F1') { e.preventDefault(); setPaletteOpen('>'); }
@@ -206,9 +208,10 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  const settingsRef = useRef<HTMLButtonElement>(null);
   const settingsBtn = (cls: string) => (
-    <button className={cls} title="Settings" onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget.getBoundingClientRect())}>
-      <Icons.Sliders size={17} />
+    <button ref={settingsRef} className={cls} title={isVsCode ? 'Settings' : 'Settings (Ctrl ,)'} aria-label="Settings" onClick={(e) => setSettingsAt(settingsAt ? null : e.currentTarget.getBoundingClientRect())}>
+      <Icons.Settings size={16} />
     </button>
   );
 
@@ -2293,8 +2296,8 @@ function SettingsPopover({ at, pref, accent, onChange, onClose, onConnect, onMcp
           ))}
         </div>
       </div>
-      <div className="mt-2 text-[12px]" title="How RAML is coloured: by role as in Design Center (resources, methods, traits and types), or Design Studio's own colours">
-        <div className="mb-1 text-content-secondary">RAML colours</div>
+      <div className="mt-2 text-[12px]" title="How specs are coloured: by role as in Design Center (resources and paths, methods, traits, types and schemas), or Design Studio's own colours">
+        <div className="mb-1 text-content-secondary">Code colours</div>
         <div className="flex gap-0.5 p-0.5 rounded-md bg-surface border border-line">
           {([['dc', 'Design Center'], ['studio', 'Design Studio']] as const).map(([id, label]) => (
             <button key={id} onClick={() => setEd({ ...ed, colors: id })}
