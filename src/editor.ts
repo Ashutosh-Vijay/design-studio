@@ -18,6 +18,7 @@ export const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'option
 // Colours come from CSS variables, so Dusk, Paper and the accent all apply without rebuilding the editor.
 const theme = EditorView.theme({
   '&': { height: '100%', color: 'var(--content)', backgroundColor: 'var(--surface)', fontSize: 'var(--editor-size, 12.5px)' },
+  '&.cm-focused': { outline: 'none' },
   '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.6' },
   '.cm-content': { caretColor: 'var(--accent)', padding: '6px 0 40vh' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },

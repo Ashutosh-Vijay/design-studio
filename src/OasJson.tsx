@@ -6,7 +6,7 @@ import { parseTree, findNodeAtLocation, findNodeAtOffset, getNodePath, getNodeVa
 import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
 import { METHODS, type Outline, type Resource, type Decl } from './raml';
-import { Field, Sec, AddSelect, IconBtn, ReadOnlyBox, Badge, UsedBy, BTN, CODES, MEDIA, codeColor, SampleCheck, type AmfModel, type At, type SampleResult } from './Inspector';
+import { Field, Sec, PropertyHead, AddSelect, IconBtn, ReadOnlyBox, Badge, UsedBy, BTN, CODES, MEDIA, codeColor, SampleCheck, type AmfModel, type At, type SampleResult } from './Inspector';
 
 const OAS_BUILTIN = ['string', 'integer', 'number', 'boolean', 'object', 'array'];
 const REF = '#/components/schemas/';
@@ -155,13 +155,13 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
     const t = typeOf(p), target = schemaNames.includes(t.replace(/\[\]$/, '')) ? ['components', 'schemas', t.replace(/\[\]$/, '')] : null;
     return (
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
-        <Field value={t} mono options={[...schemaNames, ...OAS_BUILTIN]} placeholder="string" onCommit={(v) => onEdit((x) => setType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
+        <Field value={t} mono options={[...schemaNames, ...OAS_BUILTIN]} ariaLabel="Type" placeholder="string" onCommit={(v) => onEdit((x) => setType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
         {target && <IconBtn nav title={`Go to ${target[2]}`} onClick={() => go(target)}><Icons.ChevronRight size={12} /></IconBtn>}
       </span>
     );
   };
   const field = (p: JSONPath, key: string, placeholder: string, mono = false, multiline = false) => (
-    <Field value={str([...p, key])} placeholder={placeholder} mono={mono} multiline={multiline} onCommit={(v) => onEdit((x) => set(x, [...p, key], v || undefined))} />
+    <Field label={key === 'summary' ? 'Summary' : key === 'description' ? 'Description' : undefined} value={str([...p, key])} placeholder={placeholder} mono={mono} multiline={multiline} onCommit={(v) => onEdit((x) => set(x, [...p, key], v || undefined))} />
   );
   const content = (p: JSONPath) => {
     const media = Object.keys((val([...p, 'content']) as J) ?? {});
@@ -171,7 +171,7 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
           <div key={m} className={rowCls(inside([...p, 'content', m])) + ' flex items-center gap-1.5 py-[3px]'} onClick={() => go([...p, 'content', m])}>
             <span className="text-[11px] font-mono text-content-faint shrink-0 max-w-[45%] truncate" title={m}>{m}</span>
             {typeCell([...p, 'content', m, 'schema'])}
-            <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => set(x, [...p, 'content', m], undefined))}><Icons.X size={11} /></IconBtn></span>
+            <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => set(x, [...p, 'content', m], undefined))}><Icons.X size={11} /></IconBtn></span>
           </div>
         ))}
         <div className="flex"><AddSelect label="Content" options={MEDIA.filter((m) => !media.includes(m))} onPick={(m) => onEdit((x) => set(x, [...p, 'content', m], { schema: { type: 'object' } }))} /></div>
@@ -209,11 +209,11 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
                 <Select value={where} onChange={(v) => onEdit((x) => set(x, [...ip, 'in'], v))} mono
                   className="w-[70px] shrink-0 !px-1.5 text-[11px] text-content-secondary" options={['query', 'path', 'header', 'cookie'].map((w) => ({ value: w }))} />
                 {typeCell([...ip, 'schema'])}
-                <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                <label title="Required" className="shrink-0 flex items-center gap-1 text-[11.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={where === 'path' || p.required === true} disabled={where === 'path'} className="accent-[var(--accent)]"
                     onChange={(e) => onEdit((x) => set(x, [...ip, 'required'], e.target.checked ? true : undefined))} />req
                 </label>
-                <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => set(x, ip, undefined))}><Icons.X size={11} /></IconBtn></span>
+                <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => set(x, ip, undefined))}><Icons.X size={11} /></IconBtn></span>
               </div>
             );
           })}
@@ -228,7 +228,7 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-bold text-[11.5px] px-1.5 rounded-[3px]" style={{ color: codeColor(c), background: `color-mix(in oklch, ${codeColor(c)} 13%, transparent)` }}>{c}</span>
                   <Field value={str([...p, 'description'])} placeholder="Description (required in OAS)" onCommit={(v) => onEdit((x) => set(x, [...p, 'description'], v))} />
-                  <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => set(x, p, undefined))}><Icons.X size={11} /></IconBtn></span>
+                  <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => set(x, p, undefined))}><Icons.X size={11} /></IconBtn></span>
                 </div>
                 {content(p)}
               </div>
@@ -277,16 +277,17 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
             add={<button onClick={() => { let n = 'property', i = 2; while (props.includes(n)) n = 'property' + i++; onEdit((x) => set(x, [...p, 'properties', n], { type: 'string' })); }}
               className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />Add property</button>}>
             {props.length === 0 && <div className="text-[11.5px] text-content-faint">No properties.</div>}
+            {props.length > 0 && <PropertyHead />}
             {props.map((k) => {
               const pp = [...p, 'properties', k];
               return (
                 <div key={k} className={rowCls(inside(pp)) + ' flex items-center gap-1 py-[3px]'} onClick={() => go(pp)}>
-                  <span className="w-[38%] shrink-0"><Field value={k} mono onCommit={(v) => v && onEdit((x) => { let y = renameKey(x, pp, v); if (req.includes(k)) y = setReq(y, req.map((r) => (r === k ? v : r))); return y; })} /></span>
+                  <span className="w-[38%] shrink-0"><Field ariaLabel="Name" value={k} mono onCommit={(v) => v && onEdit((x) => { let y = renameKey(x, pp, v); if (req.includes(k)) y = setReq(y, req.map((r) => (r === k ? v : r))); return y; })} /></span>
                   {typeCell(pp)}
-                  <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                  <label title="Required" className="shrink-0 flex items-center gap-1 text-[11.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={req.includes(k)} className="accent-[var(--accent)]" onChange={(e) => onEdit((x) => setReq(x, e.target.checked ? [...req, k] : req.filter((r) => r !== k)))} />req
                   </label>
-                  <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => { const y = set(x, pp, undefined); return req.includes(k) ? setReq(y, req.filter((r) => r !== k)) : y; })}><Icons.X size={11} /></IconBtn></span>
+                  <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => { const y = set(x, pp, undefined); return req.includes(k) ? setReq(y, req.filter((r) => r !== k)) : y; })}><Icons.X size={11} /></IconBtn></span>
                 </div>
               );
             })}
@@ -307,7 +308,7 @@ export function OasJsonInspector({ file, text, line, readOnly, model, onEdit, on
           {servers.map((_s, n) => (
             <div key={n} className="group/r flex items-center gap-1 py-[3px]">
               <Field value={str(['servers', n, 'url'])} mono onCommit={(v) => v && onEdit((x) => set(x, ['servers', n, 'url'], v))} />
-              <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => set(x, ['servers', n], undefined))}><Icons.X size={11} /></IconBtn></span>
+              <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => set(x, ['servers', n], undefined))}><Icons.X size={11} /></IconBtn></span>
             </div>
           ))}
         </Sec>

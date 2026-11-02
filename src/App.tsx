@@ -1,4 +1,5 @@
-import { Component, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
+import { Component, memo, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import logo from './assets/logo.svg';
 import govWorkerUrl from './governance.worker.ts?worker&url';
 import logoSmall from './assets/logo-small.svg';
@@ -14,6 +15,8 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
+import { NavigationTree } from './components/NavigationTree';
+import { PaneDivider } from './components/PaneDivider';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -402,6 +405,27 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const fail = (e: unknown) => setNotice({ text: String(e), err: true });
   useEffect(() => { if (initialNotice) setNotice({ text: initialNotice, err: false }); }, [initialNotice]);
   const [rail, setRail] = useState<'files' | 'api' | 'deps' | 'exchange' | 'map'>('api');
+  const [navOpen, setNavOpen] = useState(() => window.innerWidth >= 900);
+  const workspace = useRef<HTMLDivElement>(null);
+  const [workspaceWidth, setWorkspaceWidth] = useState(window.innerWidth);
+  const [panes, setPanes] = useState(() => {
+    try {
+      const p = JSON.parse(localStorage.getItem('ads.panes') ?? '{}');
+      return { left: Math.max(220, Math.min(480, Number(p.left) || 272)), right: Math.max(260, Math.min(700, Number(p.right) || 350)), code: Math.max(25, Math.min(60, Number(p.code) || 42)) };
+    } catch { return { left: 272, right: 350, code: 42 }; }
+  });
+  useEffect(() => {
+    let previous = window.innerWidth;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      setWorkspaceWidth(width);
+      if (width < 760 && previous >= 760) { setNavOpen(false); setInspOpen(false); }
+      previous = width;
+    });
+    if (workspace.current) observer.observe(workspace.current);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => { try { localStorage.setItem('ads.panes', JSON.stringify(panes)); } catch { /* unavailable storage */ } }, [panes]);
   // The Publish dialog, open with a suggested version (or '' for Design Center's own rule).
   const [publishing, setPublishing] = useState<string | null>(null);
   const [published, setPublished] = useState(0); // remounts the Exchange panel after a publish
@@ -410,7 +434,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const [outline, setOutline] = useState<Outline | null>(null);
   const [shelf, setShelf] = useState<ShelfCtx | null>(null);
   const [shelfOpen, setShelfOpen] = useState(true);
-  const [inspOpen, setInspOpen] = useState(() => { try { return localStorage.getItem('ads.inspector') !== '0'; } catch { return true; } });
+  const [inspOpen, setInspOpen] = useState(() => { try { return window.innerWidth >= 900 && localStorage.getItem('ads.inspector') !== '0'; } catch { return window.innerWidth >= 900; } });
   const [rpanel, setRpanel] = useState<'insp' | 'docs'>('insp');
   // Design Center's "Guide me through it", minus its one-way door: the forms take the middle and the code sits
   // beside them, both live. Per project; Create sets it for a project started that way.
@@ -1469,7 +1493,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   // A stable handler, so the API tree (hundreds of rows) isn't redrawn on every keystroke.
   const pickRef = useRef((_f: string, _from: number, _id: string) => {});
   pickRef.current = (file, from, id) => { setSelId(id); reveal(file, from); };
-  const treePick = useMemo(() => (file: string, from: number, id: string) => pickRef.current(file, from, id), []);
+  const treePick = useMemo(() => (file: string, from: number, id: string) => {
+    pickRef.current(file, from, id);
+    if ((workspace.current?.clientWidth ?? window.innerWidth) < 760) setNavOpen(false);
+  }, []);
   const addRef = useRef(addToApi); addRef.current = addToApi;
   const treeAdd = useMemo(() => (sec: string) => { addRef.current(sec).catch(fail); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // The + buttons need a RAML 1.0 API (not a fragment, not 0.8) or an OAS 3.0 spec as the root file, that this person may edit.
@@ -1497,6 +1524,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   // Files the forms can edit: RAML 1.0 and OAS 3.0 (YAML or JSON).
   const formable = !!doc && active === doc.path && ((/\.raml$/i.test(doc.path) && !doc.text.startsWith('#%RAML 0.8')) || isOasYaml(doc.path, doc.text) || isOasJson(doc.path, doc.text) || isAsync(doc.path, doc.text));
   const front = guided && formable;
+  const leftWidth = Math.min(panes.left, Math.max(220, workspaceWidth - 448));
+  const rightWidth = Math.min(panes.right, Math.max(260, workspaceWidth - 448 - (navOpen && rail !== 'map' ? leftWidth : 0)));
+  const rightVisible = inspOpen && (workspaceWidth < 760 || workspaceWidth >= 648 + (navOpen && rail !== 'map' ? leftWidth : 0));
+  const mainWidth = workspaceWidth - 88 - (navOpen && rail !== 'map' && workspaceWidth >= 760 ? leftWidth : 0) - (rightVisible && (rpanel === 'docs' || !front) && workspaceWidth >= 760 ? rightWidth : 0);
   // The forms for the open file: in the right panel, or in the middle when the forms are in front.
   const inspector = (
             <Boundary resetKey={doc ? doc.path + ":" + doc.line : ""} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {e}. The code editor still works; move the cursor to try again.</div>}>
@@ -1526,18 +1557,18 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   );
   return (
     <>
-      <div className="flex-1 min-h-0 flex">
-        <nav className="w-12 shrink-0 bg-rail border-r border-line flex flex-col py-2.5">
+      <div ref={workspace} className="relative flex-1 min-h-0 flex">
+        <nav aria-label="Project panels" className="w-12 shrink-0 bg-rail border-r border-line flex flex-col py-2.5">
           {([['files', 'Files', <Icons.File size={18} />], ['api', 'API', <Icons.ApiSpec size={18} />], ['deps', 'Dependencies', <Icons.Deps size={18} />], ['exchange', 'Exchange', <Icons.Exchange size={18} />], ['map', 'API map', <Icons.Map size={18} />]] as const).map(([id, title, icon]) => (
-            <button key={id} title={title} onClick={() => setRail(id)}
-              className={`relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center ${rail === id ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
-              {rail === id && <span className="absolute -left-2 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
+            <button key={id} title={title} aria-label={title} aria-pressed={rail === id && (id === 'map' || navOpen)} onClick={() => { if (id !== 'map') { setNavOpen(rail !== id || !navOpen); if (workspaceWidth < 760) setInspOpen(false); } setRail(id); }}
+              className={`relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center ${rail === id && (id === 'map' || navOpen) ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
+              {rail === id && (id === 'map' || navOpen) && <span className="absolute -left-2 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
               {icon}
             </button>
           ))}
         </nav>
 
-        {rail !== 'map' && <aside className="w-[272px] shrink-0 bg-surface border-r border-line flex flex-col min-h-0">
+        {rail !== 'map' && navOpen && <><aside aria-label={`${{ files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[rail]} panel`} style={{ width: leftWidth }} className={`shrink-0 bg-surface border-r border-line flex flex-col min-h-0 ${workspaceWidth < 760 ? 'absolute left-12 inset-y-0 z-30 shadow-[var(--shadow)]' : ''}`}>
           <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold"><span className="flex-1">{{ files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[rail]}</span>
             {rail === 'files' && <button title="New file or folder" onClick={(e) => { const b = e.currentTarget.getBoundingClientRect(); setMenu({ path: '', x: b.left, y: b.bottom + 2 }); }}
               className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.Plus size={14} /></button>}</div>
@@ -1550,15 +1581,16 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
           ) : <>
           <label className="m-2 mb-1 flex items-center gap-1.5 h-[26px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
             <Icons.Search size={12} />
-            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={rail === 'files' ? 'Filter' : 'Filter resources and types'} spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
+            <input aria-label={rail === 'files' ? 'Filter files' : 'Filter resources and types'} value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={rail === 'files' ? 'Filter' : 'Filter resources and types'} spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
+            {filter && <button aria-label="Clear filter" title="Clear filter" onClick={() => setFilter('')} className="flex h-5 w-5 items-center justify-center rounded hover:bg-surface-3"><Icons.X size={12} /></button>}
           </label>
           {rail === 'api' ? (
             <ApiTree outline={outline} rootFile={project.main ?? ''} filter={filter} selId={selId} closed={closedSecs} setClosed={setClosedSecs} noRoot={!project.main}
               onPick={treePick} onAdd={canAdd ? treeAdd : null} />
           ) : (
-          <div className="flex-1 overflow-auto pb-3">
+          <NavigationTree label="Project files" className="flex-1 overflow-auto pb-3">
             {rows.map((r) => r.kind === 'dir' ? (
-              <div key={'d' + r.path} style={{ paddingLeft: 8 + r.depth * 14 }}
+              <div key={'d' + r.path} role="treeitem" tabIndex={-1} aria-label={base(r.path)} aria-level={r.depth + 1} aria-expanded={!!filter || openDirs.has(r.path)} style={{ paddingLeft: 8 + r.depth * 14 }}
                 onClick={() => { const n = new Set(openDirs); n.has(r.path) ? n.delete(r.path) : n.add(r.path); setOpenDirs(n); }}
                 onContextMenu={(e) => { e.preventDefault(); setMenu({ path: r.path + '/', x: e.clientX, y: e.clientY }); }}
                 className="flex items-center gap-1.5 h-6 pr-2 text-[12.5px] text-content-secondary cursor-pointer hover:bg-[var(--hover-overlay)]">
@@ -1567,7 +1599,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                 <span className="truncate">{base(r.path)}</span>
               </div>
             ) : (
-              <div key={'f' + r.path} onClick={() => openFile(r.path)} title={r.path} style={{ paddingLeft: 8 + r.depth * 14 + 20 }}
+              <div key={'f' + r.path} role="treeitem" tabIndex={-1} aria-level={r.depth + 1} aria-selected={active === r.path} aria-label={`${r.path}${r.path === project.main ? ', Root file' : ''}${dirty.has(r.path) ? ', unsaved changes' : ''}`} onClick={() => { openFile(r.path); if (workspaceWidth < 760) setNavOpen(false); }} title={r.path} style={{ paddingLeft: 8 + r.depth * 14 + 20 }}
                 onContextMenu={(e) => { e.preventDefault(); setMenu({ path: r.path, x: e.clientX, y: e.clientY }); }}
                 className={`group/row relative flex items-center gap-1.5 h-6 pr-2 text-[12.5px] cursor-pointer ${active === r.path ? 'bg-accent-dim text-content' : 'text-content-secondary hover:bg-[var(--hover-overlay)]'}`}>
                 {active === r.path && <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent" />}
@@ -1576,15 +1608,15 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                   {r.path === project.main && <span className="text-[9.5px] font-semibold px-1.5 rounded border border-accent-border text-accent whitespace-nowrap">Root file</span>}
                   {isReadOnly(r.path) && <span className="text-content-faint flex" title="Read-only"><Icons.Lock size={12} /></span>}
                   <button title="More actions" onClick={(e) => { e.stopPropagation(); const b = e.currentTarget.getBoundingClientRect(); setMenu({ path: r.path, x: b.left, y: b.bottom + 2 }); }}
-                    className="w-[18px] h-[18px] rounded flex items-center justify-center text-content-faint opacity-0 group-hover/row:opacity-100 hover:bg-surface-3 hover:text-content"><Icons.More size={13} /></button>
+                    aria-label={`More actions for ${base(r.path)}`} className="w-[18px] h-[18px] rounded flex items-center justify-center text-content-faint opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 hover:bg-surface-3 hover:text-content"><Icons.More size={13} /></button>
                 </span>
               </div>
             ))}
-            {rows.length === 0 && <div className="p-3 text-[12px] text-content-faint">No files match.</div>}
-          </div>
+            {rows.length === 0 && <div className="p-3 text-[12px] text-content-faint">{filter ? 'No files match. Clear the filter to see all files.' : 'No files yet. Use + to add a file or folder.'}</div>}
+          </NavigationTree>
           )}
           </>}
-        </aside>}
+        </aside>{workspaceWidth >= 760 && <PaneDivider label="Files and API panel width" value={leftWidth} min={220} max={Math.max(220, Math.min(480, workspaceWidth - 448))} onChange={(left) => setPanes((p) => ({ ...p, left }))} />}</>}
 
         <main className="relative flex-1 min-w-0 flex flex-col bg-surface">
           {/* The map covers the editor, which stays as it was underneath. */}
@@ -1594,9 +1626,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                 onOpenAt={(at) => { setRail('api'); revealAt(at); }} onReveal={(f, from) => { setRail('api'); reveal(f, from); }} />
             </Boundary>
           </div>}
-          <div className="h-9 shrink-0 flex items-stretch bg-bg border-b border-line overflow-x-auto">
+          <div role="tablist" aria-label="Open files" className="h-9 shrink-0 flex items-stretch bg-bg border-b border-line overflow-x-auto">
             {tabs.map((p) => (
-              <div key={p} onClick={() => show(p)} onAuxClick={(e) => { if (e.button === 1) closeTab(p); }} title={p}
+              <div key={p} role="tab" aria-selected={active === p} tabIndex={active === p ? 0 : -1}
+                onKeyDown={(e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(p); } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); const i = (tabs.indexOf(p) + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; show(tabs[i]); e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]')[i]?.focus(); } }}
+                onClick={() => show(p)} onAuxClick={(e) => { if (e.button === 1) closeTab(p); }} title={p}
                 onContextMenu={(e) => { e.preventDefault(); setTabMenu({ path: p, x: e.clientX, y: e.clientY }); }}
                 className={`group relative flex items-center gap-2 pl-3 pr-2 text-[12.5px] border-r border-line-secondary cursor-pointer shrink-0 ${p === active ? 'bg-surface text-content' : 'text-content-faint hover:text-content-secondary'}`}>
                 {p === active && <span className="absolute left-0 right-0 top-0 h-0.5 bg-accent" />}
@@ -1623,8 +1657,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             {/* Forms or code in front: Design Center's visual editor and its RAML editor, but you can always switch back. */}
             {formable && <span className={`${active && !viewOnly && isExchangeFile(active) ? 'ml-3' : 'ml-auto'} flex items-center h-5 p-px rounded-md border border-line bg-bg`}>
               {([[false, 'Code', 'The code in front, the forms in the Inspector'], [true, 'Forms', 'Guide me through it: the forms in front, the code beside them']] as const).map(([on, label, tip]) => (
-                <button key={label} title={tip} onClick={() => setGuided(on)}
-                  className={`h-full px-2 rounded-[5px] text-[11px] ${guided === on ? 'bg-surface-3 text-content font-medium' : 'text-content-faint hover:text-content-secondary'}`}>{label}</button>
+                <button key={label} title={on && mainWidth < 600 ? 'Edit the forms. Switch to Code to see the specification.' : tip} aria-pressed={guided === on} onClick={() => setGuided(on)}
+                  className={`h-full px-2.5 rounded-[5px] text-[12px] ${guided === on ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint hover:text-content-secondary'}`}>{label}</button>
               ))}
             </span>}
           </div>
@@ -1632,7 +1666,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             <Icons.Lock size={13} /><span><b>View only.</b> Your Design Center role on this project lets you look, not edit. Ask an owner for Editor access to change it.</span></div>}
           <div className="flex-1 min-h-0 flex">
             {front && <div className="flex-1 min-w-0 flex flex-col bg-surface"><div className="flex-1 min-h-0 flex flex-col w-full max-w-[760px] mx-auto">{inspector}</div></div>}
-            <div ref={host} className={`min-h-0 min-w-0 select-text ${front ? 'w-[42%] shrink-0 border-l border-line' : 'flex-1'}`} style={{ display: active ? 'block' : 'none' }} />
+            {front && mainWidth >= 600 && <PaneDivider label="Code preview width (percent)" value={panes.code} min={25} max={60} reverse scale={100 / Math.max(1, mainWidth)} onChange={(code) => setPanes((p) => ({ ...p, code }))} />}
+            <div ref={host} className={`min-h-0 min-w-0 select-text ${front ? 'shrink-0 border-l border-line' : 'flex-1'}`} style={{ display: active && (!front || mainWidth >= 600) ? 'block' : 'none', width: front ? `${panes.code}%` : undefined }} />
           </div>
           {active === project.main && shelf && !front && (
             <Shelf ctx={shelf} open={shelfOpen} setOpen={setShelfOpen} onPick={shelfInsert}
@@ -1647,7 +1682,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             errors={problems.filter((x) => x.severity === 'error').length}
             onClose={() => setPublishing(null)} onShowErrors={() => { setPublishing(null); setProblemsOpen(true); }}
             onDone={async (text) => { setPublishing(null); await syncRef.current?.reload(); setPublished((n) => n + 1); setNotice({ text, err: false, ok: true }); }} />}
-          {!active && <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px]">{project.main ? <span className="flex items-center gap-2"><Spinner />Opening…</span> : 'No root file found. Pick a file on the left.'}</div>}
+          {!active && <div className="flex-1 flex items-center justify-center p-6 text-content-faint text-[12.5px]">{project.main ? <span className="flex items-center gap-2"><Spinner />Opening…</span> : 'Open a specification from Files, then choose Set as root file from its menu.'}</div>}
           {notice && (
             <div className={`shrink-0 flex items-center gap-2 px-3 py-2 border-t text-[12px] ${notice.ok ? 'border-[color-mix(in_oklch,var(--ok)_45%,transparent)] bg-[color-mix(in_oklch,var(--ok)_12%,transparent)] text-content font-medium' : notice.err ? 'border-line bg-surface-2 text-err' : 'border-line bg-surface-2 text-content-secondary'}`}>
               {notice.ok ? <span className="text-ok flex"><Icons.Check size={14} /></span> : !notice.err && <span className="text-accent flex"><Icons.Dot size={12} /></span>}
@@ -1659,27 +1694,28 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             </div>
           )}
         </main>
-        {inspOpen && rpanel === 'docs' && (
-          <aside className="w-[380px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
+        {rightVisible && (rpanel === 'docs' || !front) && workspaceWidth >= 760 && <PaneDivider label={rpanel === 'docs' ? 'Documentation panel width' : 'Inspector panel width'} value={rightWidth} min={260} max={Math.max(260, Math.min(700, workspaceWidth - 448 - (navOpen && rail !== 'map' ? leftWidth : 0)))} reverse onChange={(right) => setPanes((p) => ({ ...p, right }))} />}
+        {rightVisible && rpanel === 'docs' && (
+          <aside aria-label="Documentation panel" style={{ width: rightWidth }} className={`shrink-0 bg-surface border-l border-line flex flex-col min-h-0 ${workspaceWidth < 760 ? 'absolute right-10 inset-y-0 z-30 shadow-[var(--shadow)]' : ''}`}>
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Documentation</div>
             <Boundary resetKey={project.root} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The documentation hit a problem: {e}.</div>}>
               <DocsPanel model={amfModel} resolve={async () => (await amf('resolvedModel', {})).model} onOpenAt={revealAt} startMock={async () => ({ port: (await amf('mock', { on: true })).port })} />
             </Boundary>
           </aside>
         )}
-        {inspOpen && rpanel === 'insp' && !front && (
-          <aside className="w-[330px] shrink-0 bg-surface border-l border-line flex flex-col min-h-0">
+        {rightVisible && rpanel === 'insp' && !front && (
+          <aside aria-label="Inspector panel" style={{ width: rightWidth }} className={`shrink-0 bg-surface border-l border-line flex flex-col min-h-0 ${workspaceWidth < 760 ? 'absolute right-10 inset-y-0 z-30 shadow-[var(--shadow)]' : ''}`}>
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
             {inspector}
           </aside>
         )}
-        <nav className="w-10 shrink-0 bg-rail border-l border-line flex flex-col items-center py-2.5">
+        <nav aria-label="Editor panels" className="w-10 shrink-0 bg-rail border-l border-line flex flex-col items-center py-2.5">
           {([['insp', 'Inspector (Ctrl Alt B)', <Icons.Target size={17} />], ['docs', 'Documentation', <Icons.Book size={17} />]] as const).map(([id, title, icon]) => {
             // With the forms in front, the Inspector is the middle panel: its button puts the code back in front.
-            const on = id === 'insp' && front ? true : inspOpen && rpanel === id;
+            const on = id === 'insp' && front ? true : rightVisible && rpanel === id;
             return (
-              <button key={id} title={id === 'insp' && front ? 'Inspector (in front): put the code back in front' : title}
-                onClick={() => { if (id === 'insp' && front) { setGuided(false); setRpanel('insp'); setInspOpen(true); } else if (on) setInspOpen(false); else { setRpanel(id); setInspOpen(true); } }}
+              <button key={id} title={id === 'insp' && front ? 'Inspector (in front): put the code back in front' : title} aria-label={title} aria-pressed={on}
+                onClick={() => { if (id === 'insp' && front) { setGuided(false); setRpanel('insp'); setInspOpen(true); } else if (on) setInspOpen(false); else { if (workspaceWidth < leftWidth + 648) setNavOpen(false); setRpanel(id); setInspOpen(true); } }}
                 className={`relative w-8 h-9 my-0.5 rounded-md flex items-center justify-center ${on ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
                 {on && <span className="absolute -right-1 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
                 {icon}
@@ -1769,12 +1805,12 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
   onAdd: ((sec: string) => void) | null;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  if (!outline) return <div className="p-3 text-[12px] text-content-faint">{noRoot ? 'No root file found, so there is no API to show. Open a file from Files.' : 'Reading the API…'}</div>;
+  if (!outline) return <div className="p-3 text-[12px] text-content-faint">{noRoot ? 'Open a specification from Files, then choose Set as root file from its menu to see the API here.' : 'Reading the API…'}</div>;
   const q = filter.trim().toLowerCase();
   const match = (s: string) => !q || s.toLowerCase().includes(q);
   const resMatch = (r: Resource): boolean => match(r.path) || r.methods.some((m) => match(m.m + ' ' + m.name)) || r.children.some(resMatch);
-  const row = (id: string, depth: number, inner: ReactNode, onClick: () => void, tail?: ReactNode) => (
-    <div key={id} onClick={onClick} style={{ paddingLeft: 8 + depth * 14 }}
+  const row = (id: string, depth: number, inner: ReactNode, onClick: () => void, tail?: ReactNode, expanded?: boolean) => (
+    <div key={id} role="treeitem" tabIndex={-1} aria-level={id === 'root' ? 1 : depth + 2} aria-selected={selId === id} aria-expanded={expanded} onClick={onClick} style={{ paddingLeft: 8 + depth * 14 }}
       className={`relative flex items-center gap-1.5 h-6 pr-2 text-[12.5px] whitespace-nowrap cursor-pointer ${selId === id ? 'bg-accent-dim text-content' : 'text-content-secondary hover:bg-[var(--hover-overlay)]'}`}>
       {selId === id && <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent" />}
       {inner}
@@ -1785,8 +1821,8 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
     const isClosed = closed.has(name) && !q;
     return (
       <div key={name}>
-        <div onClick={() => { const n = new Set(closed); n.has(name) ? n.delete(name) : n.add(name); setClosed(n); }}
-          className="group/sec flex items-center gap-1 h-[26px] mt-1.5 pl-1.5 pr-1.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint cursor-pointer hover:text-content-secondary">
+        <div role="treeitem" tabIndex={-1} aria-label={name} aria-level={1} aria-expanded={!isClosed} onClick={() => { const n = new Set(closed); n.has(name) ? n.delete(name) : n.add(name); setClosed(n); }}
+          className="group/sec flex items-center gap-1 h-[28px] mt-2 pl-1.5 pr-1.5 text-[11px] font-semibold uppercase tracking-[0.4px] text-content-muted cursor-pointer hover:text-content">
           {isClosed ? <Icons.ChevronRight size={11} /> : <Icons.ChevronDown size={11} />}{name}
           <span className="ml-auto normal-case tracking-normal font-medium text-[11px] text-content-ghost">{count}</span>
           {add && onAdd && <button title={add} onClick={(e) => { e.stopPropagation(); if (isClosed) { const n = new Set(closed); n.delete(name); setClosed(n); } onAdd(name); }}
@@ -1801,11 +1837,11 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
     if (!resMatch(r)) return;
     const open = !collapsed.has(r.id) || !!q;
     resRows.push(row(r.id, depth, <>
-      <span className="w-3.5 flex justify-center text-content-ghost" onClick={(e) => { e.stopPropagation(); const n = new Set(collapsed); n.has(r.id) ? n.delete(r.id) : n.add(r.id); setCollapsed(n); }}>
+      <button type="button" tabIndex={-1} data-tree-toggle aria-label={`${open ? 'Collapse' : 'Expand'} ${r.path}`} className="w-3.5 flex justify-center text-content-ghost" onClick={(e) => { e.stopPropagation(); const n = new Set(collapsed); n.has(r.id) ? n.delete(r.id) : n.add(r.id); setCollapsed(n); }}>
         {open ? <Icons.ChevronDown size={11} /> : <Icons.ChevronRight size={11} />}
-      </span>
+      </button>
       <span className="font-mono text-[12px] text-content truncate">{r.key}</span>
-    </>, () => onPick(rootFile, r.from, r.id)));
+    </>, () => onPick(rootFile, r.from, r.id), undefined, open));
     if (!open) return;
     r.methods.forEach((m) => { if (match(r.path) || match(m.m + ' ' + m.name)) resRows.push(row(m.id, depth + 1, <><span className="w-3.5" /><MethodBadge m={m.m} /><span className="text-[11.5px] text-content-faint truncate">{m.name}</span></>, () => onPick(rootFile, m.from, m.id))); });
     r.children.forEach((c) => walk(c, depth + 1));
@@ -1818,7 +1854,7 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
       () => onPick(d.file, d.from, d.id), d.alias ? <span className="text-[11px] text-content-ghost">{d.alias}</span> : null));
   const oas = !/\.raml$/i.test(rootFile), async = !!outline.messages;
   return (
-    <div className="flex-1 overflow-auto pb-3">
+    <NavigationTree label="API structure" className="flex-1 overflow-auto pb-3">
       {/* OAS uses its own words: paths and schemas, and has no traits, resource types or libraries. */}
       {/* Design Center's API Summary: the API's own form (title, version, base URI, protocols, docs). */}
       {!q && <div className="mt-1.5">{row('root', 0, <><span className="w-3.5" /><span className="text-content-faint flex"><Icons.ApiSpec size={13} /></span><span className="font-medium">API Summary</span></>, () => onPick(rootFile, 0, 'root'))}</div>}
@@ -1831,7 +1867,7 @@ const ApiTree = memo(function ApiTree({ outline, rootFile, filter, selId, closed
       {!oas && sec('Libraries', outline.libraries.length, outline.libraries.filter((l) => match(l.alias)).map((l) =>
         row('lib:' + l.alias, 0, <><span className="w-3.5" /><span className="font-mono text-[9.5px] font-bold w-4 h-4 rounded-[3px] inline-flex items-center justify-center text-accent bg-accent-dim">L</span><span className="truncate">{l.alias}</span></>,
           () => onPick(l.path, 0, 'lib:' + l.alias), l.path.startsWith('exchange_modules/') ? <span className="text-[9.5px] font-semibold px-1 rounded border border-cyan-border text-cyan">Exchange</span> : null)))}
-    </div>
+    </NavigationTree>
   );
 });
 
@@ -1853,24 +1889,25 @@ function Shelf({ ctx, open, setOpen, onPick, types, traits }: {
   } else if (ctx.kind === 'is') cols = [{ title: 'Traits', items: traits }];
   // What's already there is highlighted: the current type, or the traits already applied.
   const current = ctx.kind === 'type' ? [ctx.value.replace(/\[\]$/, '')] : ctx.kind === 'is' ? ctx.value.replace(/[[\]]/g, '').split(',').map((s) => s.trim()) : [];
+  const available = cols.some((c) => c.items.length > 0);
   return (
-    <section className="shrink-0 flex flex-col bg-bg border-t border-line-subtle" style={{ height: open ? 136 : 26 }}>
+    <section aria-label="Contextual suggestions" className="shrink-0 flex flex-col bg-bg border-t border-line-subtle" style={{ height: open && available ? 136 : 28 }}>
       <div className="h-[26px] shrink-0 flex items-center gap-2 pl-3.5 pr-2 text-[11px] text-content-faint">
         <span>Shelf</span><span className="font-mono text-content-muted truncate">{ctx.label}</span>
-        <span className="flex-1" />
-        <button onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen(!open)} title={open ? 'Hide the shelf' : 'Show the shelf'}
+        <span className="flex-1" />{!available && <span className="truncate">No suggestions here</span>}
+        <button aria-label={open ? 'Hide the shelf' : 'Show the shelf'} aria-expanded={open && available} disabled={!available} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen(!open)} title={available ? open ? 'Hide the shelf' : 'Show the shelf' : 'Select a resource, method, type or response for suggestions'}
           className="w-[22px] h-[22px] rounded flex items-center justify-center hover:bg-surface-2 hover:text-content">
           {open ? <Icons.ChevronDown size={12} /> : <span className="rotate-180 flex"><Icons.ChevronDown size={12} /></span>}
         </button>
       </div>
-      {open && (cols.length ? (
+      {open && available && (
         <div className="flex-1 overflow-auto flex gap-6 px-3.5 pb-2.5 items-start">
           {cols.map((c) => (
             // Columns never shrink below their longest name, so long type names can't run into the next column.
             <div key={c.title} className="min-w-[96px] shrink-0">
               <div className="text-[11.5px] font-semibold text-content-secondary mb-1">{c.title}</div>
               {c.items.map((it) => (
-                <button key={it} onMouseDown={(e) => { e.preventDefault(); onPick(it); }} title={it}
+                <button key={it} onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(it)} title={it}
                   style={{ borderLeftColor: SHELF_BAR[c.title] ?? 'var(--syn-number)' }}
                   className={`block text-left h-[22px] px-2 mb-px font-mono text-[12px] border-l-2 rounded-r hover:bg-surface-2 hover:text-content whitespace-nowrap ${current.includes(it) ? 'bg-accent-dim text-content' : 'text-content-secondary'}`}>
                   {/* Under a library's own column the alias is already the heading: show Name, insert alias.Name. */}
@@ -1880,9 +1917,7 @@ function Shelf({ ctx, open, setOpen, onPick, types, traits }: {
             </div>
           ))}
         </div>
-      ) : (
-        <div className="px-3.5 py-1.5 text-[12px] text-content-faint">Nothing to add here. Put the cursor in a resource, method, responses or body.</div>
-      ))}
+      )}
     </section>
   );
 }
@@ -2003,22 +2038,37 @@ function ProblemsPanel({ problems, open, setOpen, engine, onGo, gov, govAuto, on
 
 // ---------- Small dialogs: one look for all of them ----------
 export function Modal({ title, sub, children, footer, onCancel, width = 460 }: { title: string; sub?: ReactNode; children: ReactNode; footer: ReactNode; onCancel: () => void; width?: number }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const cancel = useRef(onCancel); cancel.current = onCancel;
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [onCancel]);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div className="rounded-[10px] bg-surface border border-line shadow-[var(--shadow)] overflow-hidden flex flex-col" style={{ width: `min(${width}px, 100%)` }}>
-        <div className="flex items-start gap-2.5 px-4 pt-3.5 pb-3 border-b border-line bg-surface-2">
-          <div className="flex-1"><div className="text-[14px] font-semibold">{title}</div>{sub && <div className="mt-0.5 text-[12px] text-content-muted">{sub}</div>}</div>
-          <button onClick={onCancel} className="w-[22px] h-[22px] rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.X size={13} /></button>
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = ref.current!;
+    dialog.showModal();
+    (dialog.querySelector<HTMLElement>('input:not([type="hidden"]), textarea, select') ?? dialog.querySelector<HTMLElement>('[role="combobox"]'))?.focus();
+    return () => { dialog.close(); if (previous?.isConnected) previous.focus(); };
+  }, []);
+  return createPortal(
+    <dialog ref={ref} aria-labelledby={titleId} aria-modal="true" className="ads-dialog m-auto p-0 rounded-[10px] bg-surface border border-line shadow-[var(--shadow)] overflow-visible" style={{ width }}
+      onCancel={(e) => { e.preventDefault(); cancel.current(); }}
+      onKeyDown={(e) => {
+        if (e.key !== 'Tab') return;
+        const controls = [...e.currentTarget.querySelectorAll<HTMLElement>('button, a[href], input, textarea, select, [tabindex]')].filter((el) => el.tabIndex >= 0 && !el.matches(':disabled') && el.getClientRects().length > 0);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (!first) { e.preventDefault(); e.currentTarget.focus(); }
+        else if (e.shiftKey && (document.activeElement === first || document.activeElement === e.currentTarget)) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }}
+      onMouseDown={(e) => { if (e.target !== e.currentTarget) return; const r = e.currentTarget.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) cancel.current(); }}>
+      <div className="max-h-[calc(100dvh-32px)] flex flex-col overflow-hidden rounded-[9px]">
+        <div className="shrink-0 flex items-start gap-2.5 px-4 pt-3.5 pb-3 border-b border-line bg-surface-2">
+          <div className="flex-1"><h2 id={titleId} className="m-0 text-[14px] font-semibold">{title}</h2>{sub && <div className="mt-0.5 text-[12px] text-content-muted">{sub}</div>}</div>
+          <button type="button" aria-label={`Close ${title}`} onClick={onCancel} className="w-[26px] h-[26px] rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.X size={13} /></button>
         </div>
-        <div className="p-4">{children}</div>
-        <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-line bg-surface-2">{footer}</div>
+        <div className="min-h-0 overflow-auto p-4">{children}</div>
+        <div className="shrink-0 flex flex-wrap items-center justify-end gap-2 px-4 py-2.5 border-t border-line bg-surface-2">{footer}</div>
       </div>
-    </div>
+    </dialog>, document.body,
   );
 }
 // The one spinner: anything waiting on Anypoint, AMF or the disk shows it beside its text.

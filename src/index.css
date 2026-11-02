@@ -34,10 +34,10 @@
   --line-subtle:    oklch(20% 0.004 80);
 
   --content:           oklch(96% 0 0);
-  --content-secondary: oklch(78% 0 0);
-  --content-muted:     oklch(60% 0 0);
-  --content-faint:     oklch(50% 0 0);
-  --content-ghost:     oklch(38% 0 0);
+  --content-secondary: oklch(82% 0 0);
+  --content-muted:     oklch(72% 0 0);
+  --content-faint:     oklch(67% 0 0);
+  --content-ghost:     oklch(63% 0 0);
 
   --warn:   oklch(80% 0.14 80);
   --err:    oklch(68% 0.18 20);
@@ -91,9 +91,9 @@
 
   --content:           oklch(20% 0 0);
   --content-secondary: oklch(35% 0 0);
-  --content-muted:     oklch(50% 0 0);
-  --content-faint:     oklch(65% 0 0);
-  --content-ghost:     oklch(78% 0 0);
+  --content-muted:     oklch(44% 0 0);
+  --content-faint:     oklch(48% 0 0);
+  --content-ghost:     oklch(52% 0 0);
 
   --warn:   oklch(60% 0.15 80);
   --err:    oklch(55% 0.18 20);
@@ -137,7 +137,15 @@ code, pre, .font-mono { font-family: var(--font-mono); }
 * { scrollbar-color: var(--scrollbar-thumb) var(--surface); }
 
 ::selection { background: var(--selection-bg); }
-:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+::placeholder { color: var(--content-faint); opacity: 1; }
+[role="treeitem"]:focus-visible { outline-offset: -2px; }
+.ads-divider { width: 5px; margin: 0 -2px; cursor: col-resize; }
+.ads-divider::after { content: ''; position: absolute; inset: 0 2px; background: var(--line); }
+.ads-divider:hover::after, .ads-divider:focus-visible::after, .ads-resizing .ads-divider::after { inset: 0 1px; background: var(--accent); }
+.ads-resizing, .ads-resizing * { cursor: col-resize !important; user-select: none !important; }
+.ads-dialog { color: var(--content); max-height: calc(100dvh - 32px); max-width: calc(100vw - 32px); }
+.ads-dialog::backdrop { background: rgb(0 0 0 / 0.45); }
 
 /* Settings, Editor, Wrap long lines: what CodeMirror's lineWrapping does, switched from <html>. */
 .ads-wrap .cm-content { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; flex-shrink: 1; }

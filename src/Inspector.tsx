@@ -40,8 +40,8 @@ export const codeColor = (c: string | null) => (!c ? 'var(--content-muted)' : c[
 
 // A text box that writes on Enter or when you leave it; Escape puts the old value back.
 // With options, it suggests as you type (the app's own list: a native datalist ignores the theme).
-export function Field({ value, onCommit, placeholder, mono, multiline, options, className = '', focus, onFocused }: {
-  value: string; onCommit: (v: string) => void; placeholder?: string; mono?: boolean; multiline?: boolean; options?: string[]; className?: string; focus?: boolean; onFocused?: () => void;
+export function Field({ value, onCommit, placeholder, label, ariaLabel, mono, multiline, options, className = '', focus, onFocused }: {
+  value: string; onCommit: (v: string) => void; placeholder?: string; label?: string; ariaLabel?: string; mono?: boolean; multiline?: boolean; options?: string[]; className?: string; focus?: boolean; onFocused?: () => void;
 }) {
   // A row just added through "Add" takes the focus with its name selected, ready to type over.
   const ref = useRef<HTMLInputElement>(null);
@@ -57,11 +57,11 @@ export function Field({ value, onCommit, placeholder, mono, multiline, options, 
   const [active, setActive] = useState(-1);
   const shown = !options || !open ? [] : options.filter((o) => o !== v && o.toLowerCase().includes(v.trim().toLowerCase())).slice(0, 80);
   const pick = (o: string) => { setOpen(false); setV(o); skip.current = true; if (o !== value) onCommit(o); ref.current?.blur(); };
-  return multiline
-    ? <textarea value={v} placeholder={placeholder} spellCheck={false} rows={Math.min(8, Math.max(2, v.split('\n').length))} onChange={(e) => setV(e.target.value)} onBlur={onBlur}
+  const control = multiline
+    ? <textarea aria-label={ariaLabel} value={v} placeholder={placeholder} spellCheck={false} rows={Math.min(8, Math.max(2, v.split('\n').length))} onChange={(e) => setV(e.target.value)} onBlur={onBlur}
         onKeyDown={(e) => { esc(e); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.blur(); }} className={cls + ' py-1 resize-y leading-snug'} />
     : <>
-        <input ref={ref} value={v} placeholder={placeholder} spellCheck={false} onChange={(e) => { setV(e.target.value); setOpen(true); setActive(options?.includes(e.target.value.trim()) ? -1 : 0); }}
+        <input ref={ref} aria-label={ariaLabel} role={options ? 'combobox' : undefined} aria-expanded={options ? shown.length > 0 : undefined} aria-autocomplete={options ? 'list' : undefined} aria-haspopup={options ? 'listbox' : undefined} value={v} placeholder={placeholder} spellCheck={false} onChange={(e) => { setV(e.target.value); setOpen(true); setActive(options?.includes(e.target.value.trim()) ? -1 : 0); }}
           onBlur={(e) => { setOpen(false); onBlur(e); }} onMouseDown={() => { if (options) { setOpen(true); setActive(-1); } }}
           onKeyDown={(e) => {
             if (shown.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setActive(e.key === 'ArrowDown' ? (active + 1) % shown.length : active <= 0 ? shown.length - 1 : active - 1); return; }
@@ -70,8 +70,9 @@ export function Field({ value, onCommit, placeholder, mono, multiline, options, 
             if (e.key === 'Enter' && shown[active]) { e.preventDefault(); pick(shown[active]); return; }
             esc(e); if (e.key === 'Enter') e.currentTarget.blur();
           }} className={cls + ' h-[26px]'} />
-        {shown.length > 0 && ref.current && <PopupList anchor={ref.current} opts={shown.map((o) => ({ value: o }))} active={active} setActive={setActive} onPick={(o) => pick(o.value)} onClose={() => setOpen(false)} mono={mono} />}
+        {shown.length > 0 && ref.current && <PopupList anchor={ref.current} opts={shown.map((o) => ({ value: o }))} active={active} setActive={setActive} onPick={(o) => pick(o.value)} onClose={() => setOpen(false)} mono={mono} selected={v} />}
       </>;
+  return label ? <label className="block w-full min-w-0"><span className="mb-1 block text-[12px] font-medium text-content-secondary">{label}</span>{control}</label> : control;
 }
 
 // Read-only forms: every box, picker and edit button is off, but buttons marked data-nav (Go to, file:line,
@@ -85,13 +86,13 @@ export function ReadOnlyBox({ readOnly, children }: { readOnly: boolean; childre
 }
 
 export const IconBtn = ({ title, onClick, children, nav }: { title: string; onClick: () => void; children: ReactNode; nav?: boolean }) => (
-  <button title={title} data-nav={nav || undefined} onClick={(e) => { e.stopPropagation(); onClick(); }} className="w-[22px] h-[22px] shrink-0 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">{children}</button>
+  <button type="button" title={title} aria-label={title} data-nav={nav || undefined} onClick={(e) => { e.stopPropagation(); onClick(); }} className="w-[22px] h-[22px] shrink-0 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">{children}</button>
 );
 
 export function Sec({ title, count, add, children }: { title: string; count?: number; add?: ReactNode; children: ReactNode }) {
   return (
     <div className="mt-[18px]">
-      <h4 className="m-0 mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">
+      <h4 className="m-0 mb-2 flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-[0.4px] text-content-muted">
         {title}{count != null && <span className="text-content-ghost tracking-normal">{count}</span>}
         <span className="flex-1" />{add}
       </h4>
@@ -107,12 +108,18 @@ export function AddSelect({ label, options, onPick }: { label: string; options: 
   if (!options.length) return null;
   return (
     <>
-      <button ref={ref} type="button" onClick={() => { setActive(0); setOpen(!open); }}
+      <button ref={ref} type="button" aria-haspopup="listbox" aria-expanded={open} onKeyDown={(e) => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setActive(0); setOpen(true); } }} onClick={() => { setActive(0); setOpen(!open); }}
         className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline outline-none flex items-center gap-0.5"><Icons.Plus size={11} />{label}</button>
       {open && ref.current && <PopupList anchor={ref.current} opts={options.map((o) => ({ value: o, hint: CODES[o] }))} active={active} setActive={setActive}
         onPick={(o) => { setOpen(false); onPick(o.value); }} onClose={() => setOpen(false)} mono />}
     </>
   );
+}
+
+export function PropertyHead() {
+  return <div aria-hidden="true" className="flex items-center gap-1 px-0.5 pb-1 text-[11px] font-medium text-content-muted">
+    <span className="w-[38%] shrink-0">Name</span><span className="min-w-0 flex-1">Type</span><span className="w-12 text-center">Required</span><span className="w-11 shrink-0" />
+  </div>;
 }
 
 // The API as AMF reads it (amf-server's check with model:true). Positions: [line from 1, column from 0, end line, end column].
@@ -141,12 +148,12 @@ export function UsedBy({ uses, onOpenAt }: { uses: AmfModel['types'][number]['us
       {uses.slice(0, 60).map((u, i) => {
         const m = u.where.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) (\S+)\s*(.*)$/);
         return (
-          <div key={i} onClick={() => u.at && onOpenAt(u.at)} title={u.at ? `${u.at.file}:${u.at.r[0]}` : undefined}
-            className="flex items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md cursor-pointer hover:bg-[var(--hover-overlay)] text-[12px]">
+          <button type="button" key={i} disabled={!u.at} data-nav onClick={() => u.at && onOpenAt(u.at)} title={u.at ? `${u.at.file}:${u.at.r[0]}` : undefined}
+            className="flex w-[calc(100%+12px)] text-left items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md hover:bg-[var(--hover-overlay)] text-[12px] disabled:cursor-default">
             {m ? <Badge m={m[1].toLowerCase()} /> : <span className="font-mono text-[9.5px] font-bold w-4 h-4 shrink-0 rounded-[3px] inline-flex items-center justify-center text-[var(--syn-number)] bg-[color-mix(in_oklch,var(--syn-number)_16%,transparent)]">T</span>}
             <span className="font-mono text-[11.5px] truncate">{m ? m[2] : u.where}</span>
             {m && <span className="ml-auto text-[11px] text-content-faint whitespace-nowrap">{m[3]}</span>}
-          </div>
+          </button>
         );
       })}
       {uses.length === 0 && <div className="text-[11.5px] text-content-faint">Nothing uses this type.</div>}
@@ -245,7 +252,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     const known = !t || d || BUILTIN_TYPES.includes(t.replace(/\[\]$/, '')) || /[|(]/.test(t);
     return (
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
-        <Field value={t} mono options={typeNames} placeholder="string" onCommit={(v) => onEdit((x) => S.setType(x, path, v))} className={known ? 'text-[var(--syn-type)]' : 'text-err'} />
+        <Field value={t} mono options={typeNames} ariaLabel="Type" placeholder="string" onCommit={(v) => onEdit((x) => S.setType(x, path, v))} className={known ? 'text-[var(--syn-type)]' : 'text-err'} />
         {d && <IconBtn nav title={`Go to ${d.name}`} onClick={() => onOpen(d.file, d.from)}><Icons.ChevronRight size={12} /></IconBtn>}
         {isInline(path) && path.join('\0') !== (node.kind === 'decl' ? node.path.join('\0') : '') && (
           <IconBtn title="Extract to Declaration: make this a named type" onClick={() => onEdit((x) => S.extractType(x, path, extractName(path)))}><Icons.Braces size={12} /></IconBtn>
@@ -261,15 +268,15 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     const t = S.typeOf(text, p).replace(/\?$/, '') || 'string';
     const num = ['number', 'integer'].includes(t), raw = num || t === 'boolean';
     const box = (key: string, label: string, isRaw = raw) => (
-      <label className="flex flex-col gap-0.5 min-w-0 flex-1"><span className="text-[10.5px] text-content-faint">{label}</span>
+      <label className="flex flex-col gap-0.5 min-w-0 flex-1"><span className="text-[11.5px] text-content-faint">{label}</span>
         <Field mono value={S.scalar(text, [...p, key]) ?? ''} onCommit={(v) => onEdit((x) => S.setScalar(x, p, key, v.trim() || null, isRaw))} /></label>
     );
     return (
       <div className="mt-1 mb-1 ml-2 pl-2.5 border-l-2 border-line flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
-        <Field multiline value={S.scalar(text, [...p, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, p, 'description', v || null))} />
+        <Field label="Description" multiline value={S.scalar(text, [...p, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, p, 'description', v || null))} />
         <div className="flex gap-1.5">{box('example', 'Example')}{box('default', 'Default')}</div>
         {t === 'string' && <>
-          <label className="flex flex-col gap-0.5"><span className="text-[10.5px] text-content-faint">Allowed values (enum), separated by commas</span>
+          <label className="flex flex-col gap-0.5"><span className="text-[11.5px] text-content-faint">Allowed values (enum), separated by commas</span>
             <Field mono value={(S.list(text, [...p, 'enum']) ?? []).join(', ')} onCommit={(v) => onEdit((x) => S.setList(x, [...p, 'enum'], v.split(',').map((s) => s.trim()).filter(Boolean)))} /></label>
           {box('pattern', 'Pattern')}
           <div className="flex gap-1.5">{box('minLength', 'Minimum length', true)}{box('maxLength', 'Maximum length', true)}</div>
@@ -293,6 +300,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         }}
           className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />{addLabel}</button>}>
         {rows.length === 0 && <div className="text-[11.5px] text-content-faint">{hint ?? 'None.'}</div>}
+        {rows.length > 0 && <PropertyHead />}
         {rows.map((j) => {
           const p = [...parent, key, E[j].key];
           const r = kid(E, j, 'required');
@@ -302,13 +310,13 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           return (
             <div key={E[j].key} className={rowCls(j) + ' py-[3px]'} onClick={() => onGoLine(E[j].line)}>
               <div className="flex items-center gap-1">
-                <span className="w-[38%] shrink-0"><Field value={name} mono focus={justAdded === id} onFocused={() => setJustAdded(null)} onCommit={(v) => v && onEdit((x) => S.renameKey(x, p, E[j].key.endsWith('?') ? v + '?' : v))} /></span>
+                <span className="w-[38%] shrink-0"><Field ariaLabel="Name" value={name} mono focus={justAdded === id} onFocused={() => setJustAdded(null)} onCommit={(v) => v && onEdit((x) => S.renameKey(x, p, E[j].key.endsWith('?') ? v + '?' : v))} /></span>
                 {typeCell(p)}
-                <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                <label title="Required" className="shrink-0 flex items-center gap-1 text-[11.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={!optional} onChange={(e) => onEdit((x) => S.setOptional(x, p, !e.target.checked))} className="accent-[var(--accent)]" />req
                 </label>
-                <IconBtn title={open ? 'Fewer details' : 'Description, example, default and limits'} onClick={() => setOpenRow(open ? null : id)}>{open ? <Icons.ChevronDown size={12} /> : <Icons.ChevronRight size={12} />}</IconBtn>
-                <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, p))}><Icons.X size={11} /></IconBtn></span>
+                <IconBtn title={open ? 'Hide details' : `Edit details for ${name}`} onClick={() => setOpenRow(open ? null : id)}>{open ? <Icons.ChevronDown size={12} /> : <Icons.ChevronRight size={12} />}</IconBtn>
+                <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, p))}><Icons.X size={11} /></IconBtn></span>
               </div>
               {open && facets(p)}
             </div>
@@ -343,7 +351,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
               <div className="flex items-center gap-1.5">
                 <span className="text-[11px] font-mono text-content-faint shrink-0 max-w-[45%] truncate" title={E[j].key}>{E[j].key}</span>
                 {typeCell(p)}
-                <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, p))}><Icons.X size={11} /></IconBtn></span>
+                <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, p))}><Icons.X size={11} /></IconBtn></span>
               </div>
               {example([...p, 'example'])}
             </div>
@@ -401,8 +409,8 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
 
   const docs = (path: string[], what: string) => (
     <div className="mt-3 flex flex-col gap-1.5">
-      <Field value={S.scalar(text, [...path, 'displayName']) ?? ''} placeholder={`Display name for this ${what}`} onCommit={(v) => onEdit((x) => S.setScalar(x, path, 'displayName', v || null))} />
-      <Field multiline value={S.scalar(text, [...path, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, path, 'description', v || null))} />
+      <Field label="Display name" value={S.scalar(text, [...path, 'displayName']) ?? ''} placeholder={`Display name for this ${what}`} onCommit={(v) => onEdit((x) => S.setScalar(x, path, 'displayName', v || null))} />
+      <Field label="Description" multiline value={S.scalar(text, [...path, 'description']) ?? ''} placeholder="Describe what it does" onCommit={(v) => onEdit((x) => S.setScalar(x, path, 'description', v || null))} />
     </div>
   );
 
@@ -461,7 +469,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         {secured(node.path)}
         {uri.length > 0 && (
           <Sec title="URI parameters" count={uri.length}>
-            {uri.map((u) => <div key={u.name} className="flex items-center gap-2 py-[3px] text-[12px]"><span className="font-mono">{u.name}</span><span className="font-mono text-[var(--syn-type)]">{u.type}</span>{!u.declared && <span className="ml-auto text-[10.5px] text-content-faint">from the path</span>}</div>)}
+            {uri.map((u) => <div key={u.name} className="flex items-center gap-2 py-[3px] text-[12px]"><span className="font-mono">{u.name}</span><span className="font-mono text-[var(--syn-type)]">{u.type}</span>{!u.declared && <span className="ml-auto text-[11.5px] text-content-faint">from the path</span>}</div>)}
             <div className="text-[11px] text-content-faint">Edit them on the resource.</div>
           </Sec>
         )}
@@ -481,7 +489,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-bold text-[11.5px] px-1.5 rounded-[3px]" style={{ color: codeColor(E[j].key), background: `color-mix(in oklch, ${codeColor(E[j].key)} 13%, transparent)` }}>{E[j].key}</span>
                   <Field value={S.scalar(text, [...p, 'description']) ?? ''} placeholder={CODES[E[j].key] ?? 'Description'} onCommit={(v) => onEdit((x) => S.setScalar(x, p, 'description', v || null))} />
-                  <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => S.remove(x, p, false))}><Icons.X size={11} /></IconBtn></span>
+                  <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => S.remove(x, p, false))}><Icons.X size={11} /></IconBtn></span>
                 </div>
                 {body(p, true)}
               </div>
@@ -524,7 +532,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         </Sec>
         {params(node.path, 'uriParameters', 'URI parameters', 'Add', 'None declared. Names in {braces} are strings.')}
         <Sec title="Nested resources" count={nested.length || undefined}>
-          {nested.map((j) => <div key={E[j].key} onClick={() => onGoLine(E[j].line)} className="flex items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md cursor-pointer hover:bg-[var(--hover-overlay)]"><span className="font-mono text-[11.5px]">{E[j].key}</span><span className="ml-auto text-[10.5px] text-content-faint">{kids(E, j).filter((x) => METHODS.includes(E[x].key)).map((x) => E[x].key.toUpperCase()).join(' ')}</span></div>)}
+          {nested.map((j) => <div key={E[j].key} onClick={() => onGoLine(E[j].line)} className="flex items-center gap-2 px-1.5 -mx-1.5 py-1 rounded-md cursor-pointer hover:bg-[var(--hover-overlay)]"><span className="font-mono text-[11.5px]">{E[j].key}</span><span className="ml-auto text-[11.5px] text-content-faint">{kids(E, j).filter((x) => METHODS.includes(E[x].key)).map((x) => E[x].key.toUpperCase()).join(' ')}</span></div>)}
           <div className="mt-1"><Field value="" mono placeholder="Add one, like /{id}" onCommit={(v) => { const r = v.trim(); if (r) onEdit((x) => S.addChild(x, node.path, [`${r.startsWith('/') ? r : '/' + r}:`])); }} /></div>
         </Sec>
       </>
@@ -549,7 +557,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         {/* Declared in its own file (name: !include file.raml): the form for it is in that file. */}
         {included && <Sec title="Defined in">{example(node.path)}<div className="mt-1 text-[11px] text-content-faint">Open the file to edit it.</div></Sec>}
         {!included && isType && <Sec title="Type">{typeCell(node.path)}</Sec>}
-        {!included && <div className="mt-3"><Field multiline value={S.scalar(text, [...node.path, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'description', v || null))} /></div>}
+        {!included && <div className="mt-3"><Field label="Description" multiline value={S.scalar(text, [...node.path, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'description', v || null))} /></div>}
         {!included && node.sect === 'traits' && <>
           <div className="mt-1.5"><Field value={S.scalar(text, [...node.path, 'usage']) ?? ''} placeholder="Usage" onCommit={(v) => onEdit((x) => S.setScalar(x, node.path, 'usage', v || null))} /></div>
           {/* A trait is the part of a method it adds: parameters, headers, responses. */}
@@ -627,7 +635,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
                   <div key={E[j].key} className={rowCls(j) + ' flex items-center gap-2 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
                     <span className="font-mono font-bold text-[11.5px] px-1.5 rounded-[3px]" style={{ color: codeColor(E[j].key), background: `color-mix(in oklch, ${codeColor(E[j].key)} 13%, transparent)` }}>{E[j].key}</span>
                     <Field value={S.scalar(text, [...rp, E[j].key, 'description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, [...rp, E[j].key], 'description', v || null))} />
-                    <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => S.remove(x, [...rp, E[j].key]))}><Icons.X size={11} /></IconBtn></span>
+                    <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => S.remove(x, [...rp, E[j].key]))}><Icons.X size={11} /></IconBtn></span>
                   </div>
                 ))}
                 {!codes.length && <div className="text-[11.5px] text-content-faint">None. A 401 is usual for an expired or missing token.</div>}
@@ -663,7 +671,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         <div className="mt-1 text-[12.5px] text-content-secondary">{frag === 'Library'
           ? [n(count('types'), 'type', 'types'), n(count('traits'), 'trait', 'traits'), n(count('resourceTypes'), 'resource type', 'resource types'), n(count('securitySchemes'), 'security scheme', 'security schemes')].join(', ')
           : `A RAML fragment, used with !include.`}</div>
-        {frag === 'Library' && <div className="mt-3"><Field multiline value={S.scalar(text, ['usage']) ?? ''} placeholder="Usage: what this library is for" onCommit={(v) => onEdit((x) => S.setScalar(x, [], 'usage', v || null))} /></div>}
+        {frag === 'Library' && <div className="mt-3"><Field label="Usage" multiline value={S.scalar(text, ['usage']) ?? ''} placeholder="What this library is for" onCommit={(v) => onEdit((x) => S.setScalar(x, [], 'usage', v || null))} /></div>}
         <div className="mt-4 text-[11.5px] text-content-faint">{frag === 'Library' ? 'Put the cursor in a type, trait or resource type, or pick one in the API tree, to edit it here.' : 'Its contents are checked where the API includes it.'}</div>
       </>
     );
@@ -677,7 +685,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           {field('baseUri', 'https://api.example.com/{version}', true)}
           {field('mediaType', 'Pick or type one', true, MEDIA)}
         </Sec>
-        <div className="mt-3"><Field multiline value={S.scalar(text, ['description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, [], 'description', v || null))} /></div>
+        <div className="mt-3"><Field label="Description" multiline value={S.scalar(text, ['description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, [], 'description', v || null))} /></div>
         {(() => {
           const cur = (S.list(text, ['protocols']) ?? []).map((p) => p.toUpperCase());
           return (
@@ -700,9 +708,9 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
                 <div key={n} className={rowCls(j) + ' border border-line rounded-md p-2 mb-1.5 mx-0 bg-bg flex flex-col gap-1'} onClick={() => onGoLine(E[j].line)}>
                   <div className="flex items-center gap-1">
                     <Field value={S.scalar(text, ['documentation', '#' + n, 'title']) ?? ''} placeholder="Title" onCommit={(v) => onEdit((x) => S.setInItem(x, ['documentation'], n, 'title', v))} />
-                    <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove this page" onClick={() => onEdit((x) => S.removeItem(x, ['documentation'], n))}><Icons.X size={11} /></IconBtn></span>
+                    <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove this page" onClick={() => onEdit((x) => S.removeItem(x, ['documentation'], n))}><Icons.X size={11} /></IconBtn></span>
                   </div>
-                  <Field multiline value={S.scalar(text, ['documentation', '#' + n, 'content']) ?? ''} placeholder="Content, in Markdown" onCommit={(v) => onEdit((x) => S.setInItem(x, ['documentation'], n, 'content', v))} />
+                  <Field label="Content" multiline value={S.scalar(text, ['documentation', '#' + n, 'content']) ?? ''} placeholder="Content, in Markdown" onCommit={(v) => onEdit((x) => S.setInItem(x, ['documentation'], n, 'content', v))} />
                 </div>
               ))}
               {!pages.length && <div className="text-[11.5px] text-content-faint">No pages. A getting-started page helps people using the API.</div>}
@@ -769,7 +777,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
     const target = schemaNames.includes(t.replace(/\[\]$/, '')) ? at(['components', 'schemas', t.replace(/\[\]$/, '')]) : -1;
     return (
       <span className="flex items-center gap-0.5 min-w-0 flex-1">
-        <Field value={t} mono options={[...schemaNames, ...OAS_BUILTIN]} placeholder="string" onCommit={(v) => onEdit((x) => setOasType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
+        <Field value={t} mono options={[...schemaNames, ...OAS_BUILTIN]} ariaLabel="Type" placeholder="string" onCommit={(v) => onEdit((x) => setOasType(x, p, v.trim()))} className={known(t) ? 'text-[var(--syn-type)]' : 'text-err'} />
         {target >= 0 && <IconBtn nav title={`Go to ${t.replace(/\[\]$/, '')}`} onClick={() => onGoLine(E[target].line)}><Icons.ChevronRight size={12} /></IconBtn>}
       </span>
     );
@@ -784,7 +792,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
           <div key={E[j].key} className={rowCls(here(j)) + ' flex items-center gap-1.5 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
             <span className="text-[11px] font-mono text-content-faint shrink-0 max-w-[45%] truncate" title={E[j].key}>{E[j].key}</span>
             {typeCell([...p, 'content', E[j].key, 'schema'])}
-            <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, [...p, 'content', E[j].key]))}><Icons.X size={11} /></IconBtn></span>
+            <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, [...p, 'content', E[j].key]))}><Icons.X size={11} /></IconBtn></span>
           </div>
         ))}
         <div className="flex"><AddSelect label="Content" options={MEDIA.filter((m) => !media.some((j) => E[j].key === m))} onPick={(m) => onEdit((x) => S.addChild(x, [...p, 'content'], [`${m}:`, '  schema:', '    type: object']))} /></div>
@@ -792,7 +800,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
     );
   };
   const field = (p: string[], key: string, placeholder: string, mono = false, multiline = false) => (
-    <Field value={S.scalar(text, [...p, key]) ?? ''} placeholder={placeholder} mono={mono} multiline={multiline} onCommit={(v) => onEdit((x) => S.setScalar(x, p, key, v || null))} />
+    <Field label={key === 'summary' ? 'Summary' : key === 'description' ? 'Description' : undefined} value={S.scalar(text, [...p, key]) ?? ''} placeholder={placeholder} mono={mono} multiline={multiline} onCommit={(v) => onEdit((x) => S.setScalar(x, p, key, v || null))} />
   );
   const loc = (k: number) => <button data-nav onClick={() => onGoLine(E[k].line)} className="mt-0.5 block font-mono text-[11px] text-content-faint hover:text-accent">{file}:{E[k].line + 1}</button>;
   let h: ReactNode;
@@ -828,11 +836,11 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
                 <Select value={where} onChange={(v) => onEdit((x) => S.setInItem(x, [...op, 'parameters'], n, 'in', v, true))} mono
                   className="w-[70px] shrink-0 !px-1.5 text-[11px] text-content-secondary" options={['query', 'path', 'header', 'cookie'].map((w) => ({ value: w }))} />
                 {typeCell([...ip, 'schema'])}
-                <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                <label title="Required" className="shrink-0 flex items-center gap-1 text-[11.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={where === 'path' || S.scalar(text, [...ip, 'required']) === 'true'} disabled={where === 'path'} className="accent-[var(--accent)]"
                     onChange={(e) => onEdit((x) => S.setInItem(x, [...op, 'parameters'], n, 'required', e.target.checked ? 'true' : null, true))} />req
                 </label>
-                <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.removeItem(x, [...op, 'parameters'], n))}><Icons.X size={11} /></IconBtn></span>
+                <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.removeItem(x, [...op, 'parameters'], n))}><Icons.X size={11} /></IconBtn></span>
               </div>
             );
           })}
@@ -848,7 +856,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-bold text-[11.5px] px-1.5 rounded-[3px]" style={{ color: codeColor(E[j].key), background: `color-mix(in oklch, ${codeColor(E[j].key)} 13%, transparent)` }}>{E[j].key}</span>
                   <Field value={S.scalar(text, [...p, 'description']) ?? ''} placeholder="Description (required in OAS)" onCommit={(v) => onEdit((x) => S.setScalar(x, p, 'description', v || null))} />
-                  <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => S.remove(x, p, false))}><Icons.X size={11} /></IconBtn></span>
+                  <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove this response" onClick={() => onEdit((x) => S.remove(x, p, false))}><Icons.X size={11} /></IconBtn></span>
                 </div>
                 {content(p)}
               </div>
@@ -893,22 +901,23 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
             add={<button onClick={() => { let n = 'property', i = 2; while (props.some((j) => E[j].key === n)) n = 'property' + i++; onEdit((x) => S.addChild(x, [...p, 'properties'], [`${n}:`, '  type: string'])); }}
               className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />Add property</button>}>
             {props.length === 0 && <div className="text-[11.5px] text-content-faint">No properties.</div>}
+            {props.length > 0 && <PropertyHead />}
             {props.map((j) => {
               const pp = [...p, 'properties', E[j].key];
               return (
                 <div key={E[j].key} className={rowCls(here(j)) + ' flex items-center gap-1 py-[3px]'} onClick={() => onGoLine(E[j].line)}>
-                  <span className="w-[38%] shrink-0"><Field value={E[j].key} mono onCommit={(v) => v && onEdit((x) => {
+                  <span className="w-[38%] shrink-0"><Field ariaLabel="Name" value={E[j].key} mono onCommit={(v) => v && onEdit((x) => {
                     // A renamed property keeps its place in required:.
                     let y = S.renameKey(x, pp, v);
                     if (req.includes(E[j].key)) y = S.setList(y, [...p, 'required'], req.map((r) => (r === E[j].key ? v : r)));
                     return y;
                   })} /></span>
                   {typeCell(pp)}
-                  <label title="Required" className="shrink-0 flex items-center gap-1 text-[10.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                  <label title="Required" className="shrink-0 flex items-center gap-1 text-[11.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={req.includes(E[j].key)} className="accent-[var(--accent)]"
                       onChange={(e) => onEdit((x) => S.setList(x, [...p, 'required'], e.target.checked ? [...req, E[j].key] : req.filter((r) => r !== E[j].key)))} />req
                   </label>
-                  <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => {
+                  <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => {
                     const y = S.remove(x, pp);
                     return req.includes(E[j].key) ? S.setList(y, [...p, 'required'], req.filter((r) => r !== E[j].key)) : y;
                   })}><Icons.X size={11} /></IconBtn></span>
@@ -935,7 +944,7 @@ export function OasInspector({ file, text, line, readOnly, model, onEdit, onGoLi
           {servers.map((_j, n) => (
             <div key={n} className="group/r flex items-center gap-1 py-[3px]">
               <Field value={S.scalar(text, ['servers', '#' + n, 'url']) ?? ''} mono onCommit={(v) => v && onEdit((x) => S.setInItem(x, ['servers'], n, 'url', v))} />
-              <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.removeItem(x, ['servers'], n))}><Icons.X size={11} /></IconBtn></span>
+              <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.removeItem(x, ['servers'], n))}><Icons.X size={11} /></IconBtn></span>
             </div>
           ))}
         </Sec>

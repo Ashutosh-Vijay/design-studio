@@ -61,7 +61,7 @@ export function AsyncForms({ text, line, json, readOnly, onEdit, onGoLine, onCop
   const label = (l: string, inner: ReactNode) => <label className="flex items-center gap-2 py-[3px]"><span className="w-[92px] shrink-0 text-[11.5px] text-content-faint">{l}</span>{inner}</label>;
   const txt = (p: string[], l: string, o: { mono?: boolean; options?: string[]; placeholder?: string } = {}) =>
     label(l, <Field value={str(p)} mono={o.mono} options={o.options} placeholder={o.placeholder} onCommit={(v) => put(p, v.trim())} />);
-  const desc = (p: string[], placeholder = 'Description') => <div className="mt-1.5"><Field multiline value={str(p)} placeholder={placeholder} onCommit={(v) => put(p, v)} /></div>;
+  const desc = (p: string[], placeholder = 'Description') => <div className="mt-1.5"><Field label="Description" multiline value={str(p)} placeholder={placeholder} onCommit={(v) => put(p, v)} /></div>;
   const title = (name: string, kind: string, p: string[], editable = true) => (
     <>
       {editable ? <Field mono value={name} className="!text-[13px] font-bold" onCommit={(v) => { const n = v.trim(); if (n && n !== name) rename(p, n); }} />
@@ -95,7 +95,7 @@ export function AsyncForms({ text, line, json, readOnly, onEdit, onGoLine, onCop
           {params.map((pn) => (
             <div key={pn} className="py-[3px] flex flex-col gap-1">
               <div className="flex items-center gap-1.5"><span className="font-mono text-[12px] w-[30%] shrink-0 truncate">{pn}</span>
-                <Field mono value={str([...ch, 'parameters', pn, 'schema', 'type'])} options={['string', 'integer', 'number', 'boolean']} placeholder="string"
+                <Field mono value={str([...ch, 'parameters', pn, 'schema', 'type'])} options={['string', 'integer', 'number', 'boolean']} ariaLabel="Type" placeholder="string"
                   onCommit={(v) => put([...ch, 'parameters', pn, 'schema'], v.trim() ? { ...((get([...ch, 'parameters', pn, 'schema']) as J) ?? {}), type: v.trim() } : undefined)} /></div>
               <Field value={str([...ch, 'parameters', pn, 'description'])} placeholder={`What ${pn} is`} onCommit={(v) => put([...ch, 'parameters', pn, 'description'], v.trim())} />
             </div>
@@ -204,7 +204,7 @@ export function AsyncForms({ text, line, json, readOnly, onEdit, onGoLine, onCop
             return (
               <div key={sn} className="group/r border border-line rounded-md p-2 mb-1.5 bg-bg flex flex-col">
                 <div className="flex items-center gap-1"><Field mono value={sn} onCommit={(v) => { const n = v.trim(); if (n && n !== sn) rename(sp, n); }} />
-                  <span className="opacity-0 group-hover/r:opacity-100"><IconBtn title="Remove this server" onClick={() => put(sp, undefined)}><Icons.X size={11} /></IconBtn></span></div>
+                  <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove this server" onClick={() => put(sp, undefined)}><Icons.X size={11} /></IconBtn></span></div>
                 {txt([...sp, 'url'], 'URL', { mono: true })}
                 {txt([...sp, 'protocol'], 'Protocol', { mono: true, options: PROTOCOLS })}
                 {desc([...sp, 'description'])}
