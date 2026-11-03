@@ -74,6 +74,9 @@ export default function App() {
   const [recent, setRecent] = useState<Recent[]>(readRecent);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A passing note on the start screen (a recent project that's gone): shows for a few seconds, then goes.
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 6000); return () => clearTimeout(t); }, [toast]);
   const [theme, setTheme] = useState(savedTheme);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [about, setAbout] = useState(false);
@@ -155,7 +158,7 @@ export default function App() {
     // Open in another window already: that window comes to the front instead.
     if (multiWindow && await invoke<boolean>('project_window', { root: dir })) return 'elsewhere';
     if (project && !(await okToLeave())) return;
-    setError(null);
+    setError(null); setToast(null);
     setOpening(dir);
     try {
       const p = await invoke<Project>('open_project', { root: dir });
@@ -165,8 +168,8 @@ export default function App() {
     } catch (e) {
       // A recent project that was moved or deleted leaves the list, and says so by name.
       const gone = /isn't there any more/.test(String(e)) && readRecent().find((r) => r.root === dir);
-      if (gone) { const list = readRecent().filter((r) => r.root !== dir); writeRecent(list); setRecent(list); }
-      setError(gone ? `${gone.name} was moved or deleted, so it's off Recent projects. If you moved it, open it from its new folder.` : String(e).replace(/^Error: /, ''));
+      if (gone) { const list = readRecent().filter((r) => r.root !== dir); writeRecent(list); setRecent(list); setToast(`${gone.name} was moved or deleted, so it's off Recent projects. If you moved it, open it from its new folder.`); }
+      else setError(String(e).replace(/^Error: /, ''));
     } finally {
       setOpening(null);
     }
@@ -292,6 +295,13 @@ export default function App() {
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
       )}
 
+      {toast && !project && (
+        <div role="status" className="ds-toast fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-[460px] flex items-start gap-2.5 pl-3.5 pr-2.5 py-2.5 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)] text-[12.5px]">
+          <span className="text-accent flex mt-0.5"><Icons.Dot size={12} /></span>
+          <span className="flex-1 select-text">{toast}</span>
+          <button onClick={() => setToast(null)} aria-label="Dismiss" className="text-content-faint hover:text-content mt-px"><Icons.X size={13} /></button>
+        </div>
+      )}
       {connectOpen && <ConnectDialog openRoot={project?.root} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
       {creating && <CreateDialog what={creating} onClose={() => setCreating(null)} onCreated={(root) => { setCreating(null); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
