@@ -302,6 +302,12 @@ export const Icons = {
   ),
   Check: mk(<path d="M20 6 9 17l-5-5" />),
   ArrowLeft: mk(<path d="M19 12H5M12 19l-7-7 7-7" />),
+  NewWindow: mk(
+    <>
+      <rect x="3" y="7" width="14" height="14" rx="2" />
+      <path d="M10 3h9a2 2 0 0 1 2 2v9M10 11v6M7 14h6" />
+    </>
+  ),
   Sliders: mk(
     <>
       <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" />

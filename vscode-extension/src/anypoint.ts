@@ -18,7 +18,7 @@ type Connection = { mode: string; client_id: string; host: string; broker?: stri
 type Me = { username: string; user_id: string; org_id: string; org_name: string; host: string; mode: string; read_only: boolean };
 let ctx: vscode.ExtensionContext;
 let session: { conn: Connection; access: string; expires: number; me: Me } | null = null;
-let lock: { project: string; branch: string; timer: NodeJS.Timeout } | null = null;
+const locks = new Map<string, { project: string; branch: string; timer: NodeJS.Timeout }>(); // by tab: each tab's project can hold its branch's lock
 export const initAnypoint = (c: vscode.ExtensionContext) => { ctx = c; };
 
 const store = () => ctx.globalStorageUri.fsPath;
@@ -125,9 +125,12 @@ async function renew(): Promise<{ token: string; me: Me; host: string }> {
   return { token: session!.access, me: session!.me, host: session!.conn.host };
 }
 
+// The page the browser shows when a sign-in ends (or is finishing): the app's colours, light or dark as the system is.
+const ICONS: Record<string, string> = { ok: '<svg width=22 height=22 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.4 stroke-linecap=round stroke-linejoin=round><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>', err: '<svg width=20 height=20 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2.4 stroke-linecap=round><path d="M6 6l12 12M18 6L6 18"/></svg>', busy: '<span class=dots><i></i><i></i><i></i></span>' };
+const page = (kind: 'ok' | 'err' | 'busy', title: string, msg: string) => `<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>{title} - Design Studio</title><style>:root{color-scheme:light dark;--bg:oklch(98% .003 80);--card:#fff;--line:oklch(90% .004 80);--text:oklch(20% 0 0);--muted:oklch(44% 0 0);--ok:oklch(52% .14 155);--err:oklch(55% .18 20);--busy:oklch(55% .15 158)}@media(prefers-color-scheme:dark){:root{--bg:oklch(14% .004 80);--card:oklch(17% .004 80);--line:oklch(26% .004 80);--text:oklch(96% 0 0);--muted:oklch(72% 0 0);--ok:oklch(76% .15 155);--err:oklch(68% .18 20);--busy:oklch(72% .15 158)}}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;background:var(--bg);color:var(--text);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}main{width:100%;max-width:380px;padding:36px 28px 28px;text-align:center;background:var(--card);border:1px solid var(--line);border-radius:14px}.mark{width:48px;height:48px;margin:0 auto 18px;border-radius:50%;display:grid;place-items:center;color:var(--c);background:color-mix(in oklch,var(--c) 15%,transparent)}h1{margin:0 0 6px;font-size:18px;font-weight:600;letter-spacing:-.01em}p{margin:0;color:var(--muted)}footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}.dots{display:flex;gap:5px}.dots i{width:6px;height:6px;border-radius:50%;background:currentColor;animation:b 1s infinite alternate}.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}@keyframes b{from{opacity:.25}to{opacity:1}}@media(prefers-reduced-motion:reduce){.dots i{animation:none}}</style><main style="--c:var(--{kind})"><div class=mark>{icon}</div><h1>{title}</h1><p>{msg}</p><footer>Design Studio for MuleSoft</footer></main>`.replace('{kind}', kind).replace('{icon}', ICONS[kind]).split('{title}').join(title).replace('{msg}', msg);
+
 // A loopback page the browser comes back to. Waits up to five minutes for the first answer that settles it.
 function loopback(ports: number[], handle: (url: URL, reply: (html: string) => void) => Promise<unknown> | 'wait'): Promise<{ port: number; done: Promise<any> }> {
-  const page = (m: string) => `<!doctype html><meta charset=utf-8><title>Design Studio</title><body style="font:15px system-ui;margin:3em"><h2>${m}</h2>`;
   return new Promise((ready, fail) => {
     const tryPort = (i: number) => {
       if (i >= ports.length) return fail(new Error(`Port ${ports.join(', ')} is in use, so the sign-in can't finish. Close what uses it and try again.`));
@@ -135,7 +138,7 @@ function loopback(ports: number[], handle: (url: URL, reply: (html: string) => v
       const done = new Promise((a, b) => { settle = a; refuse = b; });
       const server = http.createServer(async (req, res) => {
         const url = new URL(req.url ?? '/', 'http://localhost');
-        const reply = (body: string) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', connection: 'close' }); res.end(body.startsWith('<') ? body : page(body)); };
+        const reply = (body: string) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', connection: 'close' }); res.end(body); };
         try { const r = await handle(url, reply); if (r !== 'wait') { settle(r); server.close(); clearTimeout(t); } }
         catch (e) { refuse(e); server.close(); clearTimeout(t); }
       });
@@ -146,8 +149,6 @@ function loopback(ports: number[], handle: (url: URL, reply: (html: string) => v
     tryPort(0);
   });
 }
-const page = (m: string) => `<!doctype html><meta charset=utf-8><title>Design Studio</title><body style="font:15px system-ui;margin:3em"><h2>${m}</h2>`;
-
 async function browserSignIn(host: string, clientId: string, secret: string, ports: number[]) {
   const state = random(16), verifier = random(48);
   const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
@@ -157,12 +158,12 @@ async function browserSignIn(host: string, clientId: string, secret: string, por
     const q = url.searchParams, code = q.get('code'), error = q.get('error');
     if (!code && !error && !q.get('fromhash')) {
       // Anypoint returns errors after #, which the browser keeps; this page sends them on.
-      reply(page('Finishing the sign-in…') + "<script>fetch(location.pathname+'?fromhash=1&'+location.hash.slice(1)).then(()=>document.querySelector('h2').textContent='You can close this tab.')</script>");
+      reply(page('busy', 'Finishing the sign-in', 'One moment.') + "<script>fetch(location.pathname+'?fromhash=1&'+location.hash.slice(1)).then(r=>r.text()).then(h=>{document.open();document.write(h);document.close()})</script>");
       return 'wait';
     }
-    if (error) { reply('The sign-in didn\'t finish. See Design Studio.'); throw new Error(error === 'invalid_scope' ? 'The Connected App needs the Full Access and Background Access scopes.' : `Anypoint said: ${error} ${q.get('error_description') ?? ''}`); }
-    if (q.get('state') !== state) { reply('This sign-in link is out of date. Start again from Design Studio.'); return 'wait'; }
-    reply('Signed in. You can close this tab and go back to Design Studio.');
+    if (error) { reply(page('err', "The sign-in didn't finish", 'Go back to Design Studio to see why and try again.')); throw new Error(error === 'invalid_scope' ? 'The Connected App needs the Full Access and Background Access scopes.' : `Anypoint said: ${error} ${q.get('error_description') ?? ''}`); }
+    if (q.get('state') !== state) { reply(page('err', 'This sign-in link is out of date', 'Start the sign-in again from Design Studio.')); return 'wait'; }
+    reply(page('ok', "You're signed in", 'Design Studio is connected to Anypoint. You can close this tab.'));
     return tokenRequest(host, { grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: clientId, client_secret: secret, code_verifier: verifier });
   });
   redirect = `http://localhost:${port}/callback`;
@@ -177,10 +178,10 @@ async function brokerSignIn(first: string, region: string): Promise<[any, string
   const { port, done } = await loopback([0], async (url, reply) => {
     if (!url.pathname.startsWith('/done')) { reply(''); return 'wait'; }
     const q = url.searchParams, err = q.get('error');
-    if (err) { reply('The sign-in didn\'t finish. See Design Studio.'); throw new Error(err === 'access_denied' ? 'The sign-in was cancelled.' : `Anypoint said: ${err} ${q.get('error_description') ?? ''}`); }
+    if (err) { reply(page('err', "The sign-in didn't finish", 'Go back to Design Studio to see why and try again.')); throw new Error(err === 'access_denied' ? 'The sign-in was cancelled.' : `Anypoint said: ${err} ${q.get('error_description') ?? ''}`); }
     const ticket = q.get('ticket'); if (!ticket) throw new Error('The sign-in came back without a ticket.');
-    try { const t = await brokerPost(broker, 'collect', { ticket, verifier }); reply('Signed in. You can close this tab and go back to Design Studio.'); return t; }
-    catch (e) { reply('The sign-in didn\'t finish. See Design Studio.'); throw e; }
+    try { const t = await brokerPost(broker, 'collect', { ticket, verifier }); reply(page('ok', "You're signed in", 'Design Studio is connected to Anypoint. You can close this tab.')); return t; }
+    catch (e) { reply(page('err', "The sign-in didn't finish", 'Go back to Design Studio to see why and try again.')); throw e; }
   });
   const [start, b] = await brokerAny(first, 'start', { challenge, port, region });
   broker = b;
@@ -208,15 +209,16 @@ async function call(method: string, p: string, body?: unknown) {
   throw new Error('Anypoint keeps refusing the sign-in. Sign in again.');
 }
 
-async function releaseLock() {
-  const h = lock; lock = null;
+async function releaseLock(tab: string) {
+  const h = locks.get(tab); locks.delete(tab);
   if (!h) return;
   clearInterval(h.timer);
   await call('POST', `/designcenter/api-designer/projects/${h.project}/branches/${h.branch}/releaseLock`, {});
 }
-export const releaseOnExit = () => Promise.race([releaseLock().catch(() => {}), new Promise((r) => setTimeout(r, 4000))]);
+// A tab closed (its id), or the extension is stopping (every tab's).
+export const releaseOnExit = (tab?: string) => Promise.race([Promise.all([...locks.keys()].filter((k) => tab === undefined || k === tab).map((k) => releaseLock(k).catch(() => {}))), new Promise((r) => setTimeout(r, 4000))]);
 
-export async function anypointCommand(cmd: string, a: Record<string, any>): Promise<unknown> {
+export async function anypointCommand(cmd: string, a: Record<string, any>, tab = ''): Promise<unknown> {
   switch (cmd) {
     case 'anypoint_broker_regions': {
       const out: string[] = Object.keys((await clients(true)).regions ?? {});
@@ -239,7 +241,7 @@ export async function anypointCommand(cmd: string, a: Record<string, any>): Prom
     }
     case 'anypoint_status': return readConn() ? (await access()).me : null;
     case 'anypoint_disconnect': {
-      await releaseLock().catch(() => {});
+      await releaseOnExit();
       await ctx.secrets.delete('client-secret'); await ctx.secrets.delete('refresh-token');
       try { fs.unlinkSync(connFile()); } catch { /* not there */ }
       session = null;
@@ -279,17 +281,18 @@ export async function anypointCommand(cmd: string, a: Record<string, any>): Prom
     case 'anypoint_hold_lock': {
       const branch = encodeURIComponent(a.branch).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
       const project: string = a.project;
-      if (lock && lock.project === project && lock.branch === branch) return null; // already held (Lock while I edit, then Push)
-      if (lock) await releaseLock().catch(() => {});
+      const held = locks.get(tab);
+      if (held && held.project === project && held.branch === branch) return null; // already held (Lock while I edit, then Push)
+      if (held) await releaseLock(tab).catch(() => {});
       const base = `/designcenter/api-designer/projects/${project}/branches/${branch}`;
       const r = await call('POST', `${base}/acquireLock`, {}) as { status: number; json: any };
       const me = (await access()).me, owner = r.json?.name ?? '';
       if (r.status >= 300 || r.json?.locked === false || (owner && owner !== me.username)) throw new Error(owner ? `${owner} is editing this branch in Design Center, so it's locked. Try again when they're done.` : `Couldn't lock the branch (${r.status}).`);
       // Locks lapse after about a minute: kept alive until released.
-      lock = { project, branch, timer: setInterval(() => { call('POST', `${base}/keepAlive`, {}).catch(() => {}); }, 30000) };
+      locks.set(tab, { project, branch, timer: setInterval(() => { call('POST', `${base}/keepAlive`, {}).catch(() => {}); }, 30000) });
       return null;
     }
-    case 'anypoint_release_lock': await releaseLock(); return null;
+    case 'anypoint_release_lock': await releaseLock(tab); return null;
   }
   return undefined;
 }

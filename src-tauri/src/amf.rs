@@ -1,6 +1,8 @@
 // amf-server process manager (ARCHITECTURE section 4), after DataWeave Studio's dw_server.rs:
 // spawn the jar, wait for its ready line with a timeout, keep a tail of stderr for the error banner,
 // route replies by id, and restart it (replaying open and overlays) if it dies.
+// One engine per window (Engines, by window label): each holds one project, and a long validation in one
+// window never holds up checks in another.
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -17,7 +19,16 @@ struct Proc {
 }
 
 #[derive(Default)]
+pub struct Engines(Mutex<HashMap<String, Arc<Amf>>>);
+impl Engines {
+  fn get(&self, label: &str) -> Arc<Amf> {
+    self.0.lock().unwrap().entry(label.to_string()).or_insert_with(|| Arc::new(Amf { label: label.to_string(), ..Default::default() })).clone()
+  }
+}
+
+#[derive(Default)]
 pub struct Amf {
+  label: String, // the window it serves
   proc: Mutex<Option<Proc>>,
   pending: Arc<Mutex<HashMap<u64, mpsc::Sender<Value>>>>,
   next_id: AtomicU64,
@@ -28,8 +39,8 @@ pub struct Amf {
   stopping: std::sync::atomic::AtomicBool,
 }
 
-fn status(app: &AppHandle, state: &str, detail: &str) {
-  let _ = app.emit("amf-status", json!({ "state": state, "detail": detail }));
+fn status(app: &AppHandle, win: &str, state: &str, detail: &str) {
+  let _ = app.emit_to(win, "amf-status", json!({ "state": state, "detail": detail, "win": win }));
 }
 
 // Windows hands back install paths in the verbatim form (\\?\C:\...). Java opens the jar from it but its class
@@ -72,7 +83,7 @@ fn find_java(app: &AppHandle) -> PathBuf {
 }
 
 impl Amf {
-  fn ensure_started(&self, app: &AppHandle) -> Result<(), String> {
+  fn ensure_started(self: &Arc<Self>, app: &AppHandle) -> Result<(), String> {
     let mut guard = self.proc.lock().unwrap();
     if let Some(p) = guard.as_mut() {
       if p.child.try_wait().map(|s| s.is_none()).unwrap_or(false) {
@@ -80,7 +91,7 @@ impl Amf {
       }
     }
     *guard = None;
-    status(app, "starting", "");
+    status(app, &self.label, "starting", "");
     let jar = find_jar(app).ok_or("The checking engine (amf-server.jar) is missing. In development, build it with mvn package in amf-server.")?;
     let java = find_java(app);
     let mut cmd = Command::new(&java);
@@ -101,7 +112,7 @@ impl Amf {
     }
     let mut child = cmd.spawn().map_err(|e| {
       let msg = format!("Couldn't start Java ({}): {}. Install Java 17 or later, or set JAVA_HOME.", java.display(), e);
-      status(app, "failed", &msg);
+      status(app, &self.label, "failed", &msg);
       msg
     })?;
     let stdin = child.stdin.take().ok_or("no stdin")?;
@@ -125,6 +136,7 @@ impl Amf {
     let pending = self.pending.clone();
     let app2 = app.clone();
     let tail2 = self.stderr_tail.clone();
+    let state = self.clone();
     std::thread::spawn(move || {
       let mut ready = Some(ready_tx);
       for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -144,10 +156,9 @@ impl Amf {
       // The process ended: fail whatever was waiting, and say so.
       pending.lock().unwrap().clear();
       let last = tail2.lock().unwrap().iter().rev().take(8).cloned().collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-      status(&app2, "stopped", &last);
+      status(&app2, &state.label, "stopped", &last);
       // Restart on its own (the project and unsaved text are replayed), unless it keeps dying:
       // three exits within a minute stops trying, and the banner stays up.
-      let state = app2.state::<Arc<Amf>>().inner().clone();
       if state.stopping.load(Ordering::SeqCst) {
         return;
       }
@@ -156,7 +167,7 @@ impl Amf {
       recent.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
       recent.push(now);
       if recent.len() >= 3 {
-        status(&app2, "failed", &format!("The checking engine stopped 3 times in a minute, so it's off for now.\n{}", last));
+        status(&app2, &state.label, "failed", &format!("The checking engine stopped 3 times in a minute, so it's off for now.\n{}", last));
         return;
       }
       drop(recent);
@@ -169,12 +180,12 @@ impl Amf {
       let _ = child.kill();
       let last = self.stderr_tail.lock().unwrap().join("\n");
       let msg = format!("The checking engine didn't start within 30 seconds. {}", if last.is_empty() { "Security software may be blocking Java.".to_string() } else { last });
-      status(app, "failed", &msg);
+      status(app, &self.label, "failed", &msg);
       return Err(msg);
     }
     *guard = Some(Proc { child, stdin });
     drop(guard);
-    status(app, "ready", "");
+    status(app, &self.label, "ready", "");
 
     // After a restart, put back the project and the unsaved text.
     if let Some(open) = self.last_open.lock().unwrap().clone() {
@@ -198,7 +209,7 @@ impl Amf {
     Ok(rx)
   }
 
-  pub fn request(&self, app: &AppHandle, op: &str, mut args: Value) -> Result<Value, String> {
+  pub fn request(self: &Arc<Self>, app: &AppHandle, op: &str, mut args: Value) -> Result<Value, String> {
     // Remember what a restart needs to replay.
     match op {
       "open" => {
@@ -227,27 +238,29 @@ impl Amf {
 }
 
 #[tauri::command]
-pub async fn amf(app: AppHandle, op: String, args: Value) -> Result<Value, String> {
+pub async fn amf(app: AppHandle, window: tauri::Window, op: String, args: Value) -> Result<Value, String> {
   tauri::async_runtime::spawn_blocking(move || {
-    let state = app.state::<Arc<Amf>>().inner().clone();
+    let state = app.state::<Engines>().get(window.label());
     state.request(&app, &op, args)
   })
   .await
   .map_err(|e| e.to_string())?
 }
 
-// Start and warm up at launch, so the first check after opening a project is fast.
-pub fn start_in_background(app: &AppHandle) {
-  let app = app.clone();
+// Start and warm up as a window opens, so the first check after opening a project is fast.
+pub fn start_in_background(app: &AppHandle, label: &str) {
+  let (app, state) = (app.clone(), app.state::<Engines>().get(label));
   std::thread::spawn(move || {
-    let state = app.state::<Arc<Amf>>().inner().clone();
     let _ = state.ensure_started(&app);
   });
 }
 
-pub fn stop(app: &AppHandle) {
-  if let Some(state) = app.try_state::<Arc<Amf>>() {
-    state.stopping.store(true, Ordering::SeqCst); // the app is closing: don't restart it
+// A window closed (one label) or the app is closing (None): stop those engines, and don't restart them.
+pub fn stop(app: &AppHandle, label: Option<&str>) {
+  let Some(engines) = app.try_state::<Engines>() else { return };
+  let gone: Vec<Arc<Amf>> = { let mut m = engines.0.lock().unwrap(); match label { Some(l) => m.remove(l).into_iter().collect(), None => m.drain().map(|(_, v)| v).collect() } };
+  for state in gone {
+    state.stopping.store(true, Ordering::SeqCst);
     if let Some(mut p) = state.proc.lock().unwrap().take() {
       let _ = p.child.kill();
     }

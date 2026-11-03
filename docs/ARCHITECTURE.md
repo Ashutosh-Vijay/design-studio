@@ -51,7 +51,7 @@ design-studio/
     shared/               theme, icons, window controls, settings, palette (from DataWeave Studio)
   src-tauri/              Rust core
     src/project.rs        open/close, VFS, save, zip import, watcher
-    src/amf.rs            amf-server process manager + request routing
+    src/amf.rs            amf-server process manager + request routing (one engine per window)
     src/anypoint/         (M3) auth, client, lock keep-alive
   amf-server/             Java 17 Maven project (shaded jar)
   scripts/                bench (corpus timings), golden test runner, release helpers

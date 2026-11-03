@@ -1,20 +1,15 @@
 // The AMF engine (amf-server.jar) for the extension, as src-tauri/src/amf.rs does it on the desktop: spawn it with
 // the bundled JRE, wait for its ready line (with a timeout: endpoint security can block Java silently), keep a
 // tail of stderr for the message, route replies by id, and restart it (replaying the project and unsaved text).
+// One engine per Design Studio tab (by tab id), as the desktop has one per window.
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 
 type Emit = (event: string, payload: unknown) => void;
-let proc: ChildProcessWithoutNullStreams | null = null;
-let starting: Promise<void> | null = null;
-let nextId = 0, stopping = false;
-const pending = new Map<number, (v: any) => void>();
-const tail: string[] = [];
-const exits: number[] = [];
-let lastOpen: Record<string, unknown> | null = null;
-const overlays = new Map<string, unknown>();
+type Engine = ReturnType<typeof engine>;
+const engines = new Map<string, Engine>();
 
 // Packaged: resources/ in the extension. In development: the desktop app's builds next door.
 function findJar(ext: string) {
@@ -28,7 +23,17 @@ function findJava(ext: string) {
   return exe;
 }
 
-function ensureStarted(ext: string, emit: Emit): Promise<void> {
+function engine(ext: string, emit: Emit) {
+let proc: ChildProcessWithoutNullStreams | null = null;
+let starting: Promise<void> | null = null;
+let nextId = 0, stopping = false;
+const pending = new Map<number, (v: any) => void>();
+const tail: string[] = [];
+const exits: number[] = [];
+let lastOpen: Record<string, unknown> | null = null;
+const overlays = new Map<string, unknown>();
+
+function ensureStarted(): Promise<void> {
   if (proc && proc.exitCode === null) return Promise.resolve();
   if (starting) return starting;
   starting = new Promise<void>((resolve, reject) => {
@@ -69,7 +74,7 @@ function ensureStarted(ext: string, emit: Emit): Promise<void> {
       // Restart on its own, unless it keeps dying: three exits within a minute stops trying.
       const now = Date.now(); while (exits.length && now - exits[0] > 60000) exits.shift(); exits.push(now);
       if (exits.length >= 3) { emit('amf-status', { state: 'failed', detail: `The checking engine stopped 3 times in a minute, so it's off for now.\n${last}` }); return; }
-      setTimeout(() => ensureStarted(ext, emit).catch(() => {}), 800);
+      setTimeout(() => ensureStarted().catch(() => {}), 800);
     });
   }).finally(() => { starting = null; });
   return starting;
@@ -84,13 +89,21 @@ function send(req: Record<string, unknown>): Promise<any> {
   });
 }
 
-export async function amf(ext: string, emit: Emit, op: string, args: Record<string, any>) {
+async function request(op: string, args: Record<string, any>) {
   if (op === 'open') { lastOpen = { op: 'open', root: args.root, main: args.main }; overlays.clear(); }
   if (op === 'overlay' && args.files) for (const [k, v] of Object.entries(args.files)) { if (v == null) overlays.delete(k); else overlays.set(k, v); }
-  await ensureStarted(ext, emit);
+  await ensureStarted();
   const reply = await Promise.race([send({ ...args, op }), new Promise<any>((r) => setTimeout(() => r({ ok: false, error: "The checking engine didn't answer" }), 120000))]);
   if (reply.ok === false) throw new Error(reply.error ?? 'error');
   return reply;
 }
-export const startAmf = (ext: string, emit: Emit) => ensureStarted(ext, emit).catch(() => {});
-export function stopAmf() { stopping = true; proc?.kill(); proc = null; }
+return { request, start: () => ensureStarted().catch(() => {}), stop: () => { stopping = true; proc?.kill(); proc = null; } };
+}
+
+const of = (tab: string, ext: string, emit: Emit) => { let e = engines.get(tab); if (!e) engines.set(tab, e = engine(ext, emit)); return e; };
+export const amf = (tab: string, ext: string, emit: Emit, op: string, args: Record<string, any>) => of(tab, ext, emit).request(op, args);
+export const startAmf = (tab: string, ext: string, emit: Emit) => of(tab, ext, emit).start();
+// A tab closed (its id), or the extension is stopping (no id).
+export function stopAmf(tab?: string) {
+  for (const [k, e] of [...engines]) if (!tab || k === tab) { e.stop(); engines.delete(k); }
+}

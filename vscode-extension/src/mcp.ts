@@ -38,8 +38,9 @@ export async function callTool(tool: string, args: unknown, emit: (e: string, p:
 export async function mcpCommand(cmd: string, a: Record<string, any>, version: string, emit: (e: string, p: unknown) => void): Promise<unknown> {
   switch (cmd) {
     case 'mcp_start': {
-      stopMcp();
       tools = a.tools; instructions = a.instructions;
+      if (server && port === a.port) return null; // already running there (another tab started it)
+      stopMcp();
       const srv = http.createServer(async (req, res) => {
         // Only this computer, and never a web page (a page on localhost, like a local MCP inspector, is let through).
         const origin = String(req.headers.origin ?? '');

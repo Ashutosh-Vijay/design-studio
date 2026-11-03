@@ -6,6 +6,7 @@ mod watch;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tauri::Manager;
 
 #[derive(Serialize)]
 struct ProjectFile {
@@ -300,6 +301,68 @@ fn write_file_exact(root: String, path: String, text: String) -> Result<(), Stri
   fs::write(&full, text).map_err(|e| format!("Couldn't write {}: {}", path, e))
 }
 
+// Windows: each shows one project (or the start screen), and a project is open in one window only, so two
+// windows never edit the same files. projects: window label -> its project root, compared as same_root does.
+#[derive(Default)]
+struct Windows {
+  projects: std::sync::Mutex<std::collections::HashMap<String, String>>,
+  next: std::sync::atomic::AtomicU64,
+}
+fn same_root(p: &str) -> String {
+  let s = p.replace('\\', "/").trim_end_matches('/').to_string();
+  if cfg!(target_os = "linux") { s } else { s.to_lowercase() } // Windows and macOS ignore case in paths
+}
+fn focus(w: &tauri::WebviewWindow) { let _ = w.unminimize(); let _ = w.show(); let _ = w.set_focus(); }
+fn window_with(app: &tauri::AppHandle, root: &str, not: &str) -> Option<tauri::WebviewWindow> {
+  let key = same_root(root);
+  let label = app.state::<Windows>().projects.lock().unwrap().iter().find(|(l, r)| **r == key && l.as_str() != not).map(|(l, _)| l.clone())?;
+  app.get_webview_window(&label)
+}
+
+// Another window with this project open comes to the front instead, and says so (true).
+#[tauri::command]
+fn project_window(app: tauri::AppHandle, window: tauri::Window, root: String) -> bool {
+  window_with(&app, &root, window.label()).map(|w| focus(&w)).is_some()
+}
+
+// What this window has open now; None is the start screen.
+#[tauri::command]
+fn claim_project(app: tauri::AppHandle, window: tauri::Window, root: Option<String>) {
+  let state = app.state::<Windows>();
+  let mut m = state.projects.lock().unwrap();
+  match root { Some(r) => { m.insert(window.label().to_string(), same_root(&r)); } None => { m.remove(window.label()); } }
+}
+
+// A new window, on the start screen or with a project (a window that already has it comes to the front).
+// Async: building a window from a synchronous command deadlocks on Windows.
+#[tauri::command]
+async fn open_window(app: tauri::AppHandle, root: Option<String>) -> Result<(), String> { new_window(&app, root) }
+
+fn new_window(app: &tauri::AppHandle, root: Option<String>) -> Result<(), String> {
+  if let Some(w) = root.as_deref().and_then(|r| window_with(app, r, "")) { focus(&w); return Ok(()); }
+  let label = format!("w{}", app.state::<Windows>().next.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1);
+  // The project goes in the address (the page opens it); a reload keeps it.
+  let url = match &root {
+    Some(r) => format!("index.html?open={}", r.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{:02X}", b) }).collect::<String>()),
+    None => "index.html".to_string(),
+  };
+  let light = light_theme(app);
+  tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App(url.into()))
+    .title("Design Studio for MuleSoft").inner_size(1280.0, 840.0).min_inner_size(1000.0, 600.0)
+    .decorations(false).visible(false)
+    .background_color(if light { tauri::window::Color(249, 248, 246, 255) } else { tauri::window::Color(10, 9, 7, 255) })
+    .build().map_err(|e| format!("Couldn't open a new window: {e}"))?;
+  // The page shows the window after its first frame; this is the safety net.
+  let (h, l) = (app.clone(), label.clone());
+  std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_secs(4)); if let Some(w) = h.get_webview_window(&l) { let _ = w.show(); } });
+  amf::start_in_background(app, &label);
+  Ok(())
+}
+
+fn light_theme(app: &tauri::AppHandle) -> bool {
+  tauri::Manager::path(app).app_config_dir().ok().and_then(|d| fs::read_to_string(d.join("theme")).ok()).is_some_and(|t| t.trim() == "light")
+}
+
 // The theme's light or dark, for the window's colour on the next start (before the page can say).
 #[tauri::command]
 fn remember_theme(app: tauri::AppHandle, dark: bool) -> Result<(), String> {
@@ -311,34 +374,50 @@ fn remember_theme(app: tauri::AppHandle, dark: bool) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    // Starting Design Studio again (the Start menu, the Dock) opens another window in this one.
+    .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| { let _ = new_window(app, None); }))
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
-    .manage(std::sync::Arc::new(amf::Amf::default()))
+    .manage(amf::Engines::default())
+    .manage(Windows::default())
     .manage(watch::WatchState::default())
     .manage(std::sync::Arc::new(anypoint::Anypoint::default()))
     .manage(mcp::Mcp::default())
     .setup(|app| {
       // The window is painted in the theme's background from the first frame, so a slow load is never a white
       // flash: dark by default (tauri.conf.json), light when that was the theme last time (remember_theme).
-      let light = tauri::Manager::path(app.handle()).app_config_dir().ok().and_then(|d| fs::read_to_string(d.join("theme")).ok()).is_some_and(|t| t.trim() == "light");
-      if light { if let Some(w) = tauri::Manager::get_webview_window(app.handle(), "main") { let _ = w.set_background_color(Some(tauri::window::Color(249, 248, 246, 255))); } }
+      if light_theme(app.handle()) { if let Some(w) = tauri::Manager::get_webview_window(app.handle(), "main") { let _ = w.set_background_color(Some(tauri::window::Color(249, 248, 246, 255))); } }
       // The window starts hidden and the page shows it after its first frame; this is the safety net.
       let h = app.handle().clone();
       std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_secs(4)); if let Some(w) = tauri::Manager::get_webview_window(&h, "main") { let _ = w.show(); } });
-      amf::start_in_background(app.handle());
+      amf::start_in_background(app.handle(), "main");
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, create_dir, export_zip, import_zip, import_into, fetch_url, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
       anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only, anypoint::anypoint_set_org, anypoint::anypoint_broker_regions,
-      anypoint::anypoint_dev_session, remember_theme, mcp::mcp_start, mcp::mcp_stop, mcp::mcp_status, mcp::mcp_reply])
+      anypoint::anypoint_dev_session, remember_theme, open_window, project_window, claim_project, mcp::mcp_start, mcp::mcp_stop, mcp::mcp_status, mcp::mcp_reply])
+    .on_window_event(|w, e| match e {
+      // AI tools work in the window used last.
+      tauri::WindowEvent::Focused(true) => { *w.app_handle().state::<mcp::Mcp>().target.lock().unwrap() = w.label().to_string(); }
+      // A closed window lets go of its project, its engine, its watcher and its lock.
+      tauri::WindowEvent::Destroyed => {
+        let (app, label) = (w.app_handle().clone(), w.label().to_string());
+        app.state::<Windows>().projects.lock().unwrap().remove(&label);
+        app.state::<watch::WatchState>().0.lock().unwrap().remove(&label);
+        amf::stop(&app, Some(&label));
+        { let mcp = app.state::<mcp::Mcp>(); let mut t = mcp.target.lock().unwrap(); if *t == label { *t = app.webview_windows().into_keys().find(|l| *l != label).unwrap_or_default(); } }
+        std::thread::spawn(move || anypoint::release_on_exit(&app, Some(&label)));
+      }
+      _ => {}
+    })
     .build(tauri::generate_context!())
     .expect("error while building Design Studio")
     .run(|app, event| {
       if let tauri::RunEvent::Exit = event {
-        amf::stop(app);
-        anypoint::release_on_exit(app);
+        amf::stop(app, None);
+        anypoint::release_on_exit(app, None);
       }
     });
 }

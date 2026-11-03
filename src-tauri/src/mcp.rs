@@ -30,6 +30,7 @@ pub struct Mcp {
   requests: Arc<AtomicU64>,
   tools: Mutex<Vec<Value>>, // MCP tool definitions, as the webview gave them
   instructions: Mutex<String>,
+  pub target: Mutex<String>, // the window used last (lib.rs follows focus); tools run there
 }
 
 #[derive(Clone)]
@@ -62,7 +63,8 @@ impl ServerHandler for Bridge {
     let (tx, rx) = tokio::sync::oneshot::channel();
     mcp.pending.lock().unwrap().insert(id, tx);
     let args = Value::Object(request.arguments.unwrap_or_default());
-    if self.app.emit_to("main", "mcp-call", json!({ "id": id, "tool": request.name, "args": args })).is_err() {
+    let win = { let t = mcp.target.lock().unwrap().clone(); if t.is_empty() { "main".to_string() } else { t } };
+    if self.app.emit_to(&win, "mcp-call", json!({ "id": id, "tool": request.name, "args": args, "win": win })).is_err() {
       mcp.pending.lock().unwrap().remove(&id);
       return Ok(CallToolResult::error(vec![Content::text("Design Studio's window isn't open.")]));
     }

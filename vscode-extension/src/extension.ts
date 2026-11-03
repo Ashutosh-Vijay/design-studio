@@ -2,6 +2,8 @@
 // webview-dist/) in an editor tab, and its Rust backend in Node here: files.ts, amf.ts, anypoint.ts, mcp.ts.
 // The webview's invoke(cmd, args) arrives as a message and is answered by id; the backend's events
 // (amf-status, fs-change, mcp-call) go back the same way. See src/shims/core.ts for the wire protocol.
+// A project per tab, as the desktop has a window per project: each tab has its own engine, watcher and lock, and a
+// project is open in one tab only. AI tools run in the tab used last.
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -12,52 +14,69 @@ import { amf, startAmf, stopAmf } from './amf';
 import { anypointCommand, initAnypoint, releaseOnExit } from './anypoint';
 import { callTool, mcpCommand, stopMcp } from './mcp';
 
-let panel: vscode.WebviewPanel | null = null;
-let pending: { root?: string; academy?: boolean } | null = null;
-// The webview says when its tool dispatcher listens (mcp_ready), so a tool call that opened the tab waits for it.
-let markReady = () => {};
-let ready: Promise<void> = new Promise((r) => { markReady = r; });
+type Tab = {
+  id: string; panel: vscode.WebviewPanel; root: string | null; // root: the project it has open (null: the start screen)
+  pending: { root?: string; academy?: boolean } | null;
+  ready: Promise<void>; markReady: () => void; // the webview says when its tool dispatcher listens (mcp_ready)
+};
+const tabs = new Map<string, Tab>();
+let lastTab: Tab | null = null, nextTab = 0;
+const same = (a: string, b: string) => { const n = (x: string) => path.resolve(x).replace(/[\\/]+$/, ''); return process.platform === 'linux' ? n(a) === n(b) : n(a).toLowerCase() === n(b).toLowerCase(); };
 
 export function activate(context: vscode.ExtensionContext) {
   initAnypoint(context);
   const ext = context.extensionPath;
   const version = String(context.extension.packageJSON.version);
-  const emit = (event: string, payload: unknown) => { panel?.webview.postMessage({ kind: 'event', event, payload }); };
+  const emitTo = (t: Tab) => (event: string, payload: unknown) => { t.panel.webview.postMessage({ kind: 'event', event, payload }); };
+  // AI tools' calls go to the tab used last.
+  const emitActive = (event: string, payload: unknown) => { if (lastTab) emitTo(lastTab)(event, payload); };
+  const withRoot = (root: string, not?: Tab) => [...tabs.values()].find((t) => t !== not && t.root && same(t.root, root));
 
-  const open = (what?: { root?: string; academy?: boolean }) => {
-    if (panel) {
-      panel.reveal(vscode.ViewColumn.Active);
-      if (what) emit('ds-open', what);
-      return;
-    }
-    pending = what ?? null;
-    ready = new Promise((r) => { markReady = r; });
+  // A project already open in a tab comes to the front; a tab on the start screen takes it; otherwise a new tab.
+  // newTab: always a new tab (the palette's "in a new tab", Ctrl click on a recent project).
+  const open = (what?: { root?: string; academy?: boolean }, newTab = false) => {
+    const has = what?.root ? withRoot(what.root) : undefined;
+    if (has) { has.panel.reveal(); return has; }
+    const free = newTab ? undefined : what?.root ? [...tabs.values()].find((t) => !t.root) : lastTab ?? undefined;
+    if (free) { free.panel.reveal(); if (what) emitTo(free)('ds-open', what); return free; }
     const dist = vscode.Uri.joinPath(context.extensionUri, 'webview-dist');
-    const p = panel = vscode.window.createWebviewPanel('designStudio', 'Design Studio', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [dist] });
+    const p = vscode.window.createWebviewPanel('designStudio', 'Design Studio', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [dist] });
+    let markReady = () => {};
+    const ready = new Promise<void>((r) => { markReady = r; });
+    const t: Tab = { id: `t${++nextTab}`, panel: p, root: null, pending: what ?? null, ready, markReady };
+    tabs.set(t.id, t); lastTab = t;
     p.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.png');
     p.webview.html = html(p.webview, dist);
-    startAmf(ext, emit); // warm while the splash shows
+    startAmf(t.id, ext, emitTo(t)); // warm while the splash shows
+    p.onDidChangeViewState((e) => { if (e.webviewPanel.active) lastTab = t; }, null, context.subscriptions);
     p.onDidDispose(() => {
-      if (panel === p) panel = null;
-      stopMcp(); stopWatching();
-      releaseOnExit();
+      tabs.delete(t.id);
+      if (lastTab === t) lastTab = [...tabs.values()].pop() ?? null;
+      stopAmf(t.id); stopWatching(t.id); releaseOnExit(t.id);
+      if (!tabs.size) stopMcp();
     }, null, context.subscriptions);
     p.webview.onDidReceiveMessage(async (m) => {
       if (m?.kind !== 'invoke') return;
-      try { p.webview.postMessage({ kind: 'invoke:result', id: m.id, ok: true, value: await handle(m.cmd, m.args ?? {}) }); }
+      try { p.webview.postMessage({ kind: 'invoke:result', id: m.id, ok: true, value: await handle(t, m.cmd, m.args ?? {}) }); }
       catch (e) { p.webview.postMessage({ kind: 'invoke:result', id: m.id, ok: false, error: e instanceof Error ? e.message : String(e) }); }
     }, null, context.subscriptions);
+    return t;
   };
 
-  async function handle(cmd: string, a: Record<string, any>): Promise<unknown> {
-    if (cmd === 'amf') return amf(ext, emit, a.op, a.args ?? {});
-    if (cmd.startsWith('anypoint_')) { const r = await anypointCommand(cmd, a); if (r !== undefined) return r; }
-    if (cmd === 'mcp_ready') { markReady(); return null; }
-    if (cmd.startsWith('mcp_')) { const r = await mcpCommand(cmd, a, version, emit); if (r !== undefined) return r; }
-    const r = await fileCommand(cmd, a, emit);
+  async function handle(t: Tab, cmd: string, a: Record<string, any>): Promise<unknown> {
+    const emit = emitTo(t);
+    if (cmd === 'amf') return amf(t.id, ext, emit, a.op, a.args ?? {});
+    if (cmd.startsWith('anypoint_')) { const r = await anypointCommand(cmd, a, t.id); if (r !== undefined) return r; }
+    if (cmd === 'mcp_ready') { t.markReady(); return null; }
+    if (cmd.startsWith('mcp_')) { const r = await mcpCommand(cmd, a, version, emitActive); if (r !== undefined) return r; }
+    const r = await fileCommand(cmd, a, emit, t.id);
     if (r !== undefined) return r;
     switch (cmd) {
-      case 'vscode_take_pending': { const x = pending; pending = null; return x; }
+      // Tabs, as the desktop's windows (src-tauri/src/lib.rs): what this tab has open, and the tab that has a project.
+      case 'claim_project': t.root = a.root ?? null; t.panel.title = t.root ? path.basename(t.root) : 'Design Studio'; return null;
+      case 'project_window': { const o = withRoot(a.root, t); if (o) o.panel.reveal(); return !!o; }
+      case 'open_window': open(a.root ? { root: a.root } : undefined, true); return null;
+      case 'vscode_take_pending': { const x = t.pending; t.pending = null; return x; }
       case 'vscode_version': return version;
       case 'vscode_dir': return a.which === 'documents' ? path.join(os.homedir(), 'Documents') : os.homedir();
       case 'vscode_open_url': await vscode.env.openExternal(vscode.Uri.parse(a.url, true)); return null;
@@ -86,7 +105,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     // The first time, a workspace folder that is itself a spec project opens straight away.
-    vscode.commands.registerCommand('designStudio.open', () => open(panel ? undefined : workspaceProject())),
+    vscode.commands.registerCommand('designStudio.open', () => open(tabs.size ? undefined : workspaceProject())),
     vscode.commands.registerCommand('designStudio.academy', () => open({ academy: true })),
     // VS Code also acts on every key pressed in a webview. While Design Studio's tab is active, its own shortcuts
     // (Ctrl W closes a file tab there, Ctrl K is its palette, Ctrl Z its undo) are bound here to nothing, so they're left to it.
@@ -111,10 +130,11 @@ export function activate(context: vscode.ExtensionContext) {
         ...(readOnly ? {} : { confirmationMessages: { title: t.displayName, message: new vscode.MarkdownString(Object.keys(o.input ?? {}).length ? '```json\n' + JSON.stringify(o.input, null, 2).slice(0, 1500) + '\n```' : 'Run it in the open Design Studio tab?') } }),
       }),
       invoke: async (o) => {
-        if (!panel) open(); else panel.reveal(undefined, true);
-        const up = await Promise.race([ready.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 30000))]);
+        const t = lastTab ?? open();
+        t.panel.reveal(undefined, true);
+        const up = await Promise.race([t.ready.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 30000))]);
         if (!up) throw new Error("Design Studio's tab didn't finish opening.");
-        const r = await callTool(tool, o.input ?? {}, emit);
+        const r = await callTool(tool, o.input ?? {}, emitActive);
         if (!r.ok) throw new Error(r.result);
         return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(r.result)]);
       },

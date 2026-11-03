@@ -4,6 +4,7 @@
 // "Sign in with Anypoint" (our Connected App, secret in Cloudflare) comes later in M3.
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::hash::{BuildHasher, Hasher};
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -87,7 +88,7 @@ struct LockHold {
 #[derive(Default)]
 pub struct Anypoint {
   session: Mutex<Option<Session>>,
-  lock: Mutex<Option<LockHold>>,
+  lock: Mutex<HashMap<String, LockHold>>, // by window label: each window's project can hold its branch's lock
   // Held while the session is renewed: a refresh token works once (Anypoint rotates it), and a pull makes eight
   // calls at once, so the others wait here and then use the session the first one made.
   renewing: Mutex<()>,
@@ -288,6 +289,12 @@ fn query_param(q: &str, key: &str) -> Option<String> {
   q.split('&').find_map(|kv| { let (k, v) = kv.split_once('=').unwrap_or((kv, "")); (k == key).then(|| percent_decode(v)) })
 }
 
+// The page the browser shows when a sign-in ends (or is finishing): the app's colours, light or dark as the system is.
+fn signin_page(kind: &str, title: &str, msg: &str) -> String {
+  let icon = match kind { "ok" => "<svg width=22 height=22 viewBox=\"0 0 24 24\" fill=none stroke=currentColor stroke-width=2.4 stroke-linecap=round stroke-linejoin=round><path d=\"M5 12.5l4.5 4.5L19 7.5\"/></svg>", "err" => "<svg width=20 height=20 viewBox=\"0 0 24 24\" fill=none stroke=currentColor stroke-width=2.4 stroke-linecap=round><path d=\"M6 6l12 12M18 6L6 18\"/></svg>", _ => "<span class=dots><i></i><i></i><i></i></span>" };
+  "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>{title} - Design Studio</title><style>:root{color-scheme:light dark;--bg:oklch(98% .003 80);--card:#fff;--line:oklch(90% .004 80);--text:oklch(20% 0 0);--muted:oklch(44% 0 0);--ok:oklch(52% .14 155);--err:oklch(55% .18 20);--busy:oklch(55% .15 158)}@media(prefers-color-scheme:dark){:root{--bg:oklch(14% .004 80);--card:oklch(17% .004 80);--line:oklch(26% .004 80);--text:oklch(96% 0 0);--muted:oklch(72% 0 0);--ok:oklch(76% .15 155);--err:oklch(68% .18 20);--busy:oklch(72% .15 158)}}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;background:var(--bg);color:var(--text);font:14px/1.55 system-ui,-apple-system,\"Segoe UI\",sans-serif}main{width:100%;max-width:380px;padding:36px 28px 28px;text-align:center;background:var(--card);border:1px solid var(--line);border-radius:14px}.mark{width:48px;height:48px;margin:0 auto 18px;border-radius:50%;display:grid;place-items:center;color:var(--c);background:color-mix(in oklch,var(--c) 15%,transparent)}h1{margin:0 0 6px;font-size:18px;font-weight:600;letter-spacing:-.01em}p{margin:0;color:var(--muted)}footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}.dots{display:flex;gap:5px}.dots i{width:6px;height:6px;border-radius:50%;background:currentColor;animation:b 1s infinite alternate}.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}@keyframes b{from{opacity:.25}to{opacity:1}}@media(prefers-reduced-motion:reduce){.dots i{animation:none}}</style><main style=\"--c:var(--{kind})\"><div class=mark>{icon}</div><h1>{title}</h1><p>{msg}</p><footer>Design Studio for MuleSoft</footer></main>".replace("{kind}", kind).replace("{icon}", icon).replace("{title}", title).replace("{msg}", msg)
+}
+
 // Browser sign-in: open Anypoint's authorize page and wait on the loopback redirect for the code.
 fn browser_sign_in(host: &str, client_id: &str, secret: &str, ports: &[u16]) -> Result<Value, String> {
   let (listener, port) = ports.iter().find_map(|p| TcpListener::bind(("127.0.0.1", *p)).ok().map(|l| (l, *p)))
@@ -305,7 +312,6 @@ fn browser_sign_in(host: &str, client_id: &str, secret: &str, ports: &[u16]) -> 
   // Give up after five minutes: wake the listener with a request of our own.
   let done = Arc::new(AtomicBool::new(false));
   { let done = done.clone(); std::thread::spawn(move || { std::thread::sleep(Duration::from_secs(300)); if !done.load(Ordering::SeqCst) { let _ = std::net::TcpStream::connect(("127.0.0.1", port)).map(|mut s| s.write_all(b"GET /timeout HTTP/1.1\r\n\r\n")); } }); }
-  let page = |msg: &str| format!("<!doctype html><meta charset=utf-8><title>Design Studio</title><body style=\"font:15px system-ui;margin:3em\"><h2>{msg}</h2>");
   for stream in listener.incoming() {
     let Ok(mut stream) = stream else { continue };
     let mut buf = [0u8; 8192];
@@ -319,17 +325,17 @@ fn browser_sign_in(host: &str, client_id: &str, secret: &str, ports: &[u16]) -> 
     let (code, error) = (query_param(q, "code"), query_param(q, "error"));
     if code.is_none() && error.is_none() && query_param(q, "fromhash").is_none() {
       // Anypoint returns errors after #, which the browser keeps; this page sends them on.
-      reply(&mut stream, page("Finishing the sign-in…") + "<script>fetch(location.pathname+'?fromhash=1&'+location.hash.slice(1)).then(()=>document.querySelector('h2').textContent='You can close this tab.')</script>");
+      reply(&mut stream, signin_page("busy", "Finishing the sign-in", "One moment.") + "<script>fetch(location.pathname+'?fromhash=1&'+location.hash.slice(1)).then(r=>r.text()).then(h=>{document.open();document.write(h);document.close()})</script>");
       continue;
     }
     if let Some(err) = error {
-      reply(&mut stream, page("The sign-in didn't finish. See Design Studio."));
+      reply(&mut stream, signin_page("err", "The sign-in didn't finish", "Go back to Design Studio to see why and try again."));
       done.store(true, Ordering::SeqCst);
       let desc = query_param(q, "error_description").unwrap_or_default();
       return Err(if err == "invalid_scope" { "The Connected App needs the Full Access and Background Access scopes.".into() } else { format!("Anypoint said: {err} {desc}") });
     }
-    if query_param(q, "state").as_deref() != Some(state.as_str()) { reply(&mut stream, page("This sign-in link is out of date. Start again from the app.")); continue; }
-    reply(&mut stream, page("Signed in. You can close this tab and go back to Design Studio."));
+    if query_param(q, "state").as_deref() != Some(state.as_str()) { reply(&mut stream, signin_page("err", "This sign-in link is out of date", "Start the sign-in again from Design Studio.")); continue; }
+    reply(&mut stream, signin_page("ok", "You're signed in", "Design Studio is connected to Anypoint. You can close this tab."));
     done.store(true, Ordering::SeqCst);
     return token_request(host, json!({ "grant_type": "authorization_code", "code": code.unwrap(), "redirect_uri": redirect, "client_id": client_id, "client_secret": secret, "code_verifier": verifier }));
   }
@@ -352,7 +358,6 @@ fn broker_sign_in(first: &str, region: &str) -> Result<(Value, String), String> 
   tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| format!("Couldn't open the browser: {e}"))?;
   let done = Arc::new(AtomicBool::new(false));
   { let done = done.clone(); std::thread::spawn(move || { std::thread::sleep(Duration::from_secs(300)); if !done.load(Ordering::SeqCst) { let _ = std::net::TcpStream::connect(("127.0.0.1", port)).map(|mut s| s.write_all(b"GET /timeout HTTP/1.1\r\n\r\n")); } }); }
-  let page = |msg: &str| format!("<!doctype html><meta charset=utf-8><title>Design Studio</title><body style=\"font:15px system-ui;margin:3em\"><h2>{msg}</h2>");
   for stream in listener.incoming() {
     let Ok(mut stream) = stream else { continue };
     let mut buf = [0u8; 16384];
@@ -365,19 +370,19 @@ fn broker_sign_in(first: &str, region: &str) -> Result<(Value, String), String> 
     let q = target.split_once('?').map(|x| x.1).unwrap_or("");
     done.store(true, Ordering::SeqCst);
     if let Some(err) = query_param(q, "error") {
-      reply(&mut stream, page("The sign-in didn't finish. See Design Studio."));
+      reply(&mut stream, signin_page("err", "The sign-in didn't finish", "Go back to Design Studio to see why and try again."));
       return Err(if err == "access_denied" { "The sign-in was cancelled.".into() } else { format!("Anypoint said: {err} {}", query_param(q, "error_description").unwrap_or_default()) });
     }
     let ticket = query_param(q, "ticket").ok_or("The sign-in came back without a ticket.")?;
     let tokens = broker_post(broker, "collect", json!({ "ticket": ticket, "verifier": verifier }));
-    reply(&mut stream, page(if tokens.is_ok() { "Signed in. You can close this tab and go back to Design Studio." } else { "The sign-in didn't finish. See Design Studio." }));
+    reply(&mut stream, if tokens.is_ok() { signin_page("ok", "You're signed in", "Design Studio is connected to Anypoint. You can close this tab.") } else { signin_page("err", "The sign-in didn't finish", "Go back to Design Studio to see why and try again.") });
     return tokens.map(|t| (t, broker.to_string()));
   }
   Err("The sign-in was interrupted.".into())
 }
 
 #[tauri::command]
-pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, client_secret: String, host: String, broker: Option<String>, read_only: Option<bool>) -> Result<Me, String> {
+pub async fn anypoint_connect(app: AppHandle, window: tauri::Window, mode: String, client_id: String, client_secret: String, host: String, broker: Option<String>, read_only: Option<bool>) -> Result<Me, String> {
   tauri::async_runtime::spawn_blocking(move || {
     let host = host.trim_end_matches('/').to_string();
     // A different broker only in development, for testing against a local one.
@@ -403,6 +408,8 @@ pub async fn anypoint_connect(app: AppHandle, mode: String, client_id: String, c
     let f = conn_file(&app)?;
     if let Some(d) = f.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
     std::fs::write(f, serde_json::to_string(&conn).unwrap()).map_err(|e| e.to_string())?;
+    // Back from the browser: the window that asked comes to the front (the OS may only flash it in the taskbar).
+    let _ = window.unminimize(); let _ = window.set_focus();
     Ok(me)
   }).await.map_err(|e| e.to_string())?
 }
@@ -418,7 +425,8 @@ pub async fn anypoint_status(app: AppHandle) -> Result<Option<Me>, String> {
 
 #[tauri::command]
 pub async fn anypoint_disconnect(app: AppHandle) -> Result<(), String> {
-  let _ = anypoint_release_lock(app.clone()).await;
+  // Signing out lets go of every window's lock while the session can still say so.
+  { let app = app.clone(); let _ = tauri::async_runtime::spawn_blocking(move || release_on_exit(&app, None)).await; }
   for k in ["client-secret", "refresh-token"] { if let Ok(e) = keychain(k) { let _ = e.delete_credential(); } }
   let _ = std::fs::remove_file(conn_file(&app)?);
   *app.state::<Arc<Anypoint>>().session.lock().unwrap() = None;
@@ -532,14 +540,15 @@ pub async fn anypoint_fetch_dependency(app: AppHandle, root: String, group: Stri
 
 // Take the branch's lock and keep it alive (locks lapse after about a minute) until released.
 #[tauri::command]
-pub async fn anypoint_hold_lock(app: AppHandle, project: String, branch: String) -> Result<(), String> {
+pub async fn anypoint_hold_lock(app: AppHandle, window: tauri::Window, project: String, branch: String) -> Result<(), String> {
+  let win = window.label().to_string();
   // Encoded once, as sync.ts does for its calls: a branch can have / or spaces in its name.
   let branch: String = branch.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{:02X}", b) }).collect();
   tauri::async_runtime::spawn_blocking(move || {
     // Already held (Lock while I edit, then Push): nothing to do. Held on another branch: let that one go first.
-    let held = app.state::<Arc<Anypoint>>().lock.lock().unwrap().take();
+    let held = app.state::<Arc<Anypoint>>().lock.lock().unwrap().remove(&win);
     if let Some(h) = held {
-      if h.project == project && h.branch == branch { *app.state::<Arc<Anypoint>>().lock.lock().unwrap() = Some(h); return Ok(()); }
+      if h.project == project && h.branch == branch { app.state::<Arc<Anypoint>>().lock.lock().unwrap().insert(win, h); return Ok(()); }
       h.stop.store(true, Ordering::SeqCst);
       let _ = call(&app, "POST", &format!("/designcenter/api-designer/projects/{}/branches/{}/releaseLock", h.project, h.branch), Some(&json!({})));
     }
@@ -556,15 +565,15 @@ pub async fn anypoint_hold_lock(app: AppHandle, project: String, branch: String)
         for _ in 0..30 { std::thread::sleep(Duration::from_secs(1)); if stop.load(Ordering::SeqCst) { return; } }
         let _ = call(&app, "POST", &format!("{base}/keepAlive"), Some(&json!({})));
       }); }
-    *app.state::<Arc<Anypoint>>().lock.lock().unwrap() = Some(LockHold { project, branch, stop });
+    app.state::<Arc<Anypoint>>().lock.lock().unwrap().insert(win, LockHold { project, branch, stop });
     Ok(())
   }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub async fn anypoint_release_lock(app: AppHandle) -> Result<(), String> {
+pub async fn anypoint_release_lock(app: AppHandle, window: tauri::Window) -> Result<(), String> {
   tauri::async_runtime::spawn_blocking(move || {
-    let held = app.state::<Arc<Anypoint>>().lock.lock().unwrap().take();
+    let held = app.state::<Arc<Anypoint>>().lock.lock().unwrap().remove(window.label());
     if let Some(h) = held {
       h.stop.store(true, Ordering::SeqCst);
       call(&app, "POST", &format!("/designcenter/api-designer/projects/{}/branches/{}/releaseLock", h.project, h.branch), Some(&json!({})))?;
@@ -573,10 +582,10 @@ pub async fn anypoint_release_lock(app: AppHandle) -> Result<(), String> {
   }).await.map_err(|e| e.to_string())?
 }
 
-// On exit, never leave a branch locked.
-pub fn release_on_exit(app: &AppHandle) {
-  let held = app.try_state::<Arc<Anypoint>>().and_then(|s| s.lock.lock().unwrap().take());
-  if let Some(h) = held {
+// On exit (None) or as a window closes (its label), never leave a branch locked.
+pub fn release_on_exit(app: &AppHandle, label: Option<&str>) {
+  let held: Vec<LockHold> = app.try_state::<Arc<Anypoint>>().map(|s| { let mut m = s.lock.lock().unwrap(); match label { Some(l) => m.remove(l).into_iter().collect(), None => m.drain().map(|(_, v)| v).collect() } }).unwrap_or_default();
+  for h in held {
     h.stop.store(true, Ordering::SeqCst);
     // At most a few seconds: closing mustn't hang on a slow network (the lock expires by itself in a minute anyway).
     let (tx, rx) = std::sync::mpsc::channel();

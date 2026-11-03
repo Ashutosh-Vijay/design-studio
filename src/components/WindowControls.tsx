@@ -7,6 +7,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 // its zoom and the extension's updates: isVsCode drops those.
 export const isVsCode = import.meta.env.VITE_VSCODE === '1';
 export const isTauri = isVsCode || (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window);
+// A project per window on the desktop (main, then w1, w2...; events for one window carry its label, win), and per
+// editor tab in VS Code (the extension sends each tab only its own events). WINDOW names it for the person.
+export const windowLabel = isTauri && !isVsCode ? getCurrentWindow().label : 'main';
+export const multiWindow = isTauri;
+export const WINDOW = isVsCode ? 'tab' : 'window';
 
 export function WindowControls() {
   if (!isTauri || isVsCode) return null;

@@ -8,14 +8,13 @@ import { listen } from '@tauri-apps/api/event';
 import { TOOLS, INSTRUCTIONS, REMOTE_OFF, definitions, remoteOk, host, type Args } from './mcpTools';
 import { Modal, btn, btnPrimary, Spinner } from './App';
 import { Icons } from './components/Icons';
-import { isVsCode } from './components/WindowControls';
+import { isVsCode, windowLabel } from './components/WindowControls';
 
 
 const PORT = 4676;
 export let autoStartError: string | null = null;
 const pref = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 export { host };
-const setPref = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* blocked storage: forgotten */ } };
 
 // ---------- Running calls from the server ----------
 export type LogRow = { at: number; tool: string; ok: boolean; ms: number; note: string };
@@ -25,7 +24,8 @@ let started = false;
 // Listens for the server's calls once, for the window's lifetime.
 export function startDispatcher() {
   if (started) return; started = true;
-  const listening = listen<{ id: number; tool: string; args: Args }>('mcp-call', async (e) => {
+  const listening = listen<{ id: number; tool: string; args: Args; win?: string }>('mcp-call', async (e) => {
+    if (e.payload.win && e.payload.win !== windowLabel) return; // the window used last runs it
     const { id, tool, args } = e.payload, t0 = performance.now();
     const t = TOOLS.find((x) => x.name === tool);
     let ok = true, text: string;
@@ -42,7 +42,7 @@ export function startDispatcher() {
   // "Start when Design Studio opens" that fails (a port in use) is shown, not dropped: the title bar and the panel say it.
   // In VS Code the extension waits for this before handing over a tool call that opened the tab.
   if (isVsCode) listening.then(() => invoke('mcp_ready')).catch(() => {});
-  if (pref('ads.mcp.auto') === '1') startServer().catch((e) => { autoStartError = String(e).replace(/^Error: /, ''); window.dispatchEvent(new Event('ads-mcp')); });
+  if (windowLabel === 'main' && pref('ads.mcp.auto') === '1') startServer().catch((e) => { autoStartError = String(e).replace(/^Error: /, ''); window.dispatchEvent(new Event('ads-mcp')); });
 }
 export const savedPort = () => Number(pref('ads.mcp.port')) || PORT;
 export async function startServer(port = savedPort()) {
@@ -67,19 +67,19 @@ export function useMcpStatus() {
 // ---------- The panel (Settings, AI tools) ----------
 export function McpPanel({ onClose }: { onClose: () => void }) {
   const st = useMcpStatus();
-  const [port, setPort] = useState(String(savedPort()));
+  const port = savedPort();
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(autoStartError && `It didn't start when Design Studio opened: ${autoStartError}`);
   const [rows, setRows] = useState(log);
   const [client, setClient] = useState<'claude' | 'vscode' | 'cursor' | 'desktop'>('claude');
   const [copied, setCopied] = useState(false);
   useEffect(() => { const w = () => setRows(log); watchers.add(w); return () => { watchers.delete(w); }; }, []);
   const running = !!st?.running;
-  const url = `http://127.0.0.1:${st?.port ?? (Number(port) || PORT)}/mcp`;
+  const url = `http://127.0.0.1:${st?.port ?? port}/mcp`;
   const toggle = async () => {
     setBusy(true); setErr(null);
     try {
       if (running) await stopServer();
-      else { const p = Number(port); if (!(p > 1023 && p < 65536)) throw new Error('Pick a port from 1024 to 65535.'); setPref('ads.mcp.port', String(p)); await startServer(p); }
+      else await startServer(port);
     } catch (e) { setErr(String(e).replace(/^Error: /, '')); }
     setBusy(false);
   };
@@ -103,9 +103,9 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
           {running && <span className="text-content-faint">{st!.requests} {st!.requests === 1 ? 'call' : 'calls'}</span>}
           <span className="flex-1" />
           {running ? <span className="font-mono text-[11.5px] select-text">{url}</span>
-            : <label className="flex items-center gap-1.5 text-content-faint">Port<input value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ''))} className="w-[64px] h-[24px] px-1.5 rounded border border-line bg-surface-input font-mono text-[11.5px] text-content outline-none focus:border-accent" /></label>}
+            : <span className="text-content-faint">Port <span className="font-mono">{port}</span></span>}
         </div>
-        <div className="text-[11.5px] text-content-faint">{pref('ads.mcp.auto') === '1' ? 'Starts when Design Studio opens.' : "Doesn't start by itself."} Changes in Design Center and Exchange are {remoteOk() ? 'allowed' : 'off'}. Both are in Settings, under AI tools.</div>
+        <div className="text-[11.5px] text-content-faint">{pref('ads.mcp.auto') === '1' ? 'Starts when Design Studio opens.' : "Doesn't start by itself."} Changes in Design Center and Exchange are {remoteOk() ? 'allowed' : 'off'}. The port and both of these are in Settings, under AI tools.</div>
         <div>
           <div className="flex items-center gap-1 mb-1.5">
             <span className="text-[11.5px] text-content-faint mr-1">Connect</span>

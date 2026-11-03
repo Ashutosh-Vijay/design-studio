@@ -8,7 +8,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Default)]
-pub struct WatchState(Mutex<Option<RecommendedWatcher>>);
+pub struct WatchState(pub Mutex<std::collections::HashMap<String, RecommendedWatcher>>); // by window label
 
 const IGNORED: [&str; 4] = [".git", "node_modules", ".apidesigner", "target"];
 
@@ -22,7 +22,8 @@ fn rel(root: &Path, p: &Path) -> Option<String> {
 
 // Watches the project folder and tells the webview which files changed on disk.
 #[tauri::command]
-pub fn watch_project(app: AppHandle, root: String) -> Result<(), String> {
+pub fn watch_project(app: AppHandle, window: tauri::Window, root: String) -> Result<(), String> {
+  let win = window.label().to_string();
   let root_path = PathBuf::from(&root);
   let app2 = app.clone();
   let base = root_path.clone();
@@ -30,13 +31,13 @@ pub fn watch_project(app: AppHandle, root: String) -> Result<(), String> {
     if let Ok(ev) = res {
       let paths: Vec<String> = ev.paths.iter().filter_map(|p| rel(&base, p)).collect();
       if !paths.is_empty() {
-        let _ = app2.emit("fs-change", json!({ "paths": paths }));
+        let _ = app2.emit_to(&win, "fs-change", json!({ "paths": paths, "win": win }));
       }
     }
   })
   .map_err(|e| e.to_string())?;
   watcher.watch(&root_path, RecursiveMode::Recursive).map_err(|e| e.to_string())?;
-  *app.state::<WatchState>().0.lock().unwrap() = Some(watcher); // replaces (and stops) the previous one
+  app.state::<WatchState>().0.lock().unwrap().insert(window.label().to_string(), watcher); // replaces (and stops) the window's previous one
   Ok(())
 }
 

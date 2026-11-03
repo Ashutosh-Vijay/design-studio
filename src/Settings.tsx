@@ -10,8 +10,8 @@ import { btn, editorPrefs, applyEditorPrefs, ZOOMS, savedZoom, setZoom } from '.
 import { ACCENTS, isDarkPref, type ThemePref } from './theme';
 import { projectsDir } from './sync';
 import { lockWhileEditing, type Me } from './SyncUI';
-import { isTauri, isVsCode } from './components/WindowControls';
-import { useMcpStatus } from './mcp';
+import { isTauri, isVsCode, multiWindow, WINDOW } from './components/WindowControls';
+import { useMcpStatus, savedPort } from './mcp';
 import { remoteOk } from './mcpTools';
 import { readSettings as readGov, writeSettings as writeGov } from './governance';
 
@@ -23,7 +23,7 @@ const SECTIONS: { id: Section; label: string; icon: keyof typeof Icons; keywords
   { id: 'project', label: 'This project', icon: 'ApiSpec', keywords: ['governance', 'rulesets', 'rules', 'validate', 'auto', 'conformance'] },
   { id: 'anypoint', label: 'Anypoint', icon: 'DesignCenter', desktop: true, keywords: ['sign in', 'sign out', 'connect', 'account', 'organization', 'read only', 'lock', 'design center'] },
   { id: 'projects', label: 'Projects', icon: 'Folder', desktop: true, keywords: ['folder', 'location', 'where', 'pull', 'create'] },
-  { id: 'ai', label: 'AI tools', icon: 'Sparkle', desktop: true, keywords: ['mcp', 'claude', 'copilot', 'cursor', 'agent', 'server', 'start', 'allow changes', 'publish', 'push'] },
+  { id: 'ai', label: 'AI tools', icon: 'Sparkle', desktop: true, keywords: ['mcp', 'claude', 'copilot', 'cursor', 'agent', 'server', 'port', 'start', 'allow changes', 'publish', 'push'] },
   { id: 'about', label: 'About', icon: 'Help', keywords: ['version', 'updates', 'licence', 'license', "what's new"] },
 ];
 
@@ -248,10 +248,18 @@ function AiTools({ onMcp }: { onMcp: () => void }) {
   const [auto, setAuto] = useState(pref('ads.mcp.auto') === '1');
   const [remote, setRemote] = useState(remoteOk);
   const set = (k: string, on: boolean) => { try { localStorage.setItem(k, on ? '1' : '0'); } catch { /* ignore */ } };
+  const [port, setPort] = useState(String(savedPort()));
+  const portOk = Number(port) > 1023 && Number(port) < 65536;
   return (
     <Page title="AI tools" desc="Let AI agents like Claude, Copilot and Cursor work in Design Studio, over MCP.">
       <Row label="Local server" desc={st?.running ? <>Running at <span className="font-mono text-[11.5px]">127.0.0.1:{st.port}</span>, {st.requests} {st.requests === 1 ? 'call' : 'calls'}.</> : 'Stopped. Start it, then give your agent its address.'}>
         <button className={btn} onClick={onMcp}>{st?.running ? 'Details…' : 'Set up…'}</button>
+      </Row>
+      {/* VS Code's Copilot calls the tools directly; the port is for other agents, as on the desktop. */}
+      <Row label="Port" desc={st?.running ? 'Stop the server to change it.' : portOk ? `Agents connect to http://127.0.0.1:${port}/mcp. Change it if another program uses ${port}.` : 'Pick a port from 1024 to 65535.'}>
+        <input value={port} disabled={!!st?.running} aria-label="Port" inputMode="numeric" spellCheck={false}
+          onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 5); setPort(v); if (Number(v) > 1023 && Number(v) < 65536) { try { localStorage.setItem('ads.mcp.port', v); } catch { /* ignore */ } } }}
+          className={`w-[84px] h-[28px] px-2 rounded-md border bg-surface-input font-mono text-[12.5px] text-content !outline-none disabled:opacity-50 ${portOk ? 'border-line focus:border-accent' : 'border-err'}`} />
       </Row>
       <Row label="Start when Design Studio opens">
         <Toggle label="Start when Design Studio opens" on={auto} onChange={(on) => { set('ads.mcp.auto', on); setAuto(on); }} />
@@ -311,6 +319,8 @@ function Shortcuts() {
       ['Go to a symbol', [`${C} Shift O`]],
       ['Commands', ['F1']],
       ['Open folder', [`${C} O`]],
+      ...(multiWindow && !isVsCode ? [['New window', [`${C} Shift N`]]] as [string, string[]][] : []),
+      ...(multiWindow ? [[`Open a recent project in a new ${WINDOW}`, [`${C} click`, 'Middle click']]] as [string, string[]][] : []),
       ...(isVsCode ? [] : [['Settings', [`${C} ,`]], ['Interface size', [`${C} Plus`, `${C} Minus`, `${C} 0`]]] as [string, string[]][]),
       ['Close a dialog or panel', ['Esc']],
     ]],

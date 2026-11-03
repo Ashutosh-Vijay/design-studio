@@ -34,7 +34,7 @@ export type ProjectHost = {
 };
 export type AppHost = {
   recent: { root: string; name: string; opened: number }[];
-  open: (root: string) => Promise<void>;
+  open: (root: string) => Promise<unknown>; // 'elsewhere': another window has it, and came to the front
   close: () => Promise<void>;
 };
 export const host: { app: AppHost | null; project: ProjectHost | null } = { app: null, project: null };
@@ -62,7 +62,7 @@ async function linked() {
 async function openAndWait(root: string) {
   const norm = (x: string) => x.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
   const same = (x?: string) => !!x && norm(x) === norm(root);
-  await host.app!.open(root);
+  if (await host.app!.open(root) === 'elsewhere') throw new Error(`${root} is open in another Design Studio window or tab, which is now in front. Tools run in the one used last: call this tool again to work there.`);
   for (let i = 0; i < 100 && !same(host.project?.root); i++) await new Promise((r) => setTimeout(r, 100));
   if (!same(host.project?.root)) throw new Error(`${root} didn't open (it may not be a folder, or the person kept the current project).`);
 }

@@ -109,11 +109,11 @@ function unzipInto(buf: Buffer, dest: string) {
 }
 export function unzipBuffer(buf: Buffer, dest: string) { return unzipInto(buf, dest).count; }
 
-let watcher: fs.FSWatcher | null = null;
+const watchers = new Map<string, fs.FSWatcher>(); // by tab
 const IGNORED = ['.git', 'node_modules', '.apidesigner', 'target'];
 const recoveryPath = (root: string, p: string) => { if (p.includes('..')) throw new Error('Bad path'); return path.join(root, '.apidesigner', 'recovery', p); };
 
-export async function fileCommand(cmd: string, a: Record<string, any>, emit: (event: string, payload: unknown) => void): Promise<unknown> {
+export async function fileCommand(cmd: string, a: Record<string, any>, emit: (event: string, payload: unknown) => void, tab = ''): Promise<unknown> {
   switch (cmd) {
     case 'open_project': {
       const root: string = a.root;
@@ -209,14 +209,14 @@ export async function fileCommand(cmd: string, a: Record<string, any>, emit: (ev
     }
     // The watcher and the recovery journal (watch.rs).
     case 'watch_project': {
-      watcher?.close();
+      watchers.get(tab)?.close();
       const root: string = a.root;
-      watcher = fs.watch(root, { recursive: true }, (_ev, name) => {
+      watchers.set(tab, fs.watch(root, { recursive: true }, (_ev, name) => {
         if (!name) return;
         const r = slash(String(name));
         if (!r || IGNORED.some((d) => r === d || r.startsWith(d + '/'))) return;
         emit('fs-change', { paths: [r] });
-      });
+      }));
       return null;
     }
     case 'write_recovery': {
@@ -237,4 +237,6 @@ export async function fileCommand(cmd: string, a: Record<string, any>, emit: (ev
   }
   return undefined;
 }
-export function stopWatching() { watcher?.close(); watcher = null; }
+export function stopWatching(tab?: string) {
+  for (const [k, w] of [...watchers]) if (tab === undefined || k === tab) { w.close(); watchers.delete(k); }
+}

@@ -22,7 +22,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, NOTES } from './Brand';
-import { WindowControls, isTauri, isVsCode } from './components/WindowControls';
+import { WindowControls, isTauri, isVsCode, windowLabel, multiWindow, WINDOW } from './components/WindowControls';
 import { AsyncForms } from './AsyncApi';
 import { Inspector, OasInspector, type AmfModel, type At, type SampleResult } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection, oasJsonAdd } from './OasJson';
@@ -146,14 +146,16 @@ export default function App() {
   }, []);
   mcpHost.app = { recent, open: (root) => openFolder(root), close: async () => { if (await okToLeave()) { setProject(null); setDirtyCount(0); } } };
   async function openFolder(root?: string) {
-    if (project && !(await okToLeave())) return;
-    setError(null);
     let dir = root;
     if (!dir) {
       const picked = await openDialog({ directory: true, title: 'Open a spec project folder' });
       if (typeof picked !== 'string') return;
       dir = picked;
     }
+    // Open in another window already: that window comes to the front instead.
+    if (multiWindow && await invoke<boolean>('project_window', { root: dir })) return 'elsewhere';
+    if (project && !(await okToLeave())) return;
+    setError(null);
     setOpening(dir);
     try {
       const p = await invoke<Project>('open_project', { root: dir });
@@ -166,6 +168,15 @@ export default function App() {
       setOpening(null);
     }
   }
+
+  // Windows: a new one (Ctrl Shift N, the palette, Ctrl or middle click on a recent project), opened by the
+  // address (?open=); and the project this window has, so another window never opens it too.
+  const newWindow = (root?: string) => { invoke('open_window', { root: root ?? null }).catch((e) => setError(String(e))); };
+  useEffect(() => {
+    const root = multiWindow && new URLSearchParams(location.search).get('open');
+    if (root) openFolder(root);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (multiWindow) invoke('claim_project', { root: project?.root ?? null }).catch(() => {}); }, [project?.root]);
 
   // A zip is unpacked into a new folder, and that folder is the project from then on.
   const [zipAsk, setZipAsk] = useState<{ zip: string; dest: string } | null>(null);
@@ -203,6 +214,7 @@ export default function App() {
       else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); setPaletteOpen('@'); }
       else if (e.key === 'F1') { e.preventDefault(); setPaletteOpen('>'); }
       else if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); if (isTauri) openFolder(); }
+      else if (multiWindow && !isVsCode && mod && e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newWindow(); }
       else if (e.key === 'Escape') { setSettingsOpen(false); setPaletteOpen(false); }
     };
     window.addEventListener('keydown', onKey);
@@ -273,7 +285,7 @@ export default function App() {
         />
         </Boundary>
       ) : (
-        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onOpenZip={openZip} onPull={() => setConnectOpen(true)} onCreate={setCreating} onAcademy={() => setAcademy(true)}
+        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onNewWindow={newWindow} onOpenZip={openZip} onPull={() => setConnectOpen(true)} onCreate={setCreating} onAcademy={() => setAcademy(true)}
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
       )}
 
@@ -294,9 +306,9 @@ export default function App() {
   );
 }
 
-function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate, onRemove, onAcademy }: {
+function StartView({ recent, opening, error, onOpen, onNewWindow, onOpenZip, onPull, onCreate, onRemove, onAcademy }: {
   recent: Recent[]; opening: string | null; error: string | null;
-  onOpen: (root?: string) => void; onOpenZip: () => void; onPull: () => void; onCreate: (what: 'api' | 'fragment') => void; onRemove: (root: string) => void; onAcademy: () => void;
+  onOpen: (root?: string) => void; onNewWindow: (root: string) => void; onOpenZip: () => void; onPull: () => void; onCreate: (what: 'api' | 'fragment') => void; onRemove: (root: string) => void; onAcademy: () => void;
 }) {
   const learned = academyDone();
   const [createMenu, setCreateMenu] = useState(false);
@@ -364,7 +376,8 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate
           ) : (
             <div className="mt-2 rounded-lg border border-line bg-surface overflow-hidden">
               {recent.map((r) => (
-                <div key={r.root} onClick={() => isTauri && onOpen(r.root)}
+                <div key={r.root} onClick={(e) => { if (!isTauri) return; if (multiWindow && (e.ctrlKey || e.metaKey)) onNewWindow(r.root); else onOpen(r.root); }}
+                  onAuxClick={(e) => { if (multiWindow && e.button === 1) { e.preventDefault(); onNewWindow(r.root); } }}
                   className="group flex items-center gap-3 px-3 py-2.5 border-b border-line-secondary last:border-b-0 cursor-pointer hover:bg-surface-2">
                   <span className="w-[30px] h-[30px] rounded-md flex items-center justify-center bg-surface-2 border border-line-secondary text-content-muted"><Icons.Folder size={15} /></span>
                   <span className="min-w-0 flex-1">
@@ -372,6 +385,10 @@ function StartView({ recent, opening, error, onOpen, onOpenZip, onPull, onCreate
                     <span className="block font-mono text-[11px] text-content-faint truncate">{r.root}</span>
                   </span>
                   <span className="text-[11.5px] text-content-faint">{ago(r.opened)}</span>
+                  {multiWindow && <button title={`Open in a new ${WINDOW} (Ctrl click)`} aria-label={`Open ${r.name} in a new ${WINDOW}`} onClick={(e) => { e.stopPropagation(); onNewWindow(r.root); }}
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">
+                    <Icons.NewWindow size={13} />
+                  </button>}
                   <button title="Remove from this list. The files stay where they are." onClick={(e) => { e.stopPropagation(); onRemove(r.root); }}
                     className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">
                     <Icons.X size={13} />
@@ -1198,7 +1215,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   useEffect(() => {
     if (!isTauri) return;
     invoke('watch_project', { root: project.root }).catch(() => {});
-    const un = listen<{ paths: string[] }>('fs-change', (e) => {
+    const un = listen<{ paths: string[]; win?: string }>('fs-change', (e) => {
+      if (e.payload.win && e.payload.win !== windowLabel) return;
       e.payload.paths.forEach((p) => fsPending.current.add(p));
       clearTimeout(fsTimer.current);
       fsTimer.current = window.setTimeout(() => { const ps = [...fsPending.current]; fsPending.current.clear(); live.current.onDiskChange(ps); }, 250);
@@ -1343,7 +1361,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   };
 
   useEffect(() => {
-    const un = listen<{ state: string; detail: string }>('amf-status', (e) => {
+    const un = listen<{ state: string; detail: string; win?: string }>('amf-status', (e) => {
+      if (e.payload.win && e.payload.win !== windowLabel) return;
       const L = live.current;
       if (e.payload.state === 'ready') { setEngine({ state: 'ready', detail: '' }); if (L.checkable) amf('open', { root: project.root, main: L.main }).then(() => L.runCheck('validate')).catch(() => {}); }
       else if (e.payload.state !== 'starting') setEngine({ state: e.payload.state, detail: e.payload.detail });
@@ -2242,6 +2261,8 @@ function Palette({ project, recent, start, lent, onClose, onOpenFile, onOpenFold
       ...(project ? project.files.map((f) => ({ group: 'Files', label: f.path, run: () => onOpenFile(f.path) })) : []),
       ...recent.map((r) => ({ group: 'Recent projects', label: r.name, detail: r.root, run: () => onOpenFolder(r.root) })),
       ...(isTauri ? [{ group: 'Commands', label: 'Open folder…', detail: 'Ctrl O', run: () => onOpenFolder() }] : []),
+      ...(multiWindow ? [{ group: 'Commands', label: `New ${WINDOW}`, detail: isVsCode ? undefined : 'Ctrl Shift N', run: () => { invoke('open_window', { root: null }).catch(() => {}); } }] : []),
+      ...(multiWindow ? recent.map((r) => ({ group: 'Commands', label: `Open ${r.name} in a new ${WINDOW}`, detail: r.root, run: () => { invoke('open_window', { root: r.root }).catch(() => {}); } })) : []),
       { group: 'Commands', label: 'Switch to Dusk', detail: 'theme', run: () => onTheme('dark') },
       { group: 'Commands', label: 'Switch to Paper', detail: 'theme', run: () => onTheme('light') },
       ...(lent ? lent.commands() : []),
