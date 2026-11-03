@@ -163,7 +163,10 @@ export default function App() {
       const list = [{ root: p.root, name: p.name, opened: Date.now() }, ...readRecent().filter((r) => r.root !== p.root)];
       writeRecent(list); setRecent(list);
     } catch (e) {
-      setError(String(e));
+      // A recent project that was moved or deleted leaves the list, and says so by name.
+      const gone = /isn't there any more/.test(String(e)) && readRecent().find((r) => r.root === dir);
+      if (gone) { const list = readRecent().filter((r) => r.root !== dir); writeRecent(list); setRecent(list); }
+      setError(gone ? `${gone.name} was moved or deleted, so it's off Recent projects. If you moved it, open it from its new folder.` : String(e).replace(/^Error: /, ''));
     } finally {
       setOpening(null);
     }
