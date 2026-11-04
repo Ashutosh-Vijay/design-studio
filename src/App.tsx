@@ -74,9 +74,8 @@ export default function App() {
   const [recent, setRecent] = useState<Recent[]>(readRecent);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // A passing note on the start screen (a recent project that's gone): shows for a few seconds, then goes.
+  // A passing note on the start screen (a recent project that's gone).
   const [toast, setToast] = useState<string | null>(null);
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 6000); return () => clearTimeout(t); }, [toast]);
   const [theme, setTheme] = useState(savedTheme);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [about, setAbout] = useState(false);
@@ -295,13 +294,7 @@ export default function App() {
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
       )}
 
-      {toast && !project && (
-        <div role="status" className="ds-toast fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-[460px] flex items-start gap-2.5 pl-3.5 pr-2.5 py-2.5 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)] text-[12.5px]">
-          <span className="text-accent flex mt-0.5"><Icons.Dot size={12} /></span>
-          <span className="flex-1 select-text">{toast}</span>
-          <button onClick={() => setToast(null)} aria-label="Dismiss" className="text-content-faint hover:text-content mt-px"><Icons.X size={13} /></button>
-        </div>
-      )}
+      {toast && !project && <Toast key={toast} text={toast} onClose={() => setToast(null)} />}
       {connectOpen && <ConnectDialog openRoot={project?.root} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
       {creating && <CreateDialog what={creating} onClose={() => setCreating(null)} onCreated={(root) => { setCreating(null); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
@@ -315,6 +308,27 @@ export default function App() {
         <Palette project={project} recent={recent} start={paletteOpen} lent={project ? paletteRef.current : null} onClose={() => setPaletteOpen(false)}
           onOpenFile={(p) => openFileRef.current(p)} onOpenFolder={(root) => openFolder(root)} onTheme={(pref) => setTheme((t) => ({ ...t, pref }))} />
       )}
+    </div>
+  );
+}
+
+// The app's toasts, bottom right over everything. Plain notes and successes leave by themselves after a few
+// seconds (not while the pointer is on them); errors and notes with buttons stay until closed or answered.
+function Toast({ text, err, ok, actions, onClose }: { text: string; err?: boolean; ok?: boolean; actions?: [string, () => void][]; onClose: () => void }) {
+  const [hover, setHover] = useState(false);
+  const stays = err || !!actions?.length;
+  useEffect(() => { if (stays || hover) return; const t = setTimeout(onClose, 6000); return () => clearTimeout(t); }, [stays, hover]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div role={err ? 'alert' : 'status'} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      className={`ds-toast fixed bottom-10 right-4 z-50 w-max max-w-[min(440px,calc(100vw-32px))] flex items-start gap-2.5 pl-3.5 pr-2.5 py-2.5 rounded-lg bg-surface-2 border shadow-[var(--shadow)] text-[12.5px] ${ok ? 'border-[color-mix(in_oklch,var(--ok)_45%,transparent)]' : err ? 'border-[color-mix(in_oklch,var(--err)_45%,transparent)]' : 'border-line'}`}>
+      <span className={`flex mt-0.5 ${ok ? 'text-ok' : err ? 'text-err' : 'text-accent'}`}>{ok ? <Icons.Check size={14} /> : <Icons.Dot size={12} />}</span>
+      <div className="flex-1 min-w-0">
+        <p className={`select-text break-words ${err ? 'text-err' : 'text-content'}`}>{text}</p>
+        {!!actions?.length && <div className="mt-2 flex gap-1.5">{actions.map(([label, run]) => (
+          <button key={label} onClick={run} className="h-6 px-2.5 rounded-md text-[12px] font-medium border border-line bg-surface text-content-secondary hover:text-content hover:border-content-ghost">{label}</button>
+        ))}</div>}
+      </div>
+      <button onClick={onClose} aria-label="Dismiss" className="text-content-faint hover:text-content mt-px"><Icons.X size={13} /></button>
     </div>
   );
 }
@@ -1716,16 +1730,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             onClose={() => setPublishing(null)} onShowErrors={() => { setPublishing(null); setProblemsOpen(true); }}
             onDone={async (text) => { setPublishing(null); await syncRef.current?.reload(); setPublished((n) => n + 1); setNotice({ text, err: false, ok: true }); }} />}
           {!active && <div className="flex-1 flex items-center justify-center p-6 text-content-faint text-[12.5px]">{project.main ? <span className="flex items-center gap-2"><Spinner />Opening…</span> : 'Open a specification from Files, then choose Set as root file from its menu.'}</div>}
-          {notice && (
-            <div className={`shrink-0 flex items-center gap-2 px-3 py-2 border-t text-[12px] ${notice.ok ? 'border-[color-mix(in_oklch,var(--ok)_45%,transparent)] bg-[color-mix(in_oklch,var(--ok)_12%,transparent)] text-content font-medium' : notice.err ? 'border-line bg-surface-2 text-err' : 'border-line bg-surface-2 text-content-secondary'}`}>
-              {notice.ok ? <span className="text-ok flex"><Icons.Check size={14} /></span> : !notice.err && <span className="text-accent flex"><Icons.Dot size={12} /></span>}
-              <span className="flex-1 select-text">{notice.text}</span>
-              {notice.actions?.map(([label, run]) => (
-                <button key={label} onClick={run} className="h-6 px-2.5 rounded-md text-[12px] font-medium border border-line bg-surface text-content-secondary hover:text-content hover:border-content-ghost">{label}</button>
-              ))}
-              <button onClick={() => setNotice(null)} className="text-content-faint hover:text-content"><Icons.X size={12} /></button>
-            </div>
-          )}
+          {notice && <Toast key={notice.text} {...notice} onClose={() => setNotice(null)} />}
         </main>
         {rightVisible && (rpanel === 'docs' || !front) && workspaceWidth >= 760 && <PaneDivider label={rpanel === 'docs' ? 'Documentation panel width' : 'Inspector panel width'} value={rightWidth} min={260} max={Math.max(260, Math.min(700, workspaceWidth - 448 - (navOpen && rail !== 'map' ? leftWidth : 0)))} reverse onChange={(right) => setPanes((p) => ({ ...p, right }))} />}
         {rightVisible && rpanel === 'docs' && (
