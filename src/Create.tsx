@@ -157,6 +157,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
             <label key={label} className={`flex items-center gap-2 ${v && !dcOk ? 'opacity-50' : 'cursor-pointer'}`}>
               <input type="radio" checked={dc === v} disabled={v && !dcOk} onChange={() => setInDc(v)} className="accent-[var(--accent)]" />{label}</label>
           ))}
+          {!dc && me !== undefined && !localOnly(kind) && <span className="text-[11.5px] text-content-faint">Publishing to Exchange goes through Design Center. You can put it there later from the project menu.</span>}
           {!dcOk && me !== undefined && <span className="text-[11.5px] text-content-faint">{localOnly(kind) ? `${KINDS[kind].label.replace(/ \(.*/, '')} projects are made on this computer for now.` : !me ? 'Sign in to Anypoint to create it in Design Center too.' : 'The connection is read only, so it can only be made here. Turn read only off in settings to create it in Design Center.'}</span>}
         </div>
         {err && <div className="text-[12px] text-err select-text">{err}</div>}

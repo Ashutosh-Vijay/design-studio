@@ -489,6 +489,8 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
     return `Imported ${r.written.length} ${r.written.length === 1 ? 'file' : 'files'}.`;
   });
   const items: [string, string | null, () => void][] = !st ? [] : [
+    ...(l ? [] : [['Put in Design Center…', !me ? 'Sign in to Anypoint first.' : me.read_only ? 'The connection is read only. Turn it off in settings.' : null,
+      () => setDlg(<PutInDesignCenter root={root} name={name} onClose={() => setDlg(null)} onDone={(t) => { setDlg(null); window.dispatchEvent(new Event('ads-files-changed')); onChanged(); onNotice(t, false); }} />)] as [string, string | null, () => void]]),
     ['Import file or zip…', null, importFiles],
     ['Import from URL…', null, () => setDlg(<UrlImport root={root} onClose={() => setDlg(null)} onDone={(t) => { setDlg(null); onChanged(); onNotice(t, false); }} />)],
     ['Import from Exchange…', me ? null : 'Sign in to Anypoint first.', () => setDlg(<AddDependency importing onClose={() => setDlg(null)} onAdd={(d) => { setDlg(null); run(async () => {
@@ -538,7 +540,7 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
             {!st && <div className="px-2 py-1.5 flex items-center gap-2 text-[12px] text-content-muted"><Spinner size={10} />Checking what you can do…</div>}
             {items.map(([label, off, fn], i) => (
               <div key={label}>
-                {(i === 3 || i === 6 || i === 10) && <div className="my-1 border-t border-line-subtle" />}
+                {['Import file or zip…', 'Rename project…', 'Download as zip…', 'Delete project…'].includes(label) && i > 0 && <div className="my-1 border-t border-line-subtle" />}
                 <button title={off ?? undefined} onClick={() => { setAt(null); if (off) onNotice(`${label.replace(/…$/, '')}: ${off}`, false); else fn(); }}
                   className={`w-full h-7 px-2 flex items-center gap-2 rounded text-left text-[12.5px] hover:bg-surface-3 ${off ? '!text-content-ghost' : ''} ${label.startsWith('Delete') ? 'text-err' : 'text-content-secondary hover:text-content'}`}>
                   <span className="flex-1">{label}</span>{label === 'Open in Design Center' && <Icons.DesignCenter size={14} />}</button>
@@ -552,6 +554,47 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
   );
 }
 export const TRASH = /Windows/.test(navigator.userAgent) ? 'Recycle Bin' : 'Trash';
+
+// Put in Design Center: a name Design Center doesn't have yet (it refuses the same name), checked as you type
+// against the org's projects; a taken name gets a free one suggested.
+function PutInDesignCenter({ root, name, onClose, onDone }: { root: string; name: string; onClose: () => void; onDone: (text: string) => void }) {
+  const [v, setV] = useState(name);
+  const [taken, setTaken] = useState<Set<string> | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    // The name it was created with (exchange.json), not the folder's, which may carry a suffix.
+    Promise.all([S.projects(), S.readDescriptor(root)]).then(([list, x]) => {
+      const t = new Set(list.map((p) => p.name)); setTaken(t);
+      const want = (x?.d.name || name).trim(); setV(want);
+      if (t.has(want)) { let n = 2; while (t.has(`${want} ${n}`)) n++; setV(`${want} ${n}`); setNote(`Design Center already has ${want}, so this suggests a free name.`); }
+    }, (e) => setErr(String(e).replace(/^Error: /, '')));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const n = v.trim();
+  const clash = !!taken?.has(n);
+  const go = async () => {
+    setBusy(true); setErr(null);
+    try { await S.putInDesignCenter(root, n); onDone(`${n} is in Design Center now. Publish is in the title bar.`); }
+    catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(false); }
+  };
+  const ok = !!n && !!taken && !clash && !busy;
+  return (
+    <Modal title="Put in Design Center" sub="So you can push, pull and publish it" onCancel={onClose} width={480}
+      footer={<><span className="flex-1 flex items-center gap-2 text-[12px] text-content-muted">{busy && <><Spinner />Making it and sending the files…</>}</span>
+        <button className={btn} onClick={onClose}>Cancel</button><button className={btnPrimary} disabled={!ok} onClick={go}>Put in Design Center</button></>}>
+      <div className="flex flex-col gap-3 text-[12.5px]">
+        <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Name in Design Center</span>
+          <input autoFocus value={v} onChange={(e) => { setV(e.target.value); setNote(null); }} onKeyDown={(e) => { if (e.key === 'Enter' && ok) go(); }} spellCheck={false}
+            className={`h-[28px] px-2 rounded-md border bg-surface-input font-mono text-[12px] outline-none focus:border-accent ${clash ? 'border-err' : 'border-line'}`} /></label>
+        {!taken && !err && <span className="flex items-center gap-2 text-[11.5px] text-content-faint"><Spinner size={10} />Reading your Design Center projects…</span>}
+        {clash ? <span className="text-[11.5px] text-err">Design Center already has a project called {n}. Pick another name.</span>
+          : note && <span className="text-[11.5px] text-content-faint">{note}</span>}
+        <span className="text-[11.5px] text-content-faint">A new Design Center project gets every file here, and this folder stays where it is, linked to it.</span>
+        {err && <div className="text-[12px] text-err select-text">{err}</div>}
+      </div>
+    </Modal>
+  );
+}
 
 // Import from URL: one file, named after the address unless renamed.
 function UrlImport({ root, onClose, onDone }: { root: string; onClose: () => void; onDone: (text: string) => void }) {

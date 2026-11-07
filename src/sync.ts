@@ -481,14 +481,20 @@ export async function saveShare(id: string, shared: { id: string; role: string; 
 }
 // Duplicate project: a new Design Center project of the same kind, with this one's files (Exchange
 // dependencies come with exchange.json), pulled into its own folder and pushed.
-export async function duplicateProject(root: string, name: string, org: string) {
+// What Design Center calls a project's kind, from its exchange.json and root file (Duplicate project, Put in Design Center).
+async function dcKind(root: string) {
   const x = await readDescriptor(root);
   const main = x?.d.main ?? '';
   const text = main ? await readLocal(root, main) : null;
   const sub = /^#%RAML 1\.0 (\w+)/.exec(text ?? '')?.[1];
   const SUB: Record<string, string> = { Library: 'library', DataType: 'type', Trait: 'trait', ResourceType: 'resource_type', NamedExample: 'example', DocumentationItem: 'user_documentation', AnnotationTypeDeclaration: 'annotation_type', SecurityScheme: 'security_scheme', Overlay: 'overlay', Extension: 'extension' };
-  const classifier = sub && SUB[sub] ? 'raml-fragment' : x?.d.classifier === 'oas' || /\.(json|ya?ml)$/i.test(main) ? 'oas' : 'raml';
-  const id = await createProject(name, classifier, sub ? SUB[sub] : undefined);
+  const classifier: 'raml' | 'oas' | 'raml-fragment' = sub && SUB[sub] ? 'raml-fragment' : x?.d.classifier === 'oas' || /\.(json|ya?ml)$/i.test(main) ? 'oas' : 'raml';
+  return { x, main, text, classifier, subType: sub ? SUB[sub] : undefined };
+}
+
+export async function duplicateProject(root: string, name: string, org: string) {
+  const { x, main, classifier, subType } = await dcKind(root);
+  const id = await createProject(name, classifier, subType);
   const dest = await projectFolder(org, name, id);
   await clone(dest, id, name, 'master');
   const created = await readDescriptor(dest);
@@ -501,4 +507,33 @@ export async function duplicateProject(root: string, name: string, org: string) 
   await push(dest, (await readLink(dest))!, paths);
   await fetchDependencies(dest);
   return dest;
+}
+
+// Put in Design Center: a project made only on this computer gets a Design Center project of its own, and this
+// folder is linked to it where it is (Duplicate project's steps, without the copy). Design Center refuses a name
+// it already has (probed: 409 for the same name, case-sensitive), so the list is checked first and nothing here
+// changes when it's taken.
+export async function putInDesignCenter(root: string, name: string) {
+  if (await readLink(root)) throw new Error('This project is already in Design Center.');
+  const { x, main, text, classifier, subType } = await dcKind(root);
+  if (x?.d.classifier === 'evented-api' || /^\s*["']?asyncapi["']?\s*:/m.test(text ?? '')) throw new Error('AsyncAPI projects stay on this computer for now.');
+  if (/^\s*["']?openapi["']?\s*:\s*["']?3\.1/m.test(text ?? '')) throw new Error('OpenAPI 3.1 projects stay on this computer for now.');
+  if ((await projects()).some((p) => p.name === name)) throw new Error(`Design Center already has a project called ${name}.`);
+  const id = await createProject(name, classifier, subType);
+  const l: Link = { projectId: id, projectName: name, branch: 'master', baseCommit: '', files: {} };
+  l.baseCommit = await head(l);
+  const theirs = await remoteFiles(l);
+  // Design Center's exchange.json (its group and asset ids) with this project's root file and dependencies.
+  const created = theirs.get('exchange.json');
+  if (created) await writeDescriptor(root, created, (d) => { d.main = main || d.main; d.dependencies = x?.d.dependencies ?? []; });
+  await invoke('write_file_exact', { root, path: '.apidesigner/.gitignore', text: '*\n' });
+  // Linked, with Design Center's starter as the last sync: the push sends every file here and removes the starter.
+  await writeBase(root, l, theirs);
+  try {
+    const paths = (await invoke<{ files: { path: string }[] }>('open_project', { root })).files.map((f) => f.path);
+    await push(root, (await readLink(root))!, paths);
+  } catch (e) {
+    throw new Error(`Made ${name} in Design Center and linked this folder, but sending the files didn't finish (${String(e).replace(/^Error: /, '')}). Push from the title bar to send them.`);
+  }
+  await fetchDependencies(root);
 }

@@ -65,7 +65,7 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
   const taken = versions?.find((x) => x.version === v.trim());
   const bad = !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(v.trim()) ? 'Use a version like 1.2.0.' : taken?.status === 'published' ? `${v.trim()} is already in Exchange as Stable. Stable versions can't be published again.` : null;
   const blocked = me === null ? 'Sign in to Anypoint to publish.' : me?.read_only ? 'read only'
-    : linked === false ? 'Publishing goes through Design Center: pull this project from Design Center to publish it.' : !d ? 'This project has no exchange.json, so it has no Exchange asset to publish as.' : null;
+    : linked === false ? "Publishing goes through Design Center, and this project is only on this computer. Choose Put in Design Center from the project menu (the … next to its name), then publish." : !d ? 'This project has no exchange.json, so it has no Exchange asset to publish as.' : null;
   const go = async () => {
     setErr(null); setStep(0);
     window.dispatchEvent(new CustomEvent('ads-publishing', { detail: true }));
