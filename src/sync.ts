@@ -43,7 +43,7 @@ export async function projectHome(org: string, name: string, id: string) {
 export const projectFolder = async (org: string, name: string, id: string) => (await projectHome(org, name, id)).root;
 // A new project in Design Center (Create). Fragments need their kind as subType (probed: library, type,
 // trait, resource_type, example, user_documentation, annotation_type, security_scheme, overlay, extension).
-export async function createProject(name: string, classifier: 'raml' | 'oas' | 'raml-fragment', subType?: string) {
+export async function createProject(name: string, classifier: 'raml' | 'oas' | 'raml-fragment' | 'evented-api', subType?: string) {
   const r = await api('POST', `${DC}/projects`, { name, classifier, ...(subType ? { subType } : {}) });
   if (r.status === 409 || /exist/i.test(r.json?.message ?? '')) throw new Error(`Design Center already has a project called ${name}.`);
   return must(r, 'Creating the project').json.id as string;
@@ -488,8 +488,9 @@ async function dcKind(root: string) {
   const text = main ? await readLocal(root, main) : null;
   const sub = /^#%RAML 1\.0 (\w+)/.exec(text ?? '')?.[1];
   const SUB: Record<string, string> = { Library: 'library', DataType: 'type', Trait: 'trait', ResourceType: 'resource_type', NamedExample: 'example', DocumentationItem: 'user_documentation', AnnotationTypeDeclaration: 'annotation_type', SecurityScheme: 'security_scheme', Overlay: 'overlay', Extension: 'extension' };
-  const classifier: 'raml' | 'oas' | 'raml-fragment' = sub && SUB[sub] ? 'raml-fragment' : x?.d.classifier === 'oas' || /\.(json|ya?ml)$/i.test(main) ? 'oas' : 'raml';
-  return { x, main, text, classifier, subType: sub ? SUB[sub] : undefined };
+  const classifier = sub && SUB[sub] ? 'raml-fragment' as const : x?.d.classifier === 'evented-api' || /^\s*["']?asyncapi["']?\s*:/m.test(text ?? '') ? 'evented-api' as const
+    : x?.d.classifier === 'oas' || /\.(json|ya?ml)$/i.test(main) ? 'oas' as const : 'raml' as const;
+  return { x, main, classifier, subType: sub ? SUB[sub] : undefined };
 }
 
 export async function duplicateProject(root: string, name: string, org: string) {
@@ -515,9 +516,7 @@ export async function duplicateProject(root: string, name: string, org: string) 
 // changes when it's taken.
 export async function putInDesignCenter(root: string, name: string) {
   if (await readLink(root)) throw new Error('This project is already in Design Center.');
-  const { x, main, text, classifier, subType } = await dcKind(root);
-  if (x?.d.classifier === 'evented-api' || /^\s*["']?asyncapi["']?\s*:/m.test(text ?? '')) throw new Error('AsyncAPI projects stay on this computer for now.');
-  if (/^\s*["']?openapi["']?\s*:\s*["']?3\.1/m.test(text ?? '')) throw new Error('OpenAPI 3.1 projects stay on this computer for now.');
+  const { x, main, classifier, subType } = await dcKind(root);
   if ((await projects()).some((p) => p.name === name)) throw new Error(`Design Center already has a project called ${name}.`);
   const id = await createProject(name, classifier, subType);
   const l: Link = { projectId: id, projectName: name, branch: 'master', baseCommit: '', files: {} };

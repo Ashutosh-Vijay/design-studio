@@ -38,11 +38,9 @@ export const KINDS = {
 } as const;
 export type Kind = keyof typeof KINDS;
 const API_KINDS: Kind[] = ['raml', 'oas3yaml', 'oas3json', 'oas31yaml', 'oas31json', 'oas2json', 'oas2yaml', 'asyncyaml', 'asyncjson'];
-// AsyncAPI projects in Design Center: its classifier for them isn't proven yet (spikes/m0-3-anypoint/async-probe.mjs),
-// so they're made on this computer; Exchange calls them evented-api. OAS 3.1 too: Design Center's AMF (5.10) and
-// Exchange are not proven with it yet.
+// AsyncAPI projects are evented-api in Design Center and Exchange; OAS 3.1 ones are oas. Both proven on the trial
+// org 2026-11-08: created, pushed, published to Exchange as Development, and Exchange made its own versions of them.
 const isAsyncKind = (k: Kind) => k === 'asyncyaml' || k === 'asyncjson';
-const localOnly = (k: Kind) => isAsyncKind(k) || k === 'oas31yaml' || k === 'oas31json';
 const FRAGMENTS: Kind[] = ['library', 'type', 'trait', 'resourceType', 'example', 'docs', 'annotationType', 'securityScheme', 'overlay', 'extension'];
 // The secured starter (src/starters): HTTPS only, OAuth 2.0 on every call, errors, rate limits, correlation ids
 // and patterns on every string parameter. Proven clean on AMF and MuleSoft's rulesets (Anypoint Best Practices,
@@ -65,16 +63,15 @@ const field = 'h-[28px] px-2 rounded-md border border-line bg-surface-input text
 // ---------- Create: a new project, in Design Center and here, or only here ----------
 // The work itself, shared by the dialog and the AI tools (create_project). Returns the new folder.
 export async function makeProject(n: string, kind: Kind, dc: boolean, me: Me | null, busy: (s: string) => void = () => {}, secured = false) {
-  if (dc && localOnly(kind)) throw new Error(`${KINDS[kind].label} projects are made on this computer for now.`);
   if (dc) {
     busy('Creating it in Design Center…');
-    const id = await S.createProject(n, KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : 'raml-fragment', (KINDS[kind] as { sub?: string }).sub);
+    const id = await S.createProject(n, KINDS[kind].head.startsWith('#%RAML 1.0\n') ? 'raml' : kind.startsWith('oas') ? 'oas' : isAsyncKind(kind) ? 'evented-api' : 'raml-fragment', (KINDS[kind] as { sub?: string }).sub);
     const root = await S.projectFolder(me!.org_name || 'Anypoint', n, id);
     busy('Pulling it here…');
     await S.clone(root, id, n, 'master');
-    // Design Center starts every OAS project as OAS 2.0 JSON: another flavour is written here and pushed.
-    // So is the secured starter, over Design Center's own starter file.
-    if ((kind !== 'oas2json' && kind.startsWith('oas')) || (secured && SECURED.includes(kind))) {
+    // Design Center starts every OAS project as OAS 2.0 JSON and every AsyncAPI one as AsyncAPI 2.0 YAML: another
+    // flavour is written here and pushed. So is the secured starter, over Design Center's own starter file.
+    if ((kind !== 'oas2json' && kind.startsWith('oas')) || isAsyncKind(kind) || (secured && SECURED.includes(kind))) {
       const x = (await S.readDescriptor(root))!;
       const file = kind === 'raml' && x.d.main ? x.d.main : fileName(kind, n), old = x.d.main;
       await invoke('write_file_exact', { root, path: file, text: starter(kind, n, secured) });
@@ -109,7 +106,7 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
   const [secured, setSecured] = useState(false);
   const [busy, setBusy] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null);
   useEffect(() => { invoke<Me | null>('anypoint_status').then(setMe, () => setMe(null)); }, []);
-  const dcOk = !!me && !me.read_only && !localOnly(kind);
+  const dcOk = !!me && !me.read_only;
   const dc = dcOk && inDc;
   const [noName, setNoName] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -157,8 +154,8 @@ export function CreateDialog({ what, onClose, onCreated }: { what: 'api' | 'frag
             <label key={label} className={`flex items-center gap-2 ${v && !dcOk ? 'opacity-50' : 'cursor-pointer'}`}>
               <input type="radio" checked={dc === v} disabled={v && !dcOk} onChange={() => setInDc(v)} className="accent-[var(--accent)]" />{label}</label>
           ))}
-          {!dc && me !== undefined && !localOnly(kind) && <span className="text-[11.5px] text-content-faint">Publishing to Exchange goes through Design Center. You can put it there later from the project menu.</span>}
-          {!dcOk && me !== undefined && <span className="text-[11.5px] text-content-faint">{localOnly(kind) ? `${KINDS[kind].label.replace(/ \(.*/, '')} projects are made on this computer for now.` : !me ? 'Sign in to Anypoint to create it in Design Center too.' : 'The connection is read only, so it can only be made here. Turn read only off in settings to create it in Design Center.'}</span>}
+          {!dc && me !== undefined && <span className="text-[11.5px] text-content-faint">Publishing to Exchange goes through Design Center. You can put it there later from the project menu.</span>}
+          {!dcOk && me !== undefined && <span className="text-[11.5px] text-content-faint">{!me ? 'Sign in to Anypoint to create it in Design Center too.' : 'The connection is read only, so it can only be made here. Turn read only off in settings to create it in Design Center.'}</span>}
         </div>
         {err && <div className="text-[12px] text-err select-text">{err}</div>}
       </div>
