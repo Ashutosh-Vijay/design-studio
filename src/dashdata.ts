@@ -231,8 +231,9 @@ function appOf(x: any, e: Env): App {
   return {
     env: e.name, production: e.production, name: x.name ?? x.artifact?.name ?? x.domain ?? '', runtime: runtimeLabel(kind), status: status.replace(/_/g, ' ').toLowerCase(),
     health: /^(RUNNING|STARTED|DEPLOYED|APPLIED)$/i.test(status) ? 'up' : /FAIL|STOPPED|UNDEPLOY|NOT_RUNNING|ERROR|DISCONNECTED/i.test(status) ? 'down' : 'other',
-    mule: String(x.currentRuntimeVersion ?? x.muleVersion?.version ?? x.muleVersion ?? x.runtimeVersion ?? ''),
-    updated: Date.parse(x.lastModifiedDate ?? x.lastUpdateTime ?? x.lastModified ?? x.updated ?? '') || 0,
+    // Hybrid (seen on a real org): target.runtimeVersion and artifact.lastUpdateTime, in milliseconds.
+    mule: String(x.currentRuntimeVersion ?? t.runtimeVersion ?? x.muleVersion?.version ?? x.muleVersion ?? x.runtimeVersion ?? ''),
+    updated: ((v) => typeof v === 'number' ? v : Date.parse(v ?? '') || 0)(x.artifact?.lastUpdateTime ?? x.lastModifiedDate ?? x.lastUpdateTime ?? x.lastModified ?? x.updated),
     url: x.publicUrl ?? t.deploymentSettings?.http?.inbound?.publicUrl ?? (x.fullDomain ? `https://${x.fullDomain}` : ''),
   };
 }

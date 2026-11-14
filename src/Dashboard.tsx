@@ -122,6 +122,8 @@ function NoAccessInline({ r, s, what }: { r: D.Reading; s: D.Section; what: stri
 }
 
 type Tab = 'overview' | 'apis' | 'deployments' | 'health' | 'activity';
+const lastReading = new Map<string, D.Reading>();
+
 export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; onConnect: () => void }) {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
@@ -158,19 +160,34 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
     return () => window.removeEventListener('ads-signed-in', f);
   }, []);
 
-  async function load(o: { id: string; name: string }) {
+  // The last reading of each organization stays for this session: going back and in again shows it at once,
+  // with its time in the header. It reads again by itself only once it's more than five minutes old, and then
+  // behind the shown one ("Refreshing…"), so the screen never empties.
+  async function load(o: { id: string; name: string }, force = true) {
+    const kept = lastReading.get(o.id);
+    if (kept) { setReading(kept); if (!force && Date.now() - kept.at < 5 * 60000) return; }
     const mine = ++run.current;
-    setError(null); setOpen(null); setStep('Reading…');
+    setError(null); setStep(kept ? 'Refreshing…' : 'Reading…');
+    if (!kept) setOpen(null);
     try {
-      const r = await D.read(o, (s) => { if (mine === run.current) setStep(s); });
+      const r = await D.read(o, (s) => { if (mine === run.current) setStep(kept ? `Refreshing: ${s.replace(/^./, (c) => c.toLowerCase())}` : s); });
       if (mine !== run.current) return;
+      // What the background learnt last time still holds for an API whose latest version hasn't moved.
+      if (kept) for (const a of r.apis) {
+        const b = kept.apis.find((x) => x.groupId === a.groupId && x.assetId === a.assetId);
+        if (!b || b.version !== a.version || b.published !== a.published) continue;
+        if (b.counts !== undefined && a.counts === undefined) a.counts = b.counts;
+        if (b.versions && !a.versions) { a.versions = b.versions; a.by = b.by || a.by; }
+      }
+      lastReading.set(o.id, r);
       setReading(r); setStep(null);
+      setOpen((a) => a && (r.apis.find((x) => x.groupId === a.groupId && x.assetId === a.assetId) ?? null));
       const alive = () => mine === run.current, bump = () => { if (alive()) setTick((n) => n + 1); };
       await D.details(r.apis, bump, alive);
       if (r.access.exchange === 'ok') D.countAll(r.apis, bump, alive);
     } catch (e) { if (mine === run.current) { setError(String(e).replace(/^Error: /, '')); setStep(null); } }
   }
-  useEffect(() => { if (org) load(org); return () => { run.current++; }; }, [org?.id]);
+  useEffect(() => { if (org) load(org, false); return () => { run.current++; }; }, [org?.id]);
   useEffect(() => { const f = () => { if (org) load(org); }; window.addEventListener('ads-dash-refresh', f); return () => window.removeEventListener('ads-dash-refresh', f); }, [org?.id]);
 
   const s = useMemo(() => (reading ? D.summary(reading) : null), [reading, tick]);
@@ -619,7 +636,7 @@ function Deployments({ r, onOpen }: { r: D.Reading; onOpen: (a: D.Api) => void }
   const envs = r.environments.filter((e) => e.type !== 'design');
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const match = (s: string) => words.every((w) => s.toLowerCase().includes(w));
-  const apps = r.apps.filter((a) => (env === 'all' || a.env === env) && match(`${a.name} ${a.runtime} ${a.status}`)).sort((a, b) => (a.health === 'down' ? 0 : 1) - (b.health === 'down' ? 0 : 1) || a.name.localeCompare(b.name));
+  const apps = r.apps.filter((a) => (env === 'all' || (env === ':prod' ? a.production : env === ':nonprod' ? !a.production : a.env === env)) && match(`${a.name} ${a.runtime} ${a.status}`)).sort((a, b) => (a.health === 'down' ? 0 : 1) - (b.health === 'down' ? 0 : 1) || a.name.localeCompare(b.name));
   // API Manager: one row per API, one column per environment: which version is managed there.
   const byApi = new Map<string, { name: string; groupId: string; assetId: string; cells: Map<string, D.Instance[]> }>();
   for (const i of r.instances) {
@@ -637,11 +654,11 @@ function Deployments({ r, onOpen }: { r: D.Reading; onOpen: (a: D.Api) => void }
           <label className="flex items-center gap-1.5 h-7 w-[240px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
             <Icons.Search size={12} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name or status" aria-label="Filter" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
           </label>
-          <span className="flex items-center gap-0.5 p-0.5 rounded-lg bg-surface-2 border border-line">
-            {[{ name: 'all' }, ...envs].map((e) => (
-              <button key={e.name} onClick={() => setEnv(e.name)} aria-pressed={env === e.name} className={`h-6 px-2.5 rounded-md text-[12px] ${env === e.name ? 'bg-surface-3 text-content font-medium' : 'text-content-muted hover:text-content'}`}>{e.name === 'all' ? 'Every environment' : e.name}</button>
-            ))}
-          </span>
+          <Select value={env} onChange={setEnv} className="h-7 min-w-[190px]" title="Which environments' apps to show" options={[
+            { value: 'all', label: 'Every environment' },
+            ...(envs.some((e) => e.production) ? [{ value: ':prod', label: 'Production only' }, { value: ':nonprod', label: 'Everything but production' }] : []),
+            ...envs.map((e) => ({ value: e.name, label: `${e.name}${e.production ? ' (production)' : ''}` })),
+          ]} />
         </div>
 
         {r.access.apimanager === 'ok' ? (
@@ -697,14 +714,35 @@ function Deployments({ r, onOpen }: { r: D.Reading; onOpen: (a: D.Api) => void }
 function Health({ r }: { r: D.Reading }) {
   const [saved, setSaved] = useState<D.Saved>(() => D.savedHealth(r.org.id));
   const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [env, setEnv] = useState('all'); // all, :prod, :nonprod, or one environment's name
+  const [q, setQ] = useState('');
+  const [down, setDown] = useState(false);
+  const [sort, setSort] = useState<{ col: string; asc: boolean }>({ col: 'state', asc: true });
   const put = (s: D.Saved) => { setSaved(s); D.saveHealth(r.org.id, s); };
   if (r.access.runtime !== 'ok' && r.access.apimanager !== 'ok') return <NoAccess r={r} s="runtime" what="Runtime Manager's apps or API Manager's APIs" />;
+  const urlOf = (k: string, d: string) => saved[k]?.url ?? d;
   // What can be checked: every app, and every managed API instance, with the address Anypoint knows (if any).
-  const items = [
+  const all = [
     ...r.apps.map((a) => ({ key: `app:${a.env}/${a.name}`, name: a.name, env: a.env, production: a.production, what: a.runtime, status: a.status, health: a.health, url: a.url })),
     ...r.instances.map((i) => ({ key: `api:${i.env}/${i.id}`, name: `${i.name}${i.label ? ` (${i.label})` : ''}`, env: i.env, production: i.production, what: `API ${i.version}`, status: i.status, health: /active/i.test(i.status) ? 'up' as const : 'other' as const, url: i.endpoint })),
   ];
-  const urlOf = (k: string, d: string) => saved[k]?.url ?? d;
+  const envNames = [...new Set(all.map((x) => x.env))];
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  // Down: Anypoint says so, or the last check failed. Sorted with the worst first by default.
+  const isDown = (x: (typeof all)[number]) => x.health === 'down' || saved[x.key]?.last?.ok === false;
+  const val = (x: (typeof all)[number]): string | number => ({
+    name: x.name.toLowerCase(), env: `${x.production ? 0 : 1}${x.env.toLowerCase()}`,
+    state: isDown(x) ? 0 : x.health === 'up' ? 2 : 1, check: saved[x.key]?.last ? (saved[x.key].last!.ok ? 1 : 0) : 2,
+  } as Record<string, string | number>)[sort.col];
+  const items = all.filter((x) => (env === 'all' || (env === ':prod' ? x.production : env === ':nonprod' ? !x.production : x.env === env))
+    && (!down || isDown(x)) && words.every((w) => `${x.name} ${x.what} ${x.status} ${x.env}`.toLowerCase().includes(w)))
+    .sort((a, b) => { const p = val(a), s = val(b); return (p < s ? -1 : p > s ? 1 : a.name.localeCompare(b.name)) * (sort.asc ? 1 : -1); });
+  const filtered = items.length !== all.length;
+  const head = (label: string, col?: string) => (
+    <th key={label} className={th} aria-sort={col && sort.col === col ? (sort.asc ? 'ascending' : 'descending') : undefined}>
+      {col ? <button onClick={() => setSort((s) => ({ col, asc: s.col === col ? !s.asc : true }))} className="inline-flex items-center gap-1 hover:text-content">{label}{sort.col === col && <span>{sort.asc ? '↑' : '↓'}</span>}</button> : label}
+    </th>
+  );
   const go = async (list: typeof items) => {
     const todo = list.filter((x) => /^https?:\/\//.test(urlOf(x.key, x.url)));
     if (!todo.length) return;
@@ -720,11 +758,25 @@ function Health({ r }: { r: D.Reading }) {
       <div className="max-w-[1180px] mx-auto px-6 py-5 flex flex-col gap-3">
         <div className="flex items-center gap-3">
           <p className="m-0 flex-1 text-[12.5px] text-content-muted leading-relaxed">Anypoint's own status for each app and API, and a check of the address you give each one (a health endpoint works best). A check is one GET from this computer, only when you press Check: nothing runs on a timer. The addresses are kept on this computer.</p>
-          <button className={btnPrimary} disabled={busy.size > 0 || !items.some((x) => /^https?:\/\//.test(urlOf(x.key, x.url)))} onClick={() => go(items)}>{busy.size ? 'Checking…' : 'Check all'}</button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 h-7 w-[240px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
+            <Icons.Search size={12} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name or status" aria-label="Filter" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
+          </label>
+          <Select value={env} onChange={setEnv} className="h-7 min-w-[190px]" title="Which environments to show" options={[
+            { value: 'all', label: 'Every environment' },
+            ...(all.some((x) => x.production) ? [{ value: ':prod', label: 'Production only' }, { value: ':nonprod', label: 'Everything but production' }] : []),
+            ...envNames.map((n) => ({ value: n, label: `${n}${all.find((x) => x.env === n)?.production ? ' (production)' : ''}` })),
+          ]} />
+          <button onClick={() => setDown((d) => !d)} aria-pressed={down} className={`h-7 px-2.5 rounded-md border text-[12px] ${down ? 'border-err-border bg-err-tint text-err font-medium' : 'border-line text-content-muted hover:text-content'}`}>Down only</button>
+          {filtered && <span className="text-[12px] text-content-faint">{items.length} of {all.length}</span>}
+          <span className="flex-1" />
+          <button className={btnPrimary} disabled={busy.size > 0 || !items.some((x) => /^https?:\/\//.test(urlOf(x.key, x.url)))} onClick={() => go(items)}
+            title={filtered ? 'Checks only the rows shown' : undefined}>{busy.size ? 'Checking…' : filtered ? `Check these ${items.length}` : 'Check all'}</button>
         </div>
         <div className="rounded-lg border border-line bg-surface overflow-auto">
           {items.length ? <table className="w-full text-[12.5px] border-separate border-spacing-0">
-            <thead><tr>{['Name', 'Environment', 'Anypoint says', 'Address to check', 'Last check', ''].map((h, i) => <th key={i} className={th}>{h}</th>)}</tr></thead>
+            <thead><tr>{head('Name', 'name')}{head('Environment', 'env')}{head('Anypoint says', 'state')}{head('Address to check')}{head('Last check', 'check')}{head('')}</tr></thead>
             <tbody>{items.map((x) => {
               const last = saved[x.key]?.last;
               return (
@@ -744,7 +796,7 @@ function Health({ r }: { r: D.Reading }) {
                 </tr>
               );
             })}</tbody>
-          </table> : <div className="px-3.5 py-6 text-center text-[12.5px] text-content-faint">Nothing is deployed or managed yet, so there's nothing to check.</div>}
+          </table> : <div className="px-3.5 py-6 text-center text-[12.5px] text-content-faint">{all.length ? 'Nothing matches.' : "Nothing is deployed or managed yet, so there's nothing to check."}</div>}
         </div>
       </div>
     </div>
