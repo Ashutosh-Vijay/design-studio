@@ -46,7 +46,15 @@ import { fileURLToPath } from 'node:url';
 const tools = spawnSync(process.execPath, [fileURLToPath(new URL('../vscode-extension/scripts/gen-tools.mjs', import.meta.url)), '--check'], { encoding: 'utf8' });
 if (tools.status !== 0) bad.push((tools.stdout || tools.stderr).trim());
 
-// 5. User-facing text: no em dashes.
+// 5. Every command the desktop's backend answers (lib.rs) has its counterpart in the VS Code extension's, which is
+// the same backend in Node, command for command. The ones only a desktop window needs are listed here.
+const DESKTOP_ONLY = ['anypoint_dev_session', 'anypoint_dev_deny', 'remember_theme', 'prefs_load', 'prefs_save'];
+const commands = read('src-tauri/src/lib.rs').match(/generate_handler!\[([\s\S]*?)\]/)?.[1].split(',').map((s) => s.trim().split('::').pop()).filter(Boolean) ?? [];
+const node = ['extension.ts', 'files.ts', 'anypoint.ts', 'mcp.ts', 'amf.ts'].map((f) => read(`vscode-extension/src/${f}`)).join('\n');
+if (!commands.length) bad.push("Couldn't read the command list from src-tauri/src/lib.rs.");
+for (const c of commands) if (!DESKTOP_ONLY.includes(c) && !node.includes(`'${c}'`)) bad.push(`The desktop command ${c} has no counterpart in vscode-extension/src.`);
+
+// 6. User-facing text: no em dashes.
 for (const f of ['src/releases.json', 'README.md', 'vscode-extension/README.md', 'vscode-extension/CHANGELOG.md', 'SECURITY.md', 'PRIVACY.md', 'src/course.ts']) {
   let t = ''; try { t = read(f); } catch { bad.push(`${f} is missing.`); continue; }
   if (t.includes('—')) bad.push(`${f} has an em dash.`);

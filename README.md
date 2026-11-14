@@ -51,7 +51,8 @@ Built with Tauri 2 (Rust), React, TypeScript and CodeMirror. It ships with AMF 5
 - **Governance.** Rulesets from Exchange, checked after every full check, with rules you can switch off per project.
 - **Documentation, mock and map.** The API as documentation, Try it on a local mock, and a map of what uses what.
 - **Design Center's file actions.** Set as root file, Rename, Duplicate (a copy, or RAML to OAS through AMF), Delete to the trash, Download as zip, Import.
-- **AI tools (MCP).** 35 tools for agents, from opening a project to publishing. Changes in Design Center and Exchange stay off until you allow them.
+- **Dashboard.** Your organization's APIs in one place: every asset in Exchange with every version and who published it, each API's endpoints and what changed between versions (a breaking change published as a minor version is flagged), whether API Governance is on and what conforms, with each failing rule and where it is in the spec, which version is managed in which environment, what's deployed and running, and a health check of the addresses you choose. Read only, with CSV exports, and each part shows only what your Anypoint permissions allow.
+- **AI tools (MCP).** 37 tools for agents, from opening a project to publishing. Changes in Design Center and Exchange stay off until you allow them.
 - **API Design Academy.** 46 lessons, from how computers talk (HTTP, JSON, integration, MuleSoft) to all of RAML, Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications.
 - **Works offline.** Open a folder or a Design Center zip; you only sign in to pull, push and publish.
 

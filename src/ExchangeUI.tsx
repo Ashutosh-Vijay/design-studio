@@ -60,7 +60,7 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
         if (!version) setV(vs[0] ? S.bump(vs[0].version, 'patch') : x.d.version || '1.0.0');
       } catch (e) { setErr(String(e)); setVersions([]); if (!version) setV(x.d.version || '1.0.0'); }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const taken = versions?.find((x) => x.version === v.trim());
   const bad = !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(v.trim()) ? 'Use a version like 1.2.0.' : taken?.status === 'published' ? `${v.trim()} is already in Exchange as Stable. Stable versions can't be published again.` : null;
@@ -200,7 +200,7 @@ export function ExchangePanel({ root, model, modelOf, onPublish }: {
       if (live) setBusy(null);
     })();
     return () => { live = false; };
-  }, [a, d, model]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [a, d, model]);
 
   if (me === undefined || d === undefined) return <div className="p-3"><Note><span className="flex items-center gap-2"><Spinner />Reading Exchange…</span></Note></div>;
   if (!d) return <div className="p-3"><Note>This project has no exchange.json, so it isn't an Exchange asset yet. Projects pulled from Design Center have one.</Note></div>;
@@ -272,9 +272,9 @@ export function DepsPanel({ root, paths, onChanged, onNotice, onOpenFile }: {
       S.assetVersions(d.groupId, d.assetId, d.version).then((a) => setInfo((i) => ({ ...i, [`${d.groupId}/${d.assetId}`]: a && { name: a.name, type: a.type, versions: a.versions, latest: a.versions.find((v) => v.status === 'published')?.version ?? a.versions[0]?.version } })), () => {});
     }
   };
-  useEffect(() => { load(); }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [root]);
   // Signing in elsewhere (the dialog this panel opens, or Settings) brings the panel up to date.
-  useEffect(() => { const f = () => { setNeedSignIn(false); load(); }; window.addEventListener('ads-signed-in', f); return () => window.removeEventListener('ads-signed-in', f); }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const f = () => { setNeedSignIn(false); load(); }; window.addEventListener('ads-signed-in', f); return () => window.removeEventListener('ads-signed-in', f); }, [root]);
   const run = async (label: string, fn: () => Promise<string>) => {
     setBusy(label); setMenu(null);
     try { const t = await fn(); await onChanged(); await load(); onNotice(t, false); window.dispatchEvent(new Event('ads-governance-changed')); } catch (e) { onNotice(String(e).replace(/^Error: /, ''), true); }
@@ -402,7 +402,7 @@ export function AddDependency({ onClose, onAdd, importing, rulesets }: { onClose
   useEffect(() => {
     const t = setTimeout(() => { setErr(null); setList(null); S.searchAssets(q.trim(), rulesets ? ['ruleset'] : importing ? ['raml-fragment', 'rest-api'] : ['raml-fragment']).then(setList, (e) => setErr(String(e))); }, 250);
     return () => clearTimeout(t);
-  }, [q, again]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, again]);
   useEffect(() => {
     if (!pick) return;
     let gone = false;
@@ -411,7 +411,7 @@ export function AddDependency({ onClose, onAdd, importing, rulesets }: { onClose
     return () => { gone = true; };
   }, [pick]);
   const shown = versions.filter((v) => dev || v.status === 'published');
-  useEffect(() => { if (shown[0] && !shown.some((v) => v.version === version)) setVersion(shown[0].version); }, [versions, dev]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (shown[0] && !shown.some((v) => v.version === version)) setVersion(shown[0].version); }, [versions, dev]);
   // Who owns an asset: the search names other organizations; MuleSoft's public assets come without a name.
   const ownerOf = (a: { groupId: string; org: string }) => a.groupId === me?.org_id ? me.org_name : a.org || (a.groupId === MULESOFT ? 'MuleSoft' : a.groupId);
   const visible = (list ?? []).filter((a) => (dev || a.status !== 'development') && (!owner || ownerOf(a) === owner));

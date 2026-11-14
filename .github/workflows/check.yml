@@ -1,0 +1,43 @@
+name: Check
+
+# Every push to main and every pull request: the same checks a release starts with (release.yml), so a mistake
+# shows on the commit that made it, not on release day.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - run: npm ci
+      # Versions and notes agree, the AI tools declared to VS Code match, and the desktop's commands all have
+      # their VS Code counterpart.
+      - name: Release check
+        run: npm run release:check
+      - name: Types (app)
+        run: npx tsc --noEmit
+      - name: Types (VS Code extension)
+        run: cd vscode-extension && npm ci && npx tsc --noEmit
+      - name: Build the AMF engine
+        run: cd amf-server && mvn -B -q -DskipTests package
+      - name: Academy, starters and sync
+        run: npm run academy:verify && npm run starters:verify && npm run sync:verify

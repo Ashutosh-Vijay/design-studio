@@ -14,7 +14,8 @@ const IGNORED: [&str; 4] = [".git", "node_modules", ".apidesigner", "target"];
 
 fn rel(root: &Path, p: &Path) -> Option<String> {
   let r = p.strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
-  if r.is_empty() || IGNORED.iter().any(|d| r == *d || r.starts_with(&format!("{}/", d))) {
+  // .ds-tmp: a save in progress (lib.rs write_whole), renamed over the real file a moment later.
+  if r.is_empty() || r.ends_with(".ds-tmp") || IGNORED.iter().any(|d| r == *d || r.starts_with(&format!("{}/", d))) {
     return None;
   }
   Some(r)

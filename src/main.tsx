@@ -1,18 +1,39 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { applyTheme, savedTheme } from "./theme";
+import { applyTheme, savedTheme, K } from "./theme";
 import "./index.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 
-const t = savedTheme();
-applyTheme(t.pref, t.accent);
+const start = () => {
+  const t = savedTheme();
+  applyTheme(t.pref, t.accent);
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+};
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+// Settings, recent projects and panel sizes are in the webview's storage (every ads. key). The desktop app keeps a
+// copy in its own folder (lib.rs, prefs_save): written a moment after any of them changes, and given back before
+// the app draws when the storage comes up empty (its data was cleared, or it's a new kind of build).
+if ("__TAURI_INTERNALS__" in window && import.meta.env.VITE_VSCODE !== "1") {
+  const mine = () => Object.keys(localStorage).filter((k) => k.startsWith("ads."));
+  let timer = 0;
+  const keep = () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => { invoke("prefs_save", { text: JSON.stringify(Object.fromEntries(mine().map((k) => [k, localStorage.getItem(k)]))) }).catch(() => {}); }, 800);
+  };
+  const { setItem, removeItem } = Storage.prototype;
+  Storage.prototype.setItem = function (k: string, v: string) { setItem.call(this, k, v); if (k.startsWith("ads.")) keep(); };
+  Storage.prototype.removeItem = function (k: string) { removeItem.call(this, k); if (k.startsWith("ads.")) keep(); };
+  Promise.race([invoke<string>("prefs_load"), new Promise<string>((ok) => setTimeout(() => ok(""), 500))]).then((text) => {
+    if (!text || mine().length) return;
+    for (const [k, v] of Object.entries(JSON.parse(text) as Record<string, string>)) if (k.startsWith("ads.") && typeof v === "string") setItem.call(localStorage, k, v);
+  }).catch(() => {}).finally(() => { start(); keep(); });
+} else start();
 
 // The webview's own right-click menu (Back, Refresh, Save as, Print, Emoji, Inspect...) belongs to a browser,
 // not an app: Refresh would drop unsaved work. Nowhere gets it; text fields and editors get the app's own
@@ -31,16 +52,16 @@ if ("__TAURI_INTERNALS__" in window && import.meta.env.VITE_VSCODE !== "1")
     const selected = cm ? !!window.getSelection()?.toString() : field!.selectionStart !== field!.selectionEnd;
     (cm ?? field!).focus();
     const items: [string, string, (() => void) | null][] = [
-      ["Cut", "Ctrl X", editable && selected ? () => document.execCommand("cut") : null],
-      ["Copy", "Ctrl C", selected ? () => document.execCommand("copy") : null],
+      ["Cut", K("Ctrl X"), editable && selected ? () => document.execCommand("cut") : null],
+      ["Copy", K("Ctrl C"), selected ? () => document.execCommand("copy") : null],
       // Paste reads the clipboard, then hands the text to the editor as a paste (so it gets its own paste
       // handling, indentation included) or types it into the field.
-      ["Paste", "Ctrl V", editable ? () => navigator.clipboard.readText().then((text) => {
+      ["Paste", K("Ctrl V"), editable ? () => navigator.clipboard.readText().then((text) => {
         if (!cm) { document.execCommand("insertText", false, text); return; }
         const data = new DataTransfer(); data.setData("text/plain", text);
         cm.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
       }).catch((err) => console.warn("Paste failed", err)) : null],
-      ["Select all", "Ctrl A", () => cm ? cm.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", ctrlKey: true, bubbles: true, cancelable: true })) : field!.select()],
+      ["Select all", K("Ctrl A"), () => cm ? cm.dispatchEvent(new KeyboardEvent("keydown", { key: "a", code: "KeyA", ctrlKey: true, bubbles: true, cancelable: true })) : field!.select()],
     ];
     const layer = document.createElement("div");
     layer.className = "fixed inset-0 z-[200]";

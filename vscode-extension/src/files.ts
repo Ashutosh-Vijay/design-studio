@@ -10,15 +10,29 @@ const SKIP_DIRS = ['.git', 'node_modules', '.apidesigner', 'target', '.idea'];
 type ProjectFile = { path: string; size: number };
 const slash = (p: string) => p.replace(/\\/g, '/');
 
+// As lib.rs: more files than any spec project has means the wrong folder was picked; an entry that can't be read
+// (a broken link, a folder without permission) is left out, not a reason to refuse the project.
+const MAX_FILES = 20000;
 function walk(root: string, dir: string, out: ProjectFile[], dirs: string[]) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+  let entries: fs.Dirent[];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if (dir === root) throw e; return; }
+  for (const e of entries) {
     const full = path.join(dir, e.name);
-    if (e.isDirectory()) {
+    if (out.length > MAX_FILES) throw new Error(`${root} has more than ${MAX_FILES} files, so it doesn't look like a spec project. Open the folder that holds the specification.`);
+    let st: fs.Stats;
+    try { st = fs.statSync(full); } catch { continue; }
+    if (st.isDirectory()) {
       if (SKIP_DIRS.includes(e.name)) continue;
       dirs.push(slash(path.relative(root, full)));
       walk(root, full, out, dirs);
-    } else if (e.isFile()) out.push({ path: slash(path.relative(root, full)), size: fs.statSync(full).size });
+    } else if (st.isFile()) out.push({ path: slash(path.relative(root, full)), size: st.size });
   }
+}
+// Written beside the file and renamed over it, so a crash part way never leaves half a spec (lib.rs, write_whole).
+function writeWhole(full: string, data: string | Buffer) {
+  const tmp = path.join(path.dirname(full), `.${path.basename(full)}.ds-tmp`);
+  try { fs.writeFileSync(tmp, data); fs.renameSync(tmp, full); }
+  catch { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to clear */ } fs.writeFileSync(full, data); }
 }
 
 // The root file: exchange.json's "main" when it's there; otherwise the first top-level spec.
@@ -136,12 +150,20 @@ export async function fileCommand(cmd: string, a: Record<string, any>, emit: (ev
       let crlf = false;
       try { const b = fs.readFileSync(full, 'latin1'); const n = (b.match(/\r\n/g) ?? []).length; crlf = n > 0 && n * 2 >= (b.match(/\n/g) ?? []).length; } catch { /* a new file */ }
       const lf = String(a.text).replace(/\r\n/g, '\n');
-      fs.writeFileSync(full, crlf ? lf.replace(/\n/g, '\r\n') : lf);
+      writeWhole(full, crlf ? lf.replace(/\n/g, '\r\n') : lf);
       return null;
+    }
+    // As lib.rs: a file that isn't UTF-8 text travels through sync as this marker and its bytes in base64.
+    case 'read_file_exact': {
+      const full = inside(a.root, a.path);
+      if (!fs.existsSync(full)) throw new Error(`File not found: ${a.path}`);
+      const bytes = fs.readFileSync(full);
+      try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { return '\u0000b64:' + bytes.toString('base64'); }
     }
     case 'write_file_exact': {
       fs.mkdirSync(a.root, { recursive: true });
-      fs.writeFileSync(inside(a.root, a.path, true), a.text);
+      const text = String(a.text);
+      writeWhole(inside(a.root, a.path, true), text.startsWith('\u0000b64:') ? Buffer.from(text.slice(5), 'base64') : text);
       return null;
     }
     case 'rename_file': {
@@ -214,7 +236,7 @@ export async function fileCommand(cmd: string, a: Record<string, any>, emit: (ev
       watchers.set(tab, fs.watch(root, { recursive: true }, (_ev, name) => {
         if (!name) return;
         const r = slash(String(name));
-        if (!r || IGNORED.some((d) => r === d || r.startsWith(d + '/'))) return;
+        if (!r || r.endsWith('.ds-tmp') || IGNORED.some((d) => r === d || r.startsWith(d + '/'))) return; // .ds-tmp: a save in progress (writeWhole)
         emit('fs-change', { paths: [r] });
       }));
       return null;

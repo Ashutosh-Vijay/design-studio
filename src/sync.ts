@@ -7,12 +7,15 @@ import { homeDir } from '@tauri-apps/api/path';
 
 const DC = '/designcenter/api-designer';
 const LINK = '.apidesigner/link.json', BASE = '.apidesigner/base/';
-type Reply = { status: number; json: any; text: string }; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Reply = { status: number; json: any; text: string };
 export type Link = { projectId: string; projectName: string; branch: string; baseCommit: string; files: Record<string, string> };
 export type Remote = { id: string; name: string; updated: number };
 
 const api = (method: string, path: string, body?: unknown) => invoke<Reply>('anypoint_api', { method, path, body });
 const must = (r: Reply, what: string) => {
+  // Not allowed: say which permission it takes, not a status code. Design Center's Developer role covers projects,
+  // saving and branches; publishing also needs Exchange Contributor.
+  if (r.status === 401 || r.status === 403) throw new Error(`${what} isn't allowed for this Anypoint account. ${/publish/i.test(what) ? 'Publishing to Exchange needs the Exchange Contributor permission' : /exchange|asset|dependenc/i.test(what) ? 'Reading Exchange needs the Exchange Viewer permission' : "Design Center needs the Design Center Developer permission"} in this organization; an administrator can grant it in Access Management.`);
   if (r.status >= 300) throw new Error(`${what} failed (${r.status})${r.json?.message ? ': ' + r.json.message : ''}`);
   return r;
 };
@@ -85,7 +88,10 @@ async function writeBase(root: string, l: Link, files: Map<string, string>) {
   for (const [p, t] of files) { l.files[p] = await sha(t); await invoke('write_file_exact', { root, path: BASE + p, text: t }); }
   await invoke('write_file_exact', { root, path: LINK, text: JSON.stringify(l, null, 2) + '\n' });
 }
-const readLocal = async (root: string, p: string) => { try { return await invoke<string>('read_text_file', { root, path: p }); } catch { return null; } };
+// Files exactly as they are: text as text, and anything else (an image, a PDF) as this marker and base64, the
+// same way a reply from Design Center carries one (lib.rs, text_or_b64). They pull byte for byte and never merge.
+export const isBinary = (t: string | null | undefined) => !!t && t.startsWith('\u0000b64:');
+const readLocal = async (root: string, p: string) => { try { return await invoke<string>('read_file_exact', { root, path: p }); } catch { return null; } };
 
 // Open from Design Center: the branch's files into an empty (or new) folder, linked to the project.
 export async function clone(root: string, projectId: string, projectName: string, branch: string) {
@@ -102,16 +108,19 @@ const JUNK = /(^|\/)(\.DS_Store|Thumbs\.db|desktop\.ini)$/i;
 const SKIPPED = /(^|\/)(\.git|node_modules|\.apidesigner|target|\.idea)\//; // lib.rs SKIP_DIRS
 // What changed here since the last sync, by comparing each file with its hash then.
 export async function localChanges(root: string, l: Link, paths: string[]) {
-  const added: string[] = [], modified: string[] = [], deleted: string[] = [];
+  // binary: added or changed files that aren't text. Design Center's save call takes text, so they aren't sent
+  // or counted; push names them instead of dropping them without a word.
+  const added: string[] = [], modified: string[] = [], deleted: string[] = [], binary: string[] = [];
   // OS clutter is never sent; files under folders the app doesn't list (target, .idea, ...) are never seen as deleted.
   const now = new Set(paths.filter((p) => !p.startsWith('exchange_modules/') && !JUNK.test(p)));
   for (const p of now) {
     const t = await readLocal(root, p); if (t == null) continue;
-    if (!(p in l.files)) added.push(p); else if ((await sha(t)) !== l.files[p]) modified.push(p);
+    const changed = !(p in l.files) ? added : (await sha(t)) !== l.files[p] ? modified : null;
+    if (changed) (isBinary(t) ? binary : changed).push(p);
   }
   // Dependencies are Design Center's to manage (from exchange.json): never sent, never deleted there.
   for (const p of Object.keys(l.files)) if (!p.startsWith('exchange_modules/') && !now.has(p) && !SKIPPED.test(p)) deleted.push(p);
-  return { added, modified, deleted, count: added.length + modified.length + deleted.length };
+  return { added, modified, deleted, binary, count: added.length + modified.length + deleted.length };
 }
 // Design Center's side: has the branch moved since the last sync, and who holds its lock.
 export async function remoteState(l: Link) {
@@ -123,7 +132,7 @@ export async function remoteState(l: Link) {
 // Like git: where both sides changed the same lines, the file gets both versions between markers, to be
 // sorted out in the editor; push refuses while markers are left. A file changed on one side and deleted
 // on the other keeps the changed version.
-export type Conflict = { path: string; kind: 'lines' | 'deleted here' | 'deleted there' };
+export type Conflict = { path: string; kind: 'lines' | 'deleted here' | 'deleted there' | 'binary' };
 export const MARK = '<<<<<<< yours';
 export async function pull(root: string, l: Link) {
   const h = await head(l);
@@ -146,6 +155,8 @@ export async function pull(root: string, l: Link) {
     if (th === base) continue; // changed only here: keep mine
     if (mine == null) { writes.push([p, th!]); updated.push(p); conflicts.push({ path: p, kind: 'deleted here' }); continue; }
     if (th == null) { conflicts.push({ path: p, kind: 'deleted there' }); continue; }
+    // Not text on either side: lines can't be merged, so yours stays and the file is named.
+    if (isBinary(mine) || isBinary(th)) { conflicts.push({ path: p, kind: 'binary' }); continue; }
     const m = merge3(base ?? '', mine, th);
     writes.push([p, m.text]); updated.push(p);
     if (!m.clean) conflicts.push({ path: p, kind: 'lines' });
@@ -162,7 +173,7 @@ export async function push(root: string, l: Link, paths: string[]) {
   if (st.behind) throw new Error('Design Center has changes you don\'t have yet. Pull first, then push.');
   if (st.lockedBy) throw new Error(`${st.lockedBy} is editing this branch in Design Center, so it's locked. Try again when they're done.`);
   const ch = await localChanges(root, l, paths);
-  if (!ch.count) return { sent: 0 };
+  if (!ch.count) return { sent: 0, binary: ch.binary };
   for (const p of [...ch.added, ...ch.modified]) if ((await readLocal(root, p))?.includes(MARK)) throw new Error(`${p} still has conflict markers from the last pull. Sort them out, then push.`);
   await invoke('anypoint_hold_lock', { project: l.projectId, branch: l.branch });
   let commit = '';
@@ -198,7 +209,7 @@ export async function push(root: string, l: Link, paths: string[]) {
   }
   for (const [p, t] of texts) files.set(p, t);
   await writeBase(root, { ...l, baseCommit: commit }, files);
-  return { sent: ch.count };
+  return { sent: ch.count, binary: ch.binary };
 }
 
 // ---------- Exchange dependencies ----------

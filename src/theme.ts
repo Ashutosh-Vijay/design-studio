@@ -39,3 +39,7 @@ export function applyTheme(pref: ThemePref, accentId: string) {
   root.style.setProperty('--selection-bg', `oklch(${l}% ${a.chroma} ${a.hue} / ${dark ? 0.35 : 0.25})`);
   try { localStorage.setItem('ads.theme', pref); localStorage.setItem('ads.accent', accentId); } catch { /* ignore */ }
 }
+
+// Shortcuts as they're shown: Ctrl is Cmd on a Mac. Every shortcut in a tooltip, a menu or the palette goes through K.
+export const MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+export const K = (keys: string) => (MAC ? keys.replace(/\bCtrl\b/g, 'Cmd') : keys);

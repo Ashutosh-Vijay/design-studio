@@ -31,6 +31,33 @@ pub struct Mcp {
   tools: Mutex<Vec<Value>>, // MCP tool definitions, as the webview gave them
   instructions: Mutex<String>,
   pub target: Mutex<String>, // the window used last (lib.rs follows focus); tools run there
+  // When the last tool call came in. While an agent is at work (a call in the last five minutes) the target stays
+  // where it is: clicking into another window mustn't send the agent's next edit to another project.
+  pub last_call: Mutex<Option<Instant>>,
+  key: Mutex<String>,
+}
+
+// The key in the server's address (/mcp/<key>). Loopback is open to every program and every user on this computer;
+// only the ones given the address can call the tools. Made once and kept, so an agent's setup keeps working.
+fn key(app: &AppHandle) -> String {
+  let mcp = app.state::<Mcp>();
+  let mut k = mcp.key.lock().unwrap();
+  if !k.is_empty() { return k.clone(); }
+  let file = app.path().app_config_dir().ok().map(|d| d.join("mcp-key"));
+  let saved = file.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(|s| s.trim().to_string()).filter(|s| s.len() >= 32 && s.chars().all(|c| c.is_ascii_alphanumeric()));
+  *k = saved.unwrap_or_else(|| {
+    let mut b = [0u8; 24];
+    getrandom::getrandom(&mut b).expect("system random source");
+    let made: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    if let Some(f) = &file { if let Some(d) = f.parent() { let _ = std::fs::create_dir_all(d); } let _ = std::fs::write(f, &made); }
+    made
+  });
+  k.clone()
+}
+
+// A busy agent keeps its window (see last_call).
+pub fn busy(app: &AppHandle) -> bool {
+  app.state::<Mcp>().last_call.lock().unwrap().is_some_and(|t| t.elapsed() < Duration::from_secs(300))
 }
 
 #[derive(Clone)]
@@ -59,6 +86,7 @@ impl ServerHandler for Bridge {
   async fn call_tool(&self, request: CallToolRequestParams, _context: RequestContext<RoleServer>) -> Result<CallToolResult, ErrorData> {
     let mcp = self.app.state::<Mcp>();
     mcp.requests.fetch_add(1, Ordering::Relaxed);
+    *mcp.last_call.lock().unwrap() = Some(Instant::now());
     let id = mcp.next.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = tokio::sync::oneshot::channel();
     mcp.pending.lock().unwrap().insert(id, tx);
@@ -114,7 +142,7 @@ pub async fn mcp_start(app: AppHandle, port: u16, tools: Vec<Value>, instruction
   *mcp.instructions.lock().unwrap() = instructions;
   let a = app.clone();
   let service = StreamableHttpService::new(move || Ok(Bridge { app: a.clone() }), Arc::new(LocalSessionManager::default()), StreamableHttpServerConfig::default());
-  let router = axum::Router::new().nest_service("/mcp", service).layer(axum::middleware::from_fn(guard));
+  let router = axum::Router::new().nest_service(&format!("/mcp/{}", key(&app)), service).layer(axum::middleware::from_fn(guard));
   let listener = tokio::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], port)))
     .await
     .map_err(|e| if e.kind() == std::io::ErrorKind::AddrInUse { format!("Port {} is in use by another program. Pick another port in the AI tools panel.", port) } else { format!("Couldn't use port {}: {}", port, e) })?;
@@ -133,9 +161,11 @@ pub fn mcp_stop(app: AppHandle) {
 
 #[tauri::command]
 pub fn mcp_status(app: AppHandle) -> Value {
+  let key = key(&app);
   let mcp = app.state::<Mcp>();
   let r = mcp.running.lock().unwrap();
   json!({
+    "key": key,
     "running": r.is_some(),
     "port": r.as_ref().map(|r| r.port),
     "uptimeSecs": r.as_ref().map(|r| r.started.elapsed().as_secs()).unwrap_or(0),

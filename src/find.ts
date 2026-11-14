@@ -1,5 +1,6 @@
 // The find and replace widget (Ctrl F, Ctrl H): a small floating box at the top right of the editor,
 // like Design Center's and VS Code's, instead of CodeMirror's full-width bar.
+import { K } from './theme';
 import { EditorView, type Panel, type ViewUpdate } from '@codemirror/view';
 import {
   search, SearchQuery, setSearchQuery, openSearchPanel, getSearchQuery, findNext, findPrevious, replaceNext, replaceAll, closeSearchPanel,
@@ -36,7 +37,7 @@ function createPanel(view: EditorView): Panel {
   const dom = document.createElement('div');
   dom.className = 'ads-find';
   dom.innerHTML = `
-    <button class="ads-find-toggle" data-a="expand" title="Toggle replace (Ctrl H)">${svg('chev')}</button>
+    <button class="ads-find-toggle" data-a="expand" title="Toggle replace (${K('Ctrl H')})">${svg('chev')}</button>
     <div class="ads-find-rows">
       <div class="ads-find-row">
         <div class="ads-find-field"><input class="ads-find-input" data-f="search" placeholder="Find" spellcheck="false" main-field="true">
@@ -47,7 +48,7 @@ function createPanel(view: EditorView): Panel {
       </div>
       <div class="ads-find-row ads-find-replace">
         <div class="ads-find-field"><input class="ads-find-input" data-f="replace" placeholder="Replace" spellcheck="false"></div>
-        <button data-a="one" title="Replace (Enter)">${svg('one')}</button><button data-a="all" title="Replace all (Ctrl Alt Enter)">${svg('all')}</button>
+        <button data-a="one" title="Replace (Enter)">${svg('one')}</button><button data-a="all" title="Replace all (${K('Ctrl Alt Enter')})">${svg('all')}</button>
       </div>
     </div>`;
   const $ = <T extends HTMLElement>(s: string) => dom.querySelector(s) as T;

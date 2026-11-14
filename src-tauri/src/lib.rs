@@ -26,16 +26,22 @@ struct Project {
 // Folders that are never part of a spec project.
 const SKIP_DIRS: [&str; 5] = [".git", "node_modules", ".apidesigner", "target", ".idea"];
 
+// More files than any spec project has: the wrong folder was picked (a home folder, a whole drive).
+const MAX_FILES: usize = 20_000;
+
 fn walk(root: &Path, dir: &Path, out: &mut Vec<ProjectFile>, dirs: &mut Vec<String>) -> std::io::Result<()> {
   for entry in fs::read_dir(dir)? {
-    let entry = entry?;
+    // One entry that can't be read (a broken link, a folder without permission) is left out, not a reason to refuse the project.
+    let Ok(entry) = entry else { continue };
     let path = entry.path();
     let name = entry.file_name().to_string_lossy().to_string();
-    let meta = entry.metadata()?;
+    let Ok(meta) = fs::metadata(&path) else { continue };
+    if out.len() > MAX_FILES { return Err(std::io::Error::other("too many files")); }
     if meta.is_dir() {
       if !SKIP_DIRS.contains(&name.as_str()) {
         dirs.push(path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/"));
-        walk(root, &path, out, dirs)?;
+        // An unreadable folder shows empty; only the file limit stops the walk.
+        if walk(root, &path, out, dirs).is_err() && out.len() > MAX_FILES { return Err(std::io::Error::other("too many files")); }
       }
     } else {
       let rel = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
@@ -73,7 +79,8 @@ fn find_main(root: &Path, files: &[ProjectFile]) -> Option<String> {
   None
 }
 
-#[tauri::command]
+// Off the main thread (async), like the zip commands below: a big folder never freezes the window.
+#[tauri::command(async)]
 fn open_project(root: String) -> Result<Project, String> {
   let root_path = PathBuf::from(&root);
   if !root_path.is_dir() {
@@ -81,7 +88,9 @@ fn open_project(root: String) -> Result<Project, String> {
   }
   let mut files = Vec::new();
   let mut dirs = Vec::new();
-  walk(&root_path, &root_path, &mut files, &mut dirs).map_err(|e| format!("Couldn't read {}: {}", root, e))?;
+  if let Err(e) = walk(&root_path, &root_path, &mut files, &mut dirs) {
+    return Err(if files.len() > MAX_FILES { format!("{} has more than {} files, so it doesn't look like a spec project. Open the folder that holds the specification.", root, MAX_FILES) } else { format!("Couldn't read {}: {}", root, e) });
+  }
   files.sort_by(|a, b| a.path.cmp(&b.path));
   let main = find_main(&root_path, &files);
   let name = root_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| root.clone());
@@ -111,7 +120,32 @@ fn save_text_file(root: String, path: String, text: String) -> Result<(), String
   let crlf = fs::read(&full).map(|b| { let n = b.windows(2).filter(|w| *w == b"\r\n").count(); n > 0 && n * 2 >= b.iter().filter(|&&c| c == b'\n').count() }).unwrap_or(false);
   let lf = text.replace("\r\n", "\n");
   let out = if crlf { lf.replace('\n', "\r\n") } else { lf };
-  fs::write(&full, out).map_err(|e| format!("Couldn't save {}: {}", path, e))
+  write_whole(&full, out.as_bytes()).map_err(|e| format!("Couldn't save {}: {}", path, e))
+}
+
+// Written beside the file and renamed over it, so a crash or a full disk part way never leaves half a spec.
+// The watcher ignores the .ds-tmp name (watch.rs).
+fn write_whole(full: &Path, bytes: &[u8]) -> std::io::Result<()> {
+  let tmp = full.with_file_name(format!(".{}.ds-tmp", full.file_name().unwrap_or_default().to_string_lossy()));
+  // A folder that refuses the rename: written in place, as before.
+  fs::write(&tmp, bytes).and_then(|_| fs::rename(&tmp, full)).or_else(|_| { let _ = fs::remove_file(&tmp); fs::write(full, bytes) })
+}
+
+// Files that aren't UTF-8 text (an image or a PDF in a Design Center project) travel through sync as this marker
+// and their bytes in base64, so a pull writes them back byte for byte. sync.ts knows the marker too.
+pub const B64: &str = "\u{0}b64:";
+pub fn text_or_b64(bytes: Vec<u8>) -> String {
+  use base64::Engine;
+  String::from_utf8(bytes).unwrap_or_else(|e| format!("{B64}{}", base64::engine::general_purpose::STANDARD.encode(e.into_bytes())))
+}
+
+// A file exactly as it is on disk, for sync: text as text, anything else as the marker and base64.
+#[tauri::command]
+fn read_file_exact(root: String, path: String) -> Result<String, String> {
+  let root_path = PathBuf::from(&root).canonicalize().map_err(|e| e.to_string())?;
+  let full = root_path.join(&path).canonicalize().map_err(|_| format!("File not found: {}", path))?;
+  if !full.starts_with(&root_path) { return Err(format!("{} is outside the project.", path)); }
+  fs::read(&full).map(text_or_b64).map_err(|e| format!("Couldn't read {}: {}", path, e))
 }
 
 // A path relative to the project made of plain names only: no .., no drive or leading slash. Checked before
@@ -163,7 +197,7 @@ fn delete_file(root: String, path: String) -> Result<(), String> {
 
 // Download as zip (the project menu): every file, Exchange dependencies included, as Design Center's
 // Download Project gives it; the app's own .apidesigner folder and .git stay out.
-#[tauri::command]
+#[tauri::command(async)]
 fn export_zip(root: String, dest: String) -> Result<usize, String> {
   let root_path = PathBuf::from(&root);
   let (mut files, mut dirs) = (Vec::new(), Vec::new());
@@ -228,7 +262,7 @@ pub fn unzip_into<R: std::io::Read + std::io::Seek>(reader: R, dest_path: &Path)
 
 // Unpacks a Design Center or Exchange zip into a new folder. Exchange zips can hold the same
 // entry twice (M0.1); the last one wins and the names are reported. Entries can't escape the folder.
-#[tauri::command]
+#[tauri::command(async)]
 fn import_zip(zip_path: String, dest: String) -> Result<ZipImport, String> {
   let dest_path = PathBuf::from(&dest);
   if dest_path.exists() && fs::read_dir(&dest_path).map(|mut d| d.next().is_some()).unwrap_or(false) {
@@ -244,7 +278,7 @@ fn import_zip(zip_path: String, dest: String) -> Result<ZipImport, String> {
 // overwrite, nothing is written when something would be replaced; the names come back to ask about.
 #[derive(Serialize)]
 struct Imported { written: Vec<String>, existing: Vec<String> }
-#[tauri::command]
+#[tauri::command(async)]
 fn import_into(root: String, folder: String, sources: Vec<String>, overwrite: bool) -> Result<Imported, String> {
   let root_path = PathBuf::from(&root).canonicalize().map_err(|e| e.to_string())?;
   let dest = if folder.is_empty() { root_path.clone() } else { inside_make(&root, &folder, true)? };
@@ -298,7 +332,12 @@ fn write_file_exact(root: String, path: String, text: String) -> Result<(), Stri
   let root_path = PathBuf::from(&root);
   fs::create_dir_all(&root_path).map_err(|e| format!("Couldn't create {}: {}", root, e))?;
   let full = inside_make(&root, &path, true)?;
-  fs::write(&full, text).map_err(|e| format!("Couldn't write {}: {}", path, e))
+  use base64::Engine;
+  let bytes = match text.strip_prefix(B64) {
+    Some(b) => base64::engine::general_purpose::STANDARD.decode(b).map_err(|e| format!("Couldn't write {}: {}", path, e))?,
+    None => text.into_bytes(),
+  };
+  write_whole(&full, &bytes).map_err(|e| format!("Couldn't write {}: {}", path, e))
 }
 
 // Windows: each shows one project (or the start screen), and a project is open in one window only, so two
@@ -359,6 +398,20 @@ fn new_window(app: &tauri::AppHandle, root: Option<String>) -> Result<(), String
   Ok(())
 }
 
+// Settings, recent projects and panel sizes live in the webview's storage, which goes when its data is cleared
+// (and differs between a development and an installed build). A copy is kept here, in the app's own folder, and
+// given back when the storage comes up empty (src/main.tsx).
+#[tauri::command]
+fn prefs_load(app: tauri::AppHandle) -> String {
+  tauri::Manager::path(&app).app_config_dir().ok().and_then(|d| fs::read_to_string(d.join("prefs.json")).ok()).unwrap_or_default()
+}
+#[tauri::command]
+fn prefs_save(app: tauri::AppHandle, text: String) -> Result<(), String> {
+  let dir = tauri::Manager::path(&app).app_config_dir().map_err(|e| e.to_string())?;
+  fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+  write_whole(&dir.join("prefs.json"), text.as_bytes()).map_err(|e| e.to_string())
+}
+
 fn light_theme(app: &tauri::AppHandle) -> bool {
   tauri::Manager::path(app).app_config_dir().ok().and_then(|d| fs::read_to_string(d.join("theme")).ok()).is_some_and(|t| t.trim() == "light")
 }
@@ -395,19 +448,19 @@ pub fn run() {
       amf::start_in_background(app.handle(), "main");
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![open_project, read_text_file, save_text_file, write_file_exact, rename_file, delete_file, create_dir, export_zip, import_zip, import_into, fetch_url, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
+    .invoke_handler(tauri::generate_handler![open_project, read_text_file, read_file_exact, save_text_file, write_file_exact, rename_file, delete_file, create_dir, export_zip, import_zip, import_into, fetch_url, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
       anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only, anypoint::anypoint_set_org, anypoint::anypoint_broker_regions,
-      anypoint::anypoint_dev_session, remember_theme, open_window, project_window, claim_project, mcp::mcp_start, mcp::mcp_stop, mcp::mcp_status, mcp::mcp_reply])
+      anypoint::anypoint_dev_session, anypoint::anypoint_dev_deny, remember_theme, prefs_load, prefs_save, open_window, project_window, claim_project, mcp::mcp_start, mcp::mcp_stop, mcp::mcp_status, mcp::mcp_reply])
     .on_window_event(|w, e| match e {
       // AI tools work in the window used last.
-      tauri::WindowEvent::Focused(true) => { *w.app_handle().state::<mcp::Mcp>().target.lock().unwrap() = w.label().to_string(); }
+      tauri::WindowEvent::Focused(true) => { if !mcp::busy(w.app_handle()) { *w.app_handle().state::<mcp::Mcp>().target.lock().unwrap() = w.label().to_string(); } }
       // A closed window lets go of its project, its engine, its watcher and its lock.
       tauri::WindowEvent::Destroyed => {
         let (app, label) = (w.app_handle().clone(), w.label().to_string());
         app.state::<Windows>().projects.lock().unwrap().remove(&label);
         app.state::<watch::WatchState>().0.lock().unwrap().remove(&label);
         amf::stop(&app, Some(&label));
-        { let mcp = app.state::<mcp::Mcp>(); let mut t = mcp.target.lock().unwrap(); if *t == label { *t = app.webview_windows().into_keys().find(|l| *l != label).unwrap_or_default(); } }
+        { let mcp = app.state::<mcp::Mcp>(); let mut t = mcp.target.lock().unwrap(); if *t == label { *t = app.webview_windows().into_keys().find(|l| *l != label).unwrap_or_default(); *mcp.last_call.lock().unwrap() = None; } }
         std::thread::spawn(move || anypoint::release_on_exit(&app, Some(&label)));
       }
       _ => {}

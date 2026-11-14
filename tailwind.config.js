@@ -43,6 +43,11 @@ export default {
           border: 'var(--accent-border)',
           ink: 'var(--accent-ink)',
         },
+        ok: {
+          DEFAULT: 'var(--ok)',
+          tint: 'color-mix(in oklch, var(--ok) 12%, transparent)',
+          border: 'color-mix(in oklch, var(--ok) 30%, transparent)',
+        },
         warn: {
           DEFAULT: 'var(--warn)',
           tint: 'color-mix(in oklch, var(--warn) 12%, transparent)',

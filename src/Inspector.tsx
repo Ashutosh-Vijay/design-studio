@@ -3,6 +3,7 @@
 // text (src/splice.ts) applied through the editor, so Ctrl Z undoes it and the code stays the master.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Icons } from './components/Icons';
+import { K } from './theme';
 import { PopupList, Select } from './components/Popup';
 import { METHODS, BUILTIN_TYPES, entries, kids, kid, keyPathAt, type Outline, type Decl } from './raml';
 import * as S from './splice';
@@ -45,7 +46,7 @@ export function Field({ value, onCommit, placeholder, label, ariaLabel, mono, mu
 }) {
   // A row just added through "Add" takes the focus with its name selected, ready to type over.
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => { if (focus && ref.current) { ref.current.focus(); ref.current.select(); onFocused?.(); } }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (focus && ref.current) { ref.current.focus(); ref.current.select(); onFocused?.(); } }, [focus]);
   const [v, setV] = useState(value);
   const skip = useRef(false);
   useEffect(() => setV(value), [value]);
@@ -183,7 +184,7 @@ export function SampleCheck({ name, run }: { name: string; run: (payload: string
         <div className="flex items-center gap-1.5">
           <button data-nav disabled={!text.trim() || busy} onClick={go} className="h-[26px] px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-40">Check</button>
           <button data-nav onClick={() => { setOpen(false); setRes(null); }} className={BTN}>Close</button>
-          <span className="text-[11px] text-content-faint">{busy ? 'Checking…' : 'Ctrl Enter'}</span>
+          <span className="text-[11px] text-content-faint">{busy ? 'Checking…' : K('Ctrl Enter')}</span>
         </div>
         {typeof res === 'string' && <div className="text-[12px] text-err select-text">{res}</div>}
         {res && typeof res !== 'string' && (errs.length === 0

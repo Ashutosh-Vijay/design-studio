@@ -121,7 +121,7 @@ function SpecEditor({ files, readOnly, onChange, problems }: { files: Record<str
   useEffect(() => {
     view.current = new EditorView({ state: make(paths[0]), parent: host.current! });
     return () => view.current?.destroy();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   const show = (path: string) => {
     const v = view.current!; states.current.set(tab, v.state);
     v.setState(states.current.get(path) ?? make(path)); setTab(path);
@@ -219,7 +219,7 @@ function LessonView({ lesson, index, done, draft, onDraft, onDone, onPrev, onNex
     let live = true;
     const t = setTimeout(async () => { const r = await readSpec(files); if (live) { setRead(r); setBusy(false); } }, read ? 450 : 0);
     return () => { live = false; clearTimeout(t); };
-  }, [files]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [files]);
   const edit = (path: string, text: string) => {
     const next = { ...files, [path]: text };
     setFiles(next); setResult(null);

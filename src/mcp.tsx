@@ -51,7 +51,7 @@ export async function startServer(port = savedPort()) {
   window.dispatchEvent(new Event('ads-mcp'));
 }
 export async function stopServer() { await invoke('mcp_stop'); window.dispatchEvent(new Event('ads-mcp')); }
-type Status = { running: boolean; port: number | null; uptimeSecs: number; requests: number };
+type Status = { running: boolean; port: number | null; uptimeSecs: number; requests: number; key?: string };
 export function useMcpStatus() {
   const [s, setS] = useState<Status | null>(null);
   useEffect(() => {
@@ -74,7 +74,7 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => { const w = () => setRows(log); watchers.add(w); return () => { watchers.delete(w); }; }, []);
   const running = !!st?.running;
-  const url = `http://127.0.0.1:${st?.port ?? port}/mcp`;
+  const url = `http://127.0.0.1:${st?.port ?? port}/mcp${st?.key ? '/' + st.key : ''}`;
   const toggle = async () => {
     setBusy(true); setErr(null);
     try {
@@ -96,13 +96,13 @@ export function McpPanel({ onClose }: { onClose: () => void }) {
       footer={<><span className="flex-1 text-[12px] text-err select-text">{err}</span><button className={btn} onClick={onClose}>Close</button>
         <button className={btnPrimary} disabled={busy} onClick={toggle}>{busy ? <Spinner /> : running ? 'Stop' : 'Start'}</button></>}>
       <div className="flex flex-col gap-3.5 text-[12.5px]">
-        <p className="m-0 text-content-secondary leading-relaxed">An agent connected here can do what you can: open and create projects, read and edit files, run AMF's checks and governance, try the mock, pull, and work with Exchange. You see every change in the editor as it happens. It runs on this computer only.</p>
+        <p className="m-0 text-content-secondary leading-relaxed">An agent connected here can do what you can: open and create projects, read and edit files, run AMF's checks and governance, try the mock, pull, and work with Exchange. You see every change in the editor as it happens. It runs on this computer only, and its address ends in a key, so only the agents you give it to can connect.</p>
         <div className={`${box} flex items-center gap-2.5 px-3 py-2`}>
           <span className="w-2 h-2 rounded-full" style={{ background: running ? 'var(--ok)' : 'var(--content-ghost)' }} />
           <span className="font-medium">{running ? 'Running' : 'Stopped'}</span>
           {running && <span className="text-content-faint">{st!.requests} {st!.requests === 1 ? 'call' : 'calls'}</span>}
           <span className="flex-1" />
-          {running ? <span className="font-mono text-[11.5px] select-text">{url}</span>
+          {running ? <span className="font-mono text-[11.5px] select-text" title={url}>127.0.0.1:{st!.port}</span>
             : <span className="text-content-faint">Port <span className="font-mono">{port}</span></span>}
         </div>
         <div className="text-[11.5px] text-content-faint">{pref('ads.mcp.auto') === '1' ? 'Starts when Design Studio opens.' : "Doesn't start by itself."} Changes in Design Center and Exchange are {remoteOk() ? 'allowed' : 'off'}. The port and both of these are in Settings, under AI tools.</div>

@@ -12,6 +12,7 @@ import * as vscode from 'vscode';
 import { fileCommand, stopWatching } from './files';
 import { amf, startAmf, stopAmf } from './amf';
 import { anypointCommand, initAnypoint, releaseOnExit } from './anypoint';
+import { initMcp, mcpBusy } from './mcp';
 import { callTool, mcpCommand, stopMcp } from './mcp';
 
 type Tab = {
@@ -25,6 +26,7 @@ const same = (a: string, b: string) => { const n = (x: string) => path.resolve(x
 
 export function activate(context: vscode.ExtensionContext) {
   initAnypoint(context);
+  initMcp(context.globalStorageUri.fsPath);
   const ext = context.extensionPath;
   const version = String(context.extension.packageJSON.version);
   const emitTo = (t: Tab) => (event: string, payload: unknown) => { t.panel.webview.postMessage({ kind: 'event', event, payload }); };
@@ -48,7 +50,7 @@ export function activate(context: vscode.ExtensionContext) {
     p.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.png');
     p.webview.html = html(p.webview, dist);
     startAmf(t.id, ext, emitTo(t)); // warm while the splash shows
-    p.onDidChangeViewState((e) => { if (e.webviewPanel.active) lastTab = t; }, null, context.subscriptions);
+    p.onDidChangeViewState((e) => { if (e.webviewPanel.active && !(mcpBusy() && lastTab && tabs.has(lastTab.id))) lastTab = t; }, null, context.subscriptions);
     p.onDidDispose(() => {
       tabs.delete(t.id);
       if (lastTab === t) lastTab = [...tabs.values()].pop() ?? null;
@@ -66,7 +68,7 @@ export function activate(context: vscode.ExtensionContext) {
   async function handle(t: Tab, cmd: string, a: Record<string, any>): Promise<unknown> {
     const emit = emitTo(t);
     if (cmd === 'amf') return amf(t.id, ext, emit, a.op, a.args ?? {});
-    if (cmd.startsWith('anypoint_')) { const r = await anypointCommand(cmd, a, t.id); if (r !== undefined) return r; }
+    if (cmd.startsWith('anypoint_')) { const r = await anypointCommand(cmd, a, t.id, emit); if (r !== undefined) return r; }
     if (cmd === 'mcp_ready') { t.markReady(); return null; }
     if (cmd.startsWith('mcp_')) { const r = await mcpCommand(cmd, a, version, emitActive); if (r !== undefined) return r; }
     const r = await fileCommand(cmd, a, emit, t.id);
@@ -78,7 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
       case 'open_window': open(a.root ? { root: a.root } : undefined, true); return null;
       case 'vscode_take_pending': { const x = t.pending; t.pending = null; return x; }
       case 'vscode_version': return version;
-      case 'vscode_dir': return a.which === 'documents' ? path.join(os.homedir(), 'Documents') : os.homedir();
+      case 'vscode_dir': return a.which === 'documents' ? path.join(os.homedir(), 'Documents') : a.which === 'cache' ? path.join(context.globalStorageUri.fsPath, 'cache') : os.homedir();
       case 'vscode_open_url': await vscode.env.openExternal(vscode.Uri.parse(a.url, true)); return null;
       case 'vscode_reveal': await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(a.path)); return null;
       case 'vscode_confirm': {

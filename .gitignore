@@ -21,3 +21,6 @@ vscode-extension/*.vsix
 # Other tools' local files (agent briefs, design critiques)
 AGENTS.md
 .impeccable/
+
+# Limited-access test results (scripts/access-apps.mjs)
+spikes/access/

@@ -5,7 +5,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::hash::{BuildHasher, Hasher};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -92,6 +91,9 @@ pub struct Anypoint {
   // Held while the session is renewed: a refresh token works once (Anypoint rotates it), and a pull makes eight
   // calls at once, so the others wait here and then use the session the first one made.
   renewing: Mutex<()>,
+  // Development builds only (anypoint_dev_deny): Anypoint products that answer 403 here as if this account had no
+  // permission for them, to test every mix of access without a second account. Release builds never read it.
+  deny: Mutex<Vec<String>>,
 }
 
 fn keychain(name: &str) -> Result<keyring::Entry, String> {
@@ -100,14 +102,12 @@ fn keychain(name: &str) -> Result<keyring::Entry, String> {
 fn conn_file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
   Ok(app.path().app_config_dir().map_err(|e| e.to_string())?.join("anypoint.json"))
 }
-fn random_hex() -> String {
-  // Two values from the per-process random SipHash keys: enough for an OAuth state and nonce.
-  let a = std::collections::hash_map::RandomState::new().build_hasher().finish();
-  let b = std::collections::hash_map::RandomState::new().build_hasher().finish();
-  format!("{a:016x}{b:016x}")
-}
+// One client for every call: its connections stay open, so a pull of forty files makes one TLS handshake, not forty.
+// It trusts the system's certificate store (Cargo.toml), so a company proxy that inspects TLS works as it does
+// in the browser.
 fn client() -> reqwest::blocking::Client {
-  reqwest::blocking::Client::builder().timeout(Duration::from_secs(60)).build().expect("http client")
+  static CLIENT: std::sync::OnceLock<reqwest::blocking::Client> = std::sync::OnceLock::new();
+  CLIENT.get_or_init(|| reqwest::blocking::Client::builder().timeout(Duration::from_secs(60)).build().expect("http client")).clone()
 }
 
 // Anypoint's token endpoint takes a JSON body (M0.3).
@@ -350,7 +350,7 @@ fn broker_sign_in(first: &str, region: &str) -> Result<(Value, String), String> 
   use sha2::Digest;
   let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Couldn't open a local port for the sign-in: {e}"))?;
   let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-  let verifier = random_hex() + &random_hex();
+  let verifier = strong_random(48);
   let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier.as_bytes()));
   let (start, broker) = broker_any(first, "start", json!({ "challenge": challenge, "port": port, "region": region }))?;
   let broker = broker.as_str();
@@ -466,10 +466,52 @@ pub struct Reply { status: u16, json: Value, text: String }
 // lock and the branch's position. Everything else (save, delete, move, lock, publish, new branch) is a write.
 fn is_read(method: &str, path: &str) -> bool {
   method == "GET" || (method == "POST" && path.starts_with("/designcenter/") && path.ends_with("/status"))
+    // Exchange's Graph API takes its queries as POST; call_in refuses a mutation there before this is asked.
+    || (method == "POST" && path == GRAPH)
+}
+const GRAPH: &str = "/graph/api/v2/graphql";
+
+const DASHBOARD: [&str; 8] = ["/governance/xapi/", "/apigovernance/", "/apimanager/", "/accounts/api/organizations/", "/hybrid/", "/cloudhub/", "/amc/", "/armui/"];
+
+// Which product a path belongs to, for anypoint_dev_deny. "-write" in a rule denies only what isn't a read.
+fn denied(rules: &[String], method: &str, path: &str) -> Option<String> {
+  let product = if path.contains("/publish/exchange") { "publish" }
+    else if path.starts_with("/designcenter/") { "designcenter" }
+    else if path.starts_with("/exchange/") || path == GRAPH { "exchange" }
+    else if path.starts_with("/governance/xapi/") || path.contains("/entitlements/apiGovernance") { "governance" }
+    else if path.starts_with("/apimanager/") { "apimanager" }
+    else if ["/amc/", "/cloudhub/", "/hybrid/", "/armui/"].iter().any(|p| path.starts_with(p)) { "runtime" }
+    else if path.starts_with("/accounts/api/organizations/") && path.contains("/environments") { "environments" }
+    else { return None };
+  let write = !is_read(method, path);
+  // Publishing also takes the lock and writes in Design Center first: those stay allowed under "publish".
+  rules.iter().find(|r| *r == product || (write && **r == format!("{product}-write")) || (product == "publish" && (*r == "designcenter" || *r == "designcenter-write"))).cloned()
 }
 
-fn call(app: &AppHandle, method: &str, path: &str, body: Option<&Value>) -> Result<Reply, String> {
-  let ok = path.starts_with("/designcenter/") || path.starts_with("/exchange/") || path == "/accounts/api/me";
+fn call(app: &AppHandle, method: &str, path: &str, body: Option<&Value>) -> Result<Reply, String> { call_in(app, method, path, body, None, None) }
+// org and env: Runtime Manager's calls name the business group and the environment in headers, not in the path.
+fn call_in(app: &AppHandle, method: &str, path: &str, body: Option<&Value>, org: Option<&str>, env: Option<&str>) -> Result<Reply, String> {
+  if cfg!(debug_assertions) {
+    if let Some(rule) = denied(&app.state::<Arc<Anypoint>>().deny.lock().unwrap(), method, path) {
+      // As Anypoint answers an account without the permission: Exchange's search and Graph API give an empty
+      // list, the environments list comes back empty, everything else is a 403.
+      let (status, json) = if rule.starts_with("exchange") && (path.starts_with("/exchange/api/v2/assets/search") || path == GRAPH) {
+        (200, if path == GRAPH { json!({ "data": { "assets": [] } }) } else { json!([]) })
+      } else if rule == "environments" { (200, json!({ "data": [], "total": 0 })) }
+      else { (403, json!({ "message": format!("Forbidden (simulated in a development build: {rule})"), "status": 403 })) };
+      return Ok(Reply { status, text: json.to_string(), json });
+    }
+  }
+  // The Dashboard's calls (PLAN 6.2): governance, API Manager, the org's environments and its runtimes. Read only,
+  // always: only GET goes out to these, whatever the connection's own read-only setting says.
+  let dashboard = DASHBOARD.iter().any(|p| path.starts_with(p));
+  if dashboard && method != "GET" { return Err(format!("The Dashboard only reads: {method} {path} was not sent.")); }
+  // Exchange's Graph API: queries only, never a mutation.
+  if path == GRAPH {
+    let q = body.and_then(|b| b["query"].as_str()).unwrap_or("").to_lowercase();
+    if method != "POST" || q.is_empty() || q.contains("mutation") || q.contains("subscription") { return Err("Only read queries go to Exchange's Graph API.".into()); }
+  }
+  let ok = dashboard || path == GRAPH || path.starts_with("/designcenter/") || path.starts_with("/exchange/") || path == "/accounts/api/me";
   if !ok { return Err(format!("Not an allowed Anypoint path: {path}")); }
   for attempt in 0..2 {
     let (token, me, host) = access(app)?;
@@ -477,7 +519,11 @@ fn call(app: &AppHandle, method: &str, path: &str, body: Option<&Value>) -> Resu
       return Err("This connection is read only, so nothing that would change Design Center was sent. Turn read only off in settings to push.".into());
     }
     let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
-    let mut rq = client().request(m, format!("{host}{path}")).bearer_auth(&token).header("x-organization-id", &me.org_id).header("x-owner-id", &me.user_id).header("accept", "application/json");
+    let mut rq = client().request(m, format!("{host}{path}")).bearer_auth(&token).header("x-organization-id", org.unwrap_or(&me.org_id)).header("accept", "application/json");
+    // A Connected App acting as itself (client credentials) has no user: Design Center answers "Invalid x-owner-id
+    // header" to its client ID there, and works without the header (proven 2026-11-15).
+    if me.mode != "client" { rq = rq.header("x-owner-id", &me.user_id); }
+    if let Some(e) = env { rq = rq.header("X-ANYPNT-ENV-ID", e).header("X-ANYPNT-ORG-ID", org.unwrap_or(&me.org_id)); }
     if let Some(b) = body { rq = rq.json(b); }
     let res = rq.send().map_err(|e| format!("Couldn't reach Anypoint: {e}"))?;
     let status = res.status().as_u16();
@@ -486,7 +532,8 @@ fn call(app: &AppHandle, method: &str, path: &str, body: Option<&Value>) -> Resu
       if let Some(s) = app.state::<Arc<Anypoint>>().session.lock().unwrap().as_mut() { s.expires = Instant::now(); }
       continue;
     }
-    let text = res.text().unwrap_or_default();
+    // A file that isn't text (an image in the project) comes back as the marker and base64, never decoded lossily.
+    let text = crate::text_or_b64(res.bytes().map(|b| b.to_vec()).unwrap_or_default());
     let json = serde_json::from_str(&text).unwrap_or(Value::Null);
     return Ok(Reply { status, json, text });
   }
@@ -495,8 +542,17 @@ fn call(app: &AppHandle, method: &str, path: &str, body: Option<&Value>) -> Resu
 
 // One authorized Anypoint request (Design Center, Exchange, who-am-I), with the org and owner headers.
 #[tauri::command]
-pub async fn anypoint_api(app: AppHandle, method: String, path: String, body: Option<Value>) -> Result<Reply, String> {
-  tauri::async_runtime::spawn_blocking(move || call(&app, &method, &path, body.as_ref())).await.map_err(|e| e.to_string())?
+pub async fn anypoint_api(app: AppHandle, method: String, path: String, body: Option<Value>, org: Option<String>, env: Option<String>) -> Result<Reply, String> {
+  tauri::async_runtime::spawn_blocking(move || call_in(&app, &method, &path, body.as_ref(), org.as_deref(), env.as_deref())).await.map_err(|e| e.to_string())?
+}
+
+// Development only: products to answer 403 (designcenter, designcenter-write, publish, exchange, exchange-write,
+// governance, apimanager, runtime, environments). An empty list turns it off. A release build refuses it.
+#[tauri::command]
+pub fn anypoint_dev_deny(app: AppHandle, products: Vec<String>) -> Result<(), String> {
+  if !cfg!(debug_assertions) { return Err("Only in development builds.".into()); }
+  *app.state::<Arc<Anypoint>>().deny.lock().unwrap() = products;
+  Ok(())
 }
 
 // An Exchange dependency into exchange_modules/{group}/{asset}/{version}/, where Design Center's own
@@ -560,10 +616,21 @@ pub async fn anypoint_hold_lock(app: AppHandle, window: tauri::Window, project: 
       return Err(if owner.is_empty() { format!("Couldn't lock the branch ({}).", r.status) } else { format!("{owner} is editing this branch in Design Center, so it's locked. Try again when they're done.") });
     }
     let stop = Arc::new(AtomicBool::new(false));
-    { let (app, stop, base) = (app.clone(), stop.clone(), base.clone());
-      std::thread::spawn(move || loop {
-        for _ in 0..30 { std::thread::sleep(Duration::from_secs(1)); if stop.load(Ordering::SeqCst) { return; } }
-        let _ = call(&app, "POST", &format!("{base}/keepAlive"), Some(&json!({})));
+    { let (app, stop, base, win) = (app.clone(), stop.clone(), base.clone(), win.clone());
+      std::thread::spawn(move || {
+        let mut missed = 0;
+        loop {
+          for _ in 0..30 { std::thread::sleep(Duration::from_secs(1)); if stop.load(Ordering::SeqCst) { return; } }
+          let kept = call(&app, "POST", &format!("{base}/keepAlive"), Some(&json!({}))).map(|r| r.status < 300).unwrap_or(false);
+          missed = if kept { 0 } else { missed + 1 };
+          // Two in a row (a minute): the lock has lapsed in Design Center. Stop pretending, and tell the window.
+          if missed >= 2 {
+            if stop.load(Ordering::SeqCst) { return; }
+            app.state::<Arc<Anypoint>>().lock.lock().unwrap().remove(&win);
+            let _ = tauri::Emitter::emit_to(&app, &win, "lock-lost", json!({ "win": win }));
+            return;
+          }
+        }
       }); }
     app.state::<Arc<Anypoint>>().lock.lock().unwrap().insert(win, LockHold { project, branch, stop });
     Ok(())

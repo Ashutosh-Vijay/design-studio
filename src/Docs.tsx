@@ -20,7 +20,7 @@ export function DocsPanel({ model: checked, resolve, onOpenAt, startMock }: {
   // The docs show the API as AMF resolves it, so headers and parameters from traits and resource types are
   // there too. Read again after each full check; until then the checked model stands in.
   const [resolved, setResolved] = useState<AmfModel | null>(null);
-  useEffect(() => { if (checked) resolve().then(setResolved, () => setResolved(null)); }, [checked]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (checked) resolve().then(setResolved, () => setResolved(null)); }, [checked]);
   const model = resolved ?? checked;
   const [shown, setPage] = useState<Page>({ kind: 'home' });
   const [mock, setMock] = useState<Mock>(null);

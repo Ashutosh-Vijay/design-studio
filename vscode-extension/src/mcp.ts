@@ -3,12 +3,30 @@
 // answered through mcp_reply. Copilot in VS Code doesn't need it: extension.ts registers the same tools with VS Code
 // itself (no port). This server is for agents outside VS Code (Claude Code, Cursor, Claude Desktop).
 import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as crypto from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 let server: http.Server | null = null, port: number | null = null, started = 0, requests = 0, next = 0;
 let tools: unknown[] = [], instructions = '';
+// The key in the server's address (/mcp/<key>), as mcp.rs: loopback is open to every program and user on this
+// computer, and only the ones given the address can call the tools. Made once and kept in the extension's folder.
+let keyDir = '', key = '';
+export const initMcp = (dir: string) => { keyDir = dir; };
+function theKey() {
+  if (key) return key;
+  const file = path.join(keyDir, 'mcp-key');
+  try { const k = fs.readFileSync(file, 'utf8').trim(); if (/^[a-z0-9]{32,}$/i.test(k)) return (key = k); } catch { /* not made yet */ }
+  key = crypto.randomBytes(24).toString('hex');
+  try { fs.mkdirSync(keyDir, { recursive: true }); fs.writeFileSync(file, key); } catch { /* kept for this run only */ }
+  return key;
+}
+// A busy agent keeps its tab (a call in the last five minutes): looking at another tab mustn't move its next edit there.
+let lastCall = 0;
+export const mcpBusy = () => Date.now() - lastCall < 300000;
 const pending = new Map<number, (r: { ok: boolean; result: string }) => void>();
 
 const loopback = (host: string) => { const name = host.startsWith('[') ? host.split(']')[0] + ']' : host.split(':')[0]; return ['127.0.0.1', 'localhost', '[::1]'].includes(name); };
@@ -28,6 +46,7 @@ function mcpServer(version: string, emit: (e: string, p: unknown) => void) {
 // while; ten minutes is the outer limit.
 export async function callTool(tool: string, args: unknown, emit: (e: string, p: unknown) => void) {
   const id = ++next;
+  lastCall = Date.now();
   const answer = new Promise<{ ok: boolean; result: string }>((r) => pending.set(id, r));
   emit('mcp-call', { id, tool, args });
   const r = await Promise.race([answer, new Promise<{ ok: boolean; result: string }>((ok) => setTimeout(() => ok({ ok: false, result: "Design Studio didn't answer in time." }), 600000))]);
@@ -45,7 +64,8 @@ export async function mcpCommand(cmd: string, a: Record<string, any>, version: s
         // Only this computer, and never a web page (a page on localhost, like a local MCP inspector, is let through).
         const origin = String(req.headers.origin ?? '');
         if (!loopback(String(req.headers.host ?? '')) || (origin && !loopback(origin.split('://')[1] ?? ''))) { res.writeHead(403).end('Refused.'); return; }
-        if (!(req.url ?? '').startsWith('/mcp')) { res.writeHead(404).end(); return; }
+        const at = (req.url ?? '').split('?')[0], mine = `/mcp/${theKey()}`;
+        if (at !== mine && !at.startsWith(mine + '/')) { res.writeHead(404).end(); return; }
         // A bad request gets an error answer and the server keeps running: a body over 4 MB, JSON that doesn't
         // parse (JSON-RPC's parse error), or anything the SDK throws.
         const fail = (code: number, rpc: number, message: string) => { if (!res.headersSent) res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: rpc, message } })); };
@@ -68,7 +88,7 @@ export async function mcpCommand(cmd: string, a: Record<string, any>, version: s
       return null;
     }
     case 'mcp_stop': stopMcp(); return null;
-    case 'mcp_status': return { running: !!server, port, uptimeSecs: server ? Math.round((Date.now() - started) / 1000) : 0, requests };
+    case 'mcp_status': return { key: theKey(), running: !!server, port, uptimeSecs: server ? Math.round((Date.now() - started) / 1000) : 0, requests };
     case 'mcp_reply': { const f = pending.get(a.id); if (f) f({ ok: a.ok, result: a.result }); return null; }
   }
   return undefined;

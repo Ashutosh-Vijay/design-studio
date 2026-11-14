@@ -6,6 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Outline, Resource } from './raml';
 import * as S from './sync';
+import * as D from './dashdata';
 import type { Kind } from './Create';
 import type { Me } from './SyncUI';
 
@@ -184,7 +185,7 @@ export const TOOLS: Tool[] = [
       return r.upToDate ? 'Already up to date.' : { updated: r.updated, removed: r.removed, conflicts: r.conflicts, dependencies: r.deps };
     } },
   { name: 'push', remote: true, description: 'Save every file and send the local changes to Design Center, holding the branch lock. Refuses when Design Center has commits not pulled yet (pull first).',
-    run: async () => { const { p, l } = await linked(); await p.saveAll(); const r = await S.push(p.root, l, await filesNow(p.root)); window.dispatchEvent(new Event('ads-files-changed')); return r.sent ? `Pushed ${r.sent} ${r.sent === 1 ? 'change' : 'changes'}.` : 'Nothing to push.'; } },
+    run: async () => { const { p, l } = await linked(); await p.saveAll(); const r = await S.push(p.root, l, await filesNow(p.root)); window.dispatchEvent(new Event('ads-files-changed')); return (r.sent ? `Pushed ${r.sent} ${r.sent === 1 ? 'change' : 'changes'}.` : 'Nothing to push.') + (r.binary.length ? ` Not sent (not text): ${r.binary.join(', ')}.` : ''); } },
   { name: 'list_branches', readOnly: true, description: "The Design Center project's branches.", run: async () => { const { l } = await linked(); return { current: l.branch, branches: (await S.branches(l.projectId)).map((b) => b.name) }; } },
   { name: 'switch_branch', description: 'Switch the project to another Design Center branch (local changes must be pushed or discarded first).', props: { name: str('Branch name') }, required: ['name'],
     run: async (a) => { const { p, l } = await linked(); await p.saveAll(); await S.switchBranch(p.root, l, String(a.name), await filesNow(p.root)); await p.reload(); return `On ${a.name} now.`; } },
@@ -214,6 +215,22 @@ export const TOOLS: Tool[] = [
       await p.reload();
       return `Published ${d.assetId} ${a.version}${a.development ? ' as Development' : ''}.${r.pushed ? ` ${r.pushed} changes were pushed first.` : ''}`;
     } },
+  { name: 'org_dashboard', readOnly: true, description: "The signed-in organization's APIs at a glance (the Dashboard): every Exchange asset with its latest version, who published it and when, whether API Governance is on, and each governed API's conformance (rulesets passing and failing). Read only.",
+    props: { org_id: str('A business group id (default: the signed-in organization)') },
+    run: async (a) => {
+      const me = await invoke<Me | null>('anypoint_status'); if (!me) throw new Error('Not signed in to Anypoint.');
+      const id = a.org_id ? String(a.org_id) : me.org_id;
+      const r = await D.read({ id, name: id === me.org_id ? me.org_name : id });
+      return { organization: r.org.name, governance: r.governance, access: r.access, why: r.why, summary: D.summary(r), severity: r.severity,
+        profiles: r.profiles.map((p) => ({ name: p.name, active: p.live, rulesets: p.rulesets, apis: p.total, conformant: p.pass, notConformant: p.fail })),
+        assets: r.apis.map((x) => ({ name: x.name, assetId: x.assetId, groupId: x.groupId, kind: D.kindLabel(x.type), version: x.version, stage: x.stable ? 'Stable' : 'Development',
+          published: x.published ? new Date(x.published).toISOString() : null, governance: D.GOV_LABEL[x.gov], rulesetsPassing: x.pass, rulesetsFailing: x.fail,
+          managedIn: x.managed.map((m) => m.env), urn: x.urn })),
+        notes: r.notes };
+    } },
+  { name: 'conformance_report', readOnly: true, description: "One governed API's API Governance report: each ruleset passed or failed, and each failing rule with its message and the place in the spec. Take the urn from org_dashboard.",
+    props: { urn: str('The API\'s urn from org_dashboard') }, required: ['urn'],
+    run: async (a) => D.report(String(a.urn)) },
   { name: 'search_exchange', readOnly: true, description: 'Search Exchange for assets to depend on: RAML fragments (libraries, types, traits), rulesets, or APIs.',
     props: { query: str('Search words'), types: { type: 'array', description: 'Asset types, like raml-fragment, rest-api, ruleset (default raml-fragment)' } as never }, required: ['query'],
     run: async (a) => S.searchAssets(String(a.query), (a.types as string[] | undefined) ?? ['raml-fragment']) },

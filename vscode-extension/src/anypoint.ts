@@ -190,19 +190,32 @@ async function brokerSignIn(first: string, region: string): Promise<[any, string
   return [await done, broker];
 }
 
-const isRead = (m: string, p: string) => m === 'GET' || (m === 'POST' && p.startsWith('/designcenter/') && p.endsWith('/status'));
-async function call(method: string, p: string, body?: unknown) {
-  if (!(p.startsWith('/designcenter/') || p.startsWith('/exchange/') || p === '/accounts/api/me')) throw new Error(`Not an allowed Anypoint path: ${p}`);
+const GRAPH = '/graph/api/v2/graphql';
+// Exchange's Graph API takes its queries as POST; call refuses a mutation there before this is asked (anypoint.rs).
+const isRead = (m: string, p: string) => m === 'GET' || (m === 'POST' && p.startsWith('/designcenter/') && p.endsWith('/status')) || (m === 'POST' && p === GRAPH);
+async function call(method: string, p: string, body?: unknown, org?: string, env?: string) {
+  // The Dashboard's calls (anypoint.rs, DASHBOARD): read only, always.
+  const dashboard = ['/governance/xapi/', '/apigovernance/', '/apimanager/', '/accounts/api/organizations/', '/hybrid/', '/cloudhub/', '/amc/', '/armui/'].some((x) => p.startsWith(x));
+  if (dashboard && method !== 'GET') throw new Error(`The Dashboard only reads: ${method} ${p} was not sent.`);
+  if (p === GRAPH) {
+    const q = String((body as { query?: unknown } | undefined)?.query ?? '').toLowerCase();
+    if (method !== 'POST' || !q || q.includes('mutation') || q.includes('subscription')) throw new Error("Only read queries go to Exchange's Graph API.");
+  }
+  if (!(dashboard || p === GRAPH || p.startsWith('/designcenter/') || p.startsWith('/exchange/') || p === '/accounts/api/me')) throw new Error(`Not an allowed Anypoint path: ${p}`);
   for (let attempt = 0; attempt < 2; attempt++) {
     const { token, me, host } = await access();
     if (me.read_only && !isRead(method, p)) throw new Error('This connection is read only, so nothing that would change Design Center was sent. Turn read only off in settings to push.');
     let r: Response;
     try {
-      r = await fetch(host + p, { method, headers: { authorization: `Bearer ${token}`, 'x-organization-id': me.org_id, 'x-owner-id': me.user_id, accept: 'application/json', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      // org and env: Runtime Manager's calls name the business group and the environment in headers (anypoint.rs, call_in).
+      r = await fetch(host + p, { method, headers: { authorization: `Bearer ${token}`, 'x-organization-id': org ?? me.org_id, ...(me.mode === 'client' ? {} : { 'x-owner-id': me.user_id }), accept: 'application/json', ...(env ? { 'X-ANYPNT-ENV-ID': env, 'X-ANYPNT-ORG-ID': org ?? me.org_id } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
         body: body !== undefined ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60000) });
     } catch (e) { throw new Error(`Couldn't reach Anypoint: ${e instanceof Error ? e.message : e}`); }
     if (r.status === 401 && attempt === 0) { if (session) session.expires = 0; continue; }
-    const text = await r.text();
+    // A file that isn't text (an image in the project) comes back as the marker and base64, never decoded lossily (lib.rs).
+    const bytes = Buffer.from(await r.arrayBuffer());
+    let text: string;
+    try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { text = '\u0000b64:' + bytes.toString('base64'); }
     let j: unknown = null; try { j = JSON.parse(text); } catch { /* not JSON */ }
     return { status: r.status, json: j, text };
   }
@@ -218,7 +231,7 @@ async function releaseLock(tab: string) {
 // A tab closed (its id), or the extension is stopping (every tab's).
 export const releaseOnExit = (tab?: string) => Promise.race([Promise.all([...locks.keys()].filter((k) => tab === undefined || k === tab).map((k) => releaseLock(k).catch(() => {}))), new Promise((r) => setTimeout(r, 4000))]);
 
-export async function anypointCommand(cmd: string, a: Record<string, any>, tab = ''): Promise<unknown> {
+export async function anypointCommand(cmd: string, a: Record<string, any>, tab = '', emit: (event: string, payload: unknown) => void = () => {}): Promise<unknown> {
   switch (cmd) {
     case 'anypoint_broker_regions': {
       const out: string[] = Object.keys((await clients(true)).regions ?? {});
@@ -254,7 +267,7 @@ export async function anypointCommand(cmd: string, a: Record<string, any>, tab =
       writeConn(conn);
       return null;
     }
-    case 'anypoint_api': return call(a.method, a.path, a.body ?? undefined);
+    case 'anypoint_api': return call(a.method, a.path, a.body ?? undefined, a.org ?? undefined, a.env ?? undefined);
     case 'anypoint_fetch_dependency': {
       const safe = (s: string) => !!s && s !== '.' && s !== '..' && /^[A-Za-z0-9._-]+$/.test(s);
       const { root, group, asset, version } = a; const published = !!a.published;
@@ -289,7 +302,14 @@ export async function anypointCommand(cmd: string, a: Record<string, any>, tab =
       const me = (await access()).me, owner = r.json?.name ?? '';
       if (r.status >= 300 || r.json?.locked === false || (owner && owner !== me.username)) throw new Error(owner ? `${owner} is editing this branch in Design Center, so it's locked. Try again when they're done.` : `Couldn't lock the branch (${r.status}).`);
       // Locks lapse after about a minute: kept alive until released.
-      locks.set(tab, { project, branch, timer: setInterval(() => { call('POST', `${base}/keepAlive`, {}).catch(() => {}); }, 30000) });
+      // Two misses in a row (a minute): the lock has lapsed in Design Center, so it's dropped here and the tab is told.
+      let missed = 0;
+      const timer = setInterval(async () => {
+        const kept = await call('POST', `${base}/keepAlive`, {}).then((k) => k.status < 300, () => false);
+        missed = kept ? 0 : missed + 1;
+        if (missed >= 2 && locks.get(tab)?.timer === timer) { clearInterval(timer); locks.delete(tab); emit('lock-lost', {}); }
+      }, 30000);
+      locks.set(tab, { project, branch, timer });
       return null;
     }
     case 'anypoint_release_lock': await releaseLock(tab); return null;

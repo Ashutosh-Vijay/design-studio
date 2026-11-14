@@ -22,7 +22,7 @@ const check = (ok, what) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if
 const local = new Map(), remote = new Map();
 let commit = 'c1', onSave = () => {}, onRelease = () => {};
 globalThis.__invoke = async (cmd, a) => {
-  if (cmd === 'read_text_file') { if (!local.has(a.path)) throw new Error('not found'); return local.get(a.path); }
+  if (cmd === 'read_text_file' || cmd === 'read_file_exact') { if (!local.has(a.path)) throw new Error('not found'); return local.get(a.path); }
   if (cmd === 'write_file_exact') { local.set(a.path, a.text); return; }
   if (cmd === 'delete_file') { local.delete(a.path); return; }
   if (cmd === 'anypoint_hold_lock') return;

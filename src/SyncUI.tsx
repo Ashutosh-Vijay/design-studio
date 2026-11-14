@@ -2,6 +2,8 @@
 // and in the title bar the branch and "Push N changes" / "Up to date with Design Center".
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { windowLabel } from './components/WindowControls';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
@@ -25,6 +27,16 @@ const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60000); ret
 // What a notice says about dependencies that couldn't be fetched (fetched ones need no mention).
 // Lock while I edit (off by default): the first edit takes the branch's lock in Design Center, as Design Center
 // does, and it's let go on Push, on closing the project and on quitting.
+// Read only off, after a second look (the title bar's "Allow changes", Put in Design Center, and Settings' switch).
+export async function allowChanges() {
+  const me = await invoke<Me | null>('anypoint_status').catch(() => null);
+  if (!me) { window.dispatchEvent(new Event('ads-connect')); return false; }
+  if (!me.read_only) return true;
+  if (!(await ask(`Let Design Studio push changes to Design Center in ${me.org_name || 'this organization'}? Pushing saves files, takes the lock and can delete files there.`, 'Allow changes'))) return false;
+  await invoke('anypoint_set_read_only', { on: false });
+  window.dispatchEvent(new Event('ads-signed-in'));
+  return true;
+}
 export const lockWhileEditing = () => { try { return localStorage.getItem('ads.lockWhileEditing') === '1'; } catch { return false; } };
 
 export const depsNote = (d: { fetched: string[]; failed: string[] }) => d.failed.length
@@ -58,7 +70,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
     if (!me) return;
     invoke<{ json: { user?: { memberOfOrganizations?: { id: string; name: string }[] } } }>('anypoint_api', { method: 'GET', path: '/accounts/api/me' })
       .then((r) => setGroups(r.json?.user?.memberOfOrganizations ?? []), () => {});
-  }, [me?.user_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [me?.user_id]);
   // The picked project's details and actions, as in Design Center's list.
   const [info, setInfo] = useState<{ created: number; owner: string; type: string; perms: S.Perms } | null>(null);
   const [infoErr, setInfoErr] = useState<string | null>(null);
@@ -69,7 +81,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
       created: i.meta.createdDate, type: i.meta.type === 'raml-fragment' ? 'API fragment' : 'API specification', perms: i.perms,
       owner: i.meta.createdBy === me?.user_id ? 'you' : sw.find((x) => x.isOwner)?.name ?? 'someone else',
     }), (e) => setInfoErr(`Couldn't read this project's details: ${String(e).replace(/^Error: /, '')}`));
-  }, [pick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pick]);
   const stop = useRef(false);
 
   const locate = (p: S.Remote, org: string) => S.projectHome(org, p.name, p.id);
@@ -88,13 +100,13 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
   };
   useEffect(() => {
     invoke<Me | null>('anypoint_status').then((m) => { if (m) { setMe(m); loadProjects(m); } else setStep('choose'); }, (e) => { setErr(String(e)); setStep('choose'); });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     if (!pick) return;
     setBranchList([]); setBranch('master'); setCustom(false);
     S.branches(pick.id).then((b) => { setBranchList(b.map((x) => x.name)); if (!b.some((x) => x.name === 'master') && b[0]) setBranch(b[0].name); }, (e) => setErr(`Couldn't read the branches of ${pick.name}, so only master is offered: ${String(e).replace(/^Error: /, '')}`));
     setInto(where[pick.id]?.root ?? '');
-  }, [pick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pick]);
 
   const connect = async () => {
     setErr(null); if (way === 'ours' || acts === 'user') setStep('waiting');
@@ -361,8 +373,8 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     }
   };
   // Local changes after every save; Design Center's side every minute and when the window comes back.
-  useEffect(() => { refresh(); }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { clearTimeout(timer.current); timer.current = window.setTimeout(() => refresh(false), 400); }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { refresh(); }, [root]);
+  useEffect(() => { clearTimeout(timer.current); timer.current = window.setTimeout(() => refresh(false), 400); }, [dirty]);
   useEffect(() => {
     const t = window.setInterval(() => refresh(), 60000);
     const f = () => refresh();
@@ -370,17 +382,30 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     const pub = (e: Event) => { publishing.current = (e as CustomEvent<boolean>).detail; if (!publishing.current) { setBehind(false); setHolding(false); lockTried.current = 0; refresh(); } }; // publish lets the lock go too
     window.addEventListener('focus', f); window.addEventListener('ads-files-changed', local); window.addEventListener('ads-publishing', pub);
     return () => { clearInterval(t); window.removeEventListener('focus', f); window.removeEventListener('ads-files-changed', local); window.removeEventListener('ads-publishing', pub); };
-  }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [root]);
   // Lock while I edit: the first unsaved edit takes the lock; a lock someone else holds is said once a minute at most.
   useEffect(() => {
     if (!dirty || holding || readOnly !== false || !link || !lockWhileEditing() || Date.now() - lockTried.current < 60000) return;
     lockTried.current = Date.now();
     invoke('anypoint_hold_lock', { project: link.projectId, branch: link.branch })
       .then(() => setHolding(true), (e) => onNotice(`${String(e).replace(/^Error: /, '')} Your changes stay on this computer, and a Pull merges theirs later.`, true));
-  }, [dirty, holding, readOnly, link]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dirty, holding, readOnly, link]);
   // Closing the project lets the lock go.
   useEffect(() => () => { if (holdingRef.current) invoke('anypoint_release_lock').catch(() => {}); }, []);
-  if (!link) return null;
+  // The keep-alive failed twice (the network dropped): the lock has lapsed in Design Center, so the mark goes and it's said.
+  useEffect(() => {
+    const un = listen<{ win?: string }>('lock-lost', (e) => {
+      if (e.payload.win && e.payload.win !== windowLabel) return;
+      setHolding(false); lockTried.current = 0;
+      onNotice("Design Center couldn't be reached, so your lock on the branch has lapsed. Your changes are safe here, and the lock is taken again with your next edit.", true);
+    });
+    return () => { un.then((f) => f()); };
+  }, []);
+  // Only on this computer: one quiet button says so and offers the way into Design Center (the project menu holds its dialog).
+  if (!link) return (
+    <button onClick={() => window.dispatchEvent(new Event('ads-put-in-dc'))} title="This project is only on this computer. Give it a Design Center project of its own, linked to this folder."
+      className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[12px] text-content-faint hover:bg-surface-2 hover:text-content"><Icons.DesignCenter size={14} />Put in Design Center…</button>
+  );
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label);
@@ -390,7 +415,9 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
   const push = () => run('Pushing…', async () => {
     // Push lets the lock go whether it works or not, so the lock mark goes either way.
     const r = await S.push(root, (await S.readLink(root))!, await listFiles()).finally(() => { setHolding(false); lockTried.current = 0; });
-    onNotice(r.sent ? `Pushed ${r.sent} ${r.sent === 1 ? 'change' : 'changes'} to Design Center.` : 'Nothing to push.', false);
+    // Files that aren't text (images, PDFs) can't go through Design Center's save call: named, not dropped quietly.
+    const left = r.binary.length ? ` Not sent: ${r.binary.join(', ')}. ${r.binary.length === 1 ? "It isn't" : "They aren't"} text, so add ${r.binary.length === 1 ? 'it' : 'them'} with Import in Design Center.` : '';
+    onNotice((r.sent ? `Pushed ${r.sent} ${r.sent === 1 ? 'change' : 'changes'} to Design Center.` : 'Nothing to push.') + left, !!left);
   });
   const pull = (auto = false) => run('Pulling…', async () => {
     // A pull by itself checks again first: an edit made since the check means it's left to the button.
@@ -400,7 +427,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     if (auto && r.upToDate) return;
     if (auto && !r.conflicts.length && !depsNote(r.deps)) { onNotice(`Pulled ${r.updated.length + r.removed.length} ${r.updated.length + r.removed.length === 1 ? 'change' : 'changes'} from Design Center by itself: nothing here was changed.`, false); return; }
     const dn = depsNote(r.deps); if (dn) { onNotice(dn, true); return; }
-    if (r.conflicts.length) onNotice(`Pulled. ${r.conflicts.length === 1 ? 'One file needs' : `${r.conflicts.length} files need`} a look: ${r.conflicts.map((c) => c.kind === 'lines' ? `${c.path} (both changed the same lines; the file holds both versions between <<<<<<< and >>>>>>>)` : `${c.path} (${c.kind}, the changed version was kept)`).join('; ')}.`, true);
+    if (r.conflicts.length) onNotice(`Pulled. ${r.conflicts.length === 1 ? 'One file needs' : `${r.conflicts.length} files need`} a look: ${r.conflicts.map((c) => c.kind === 'lines' ? `${c.path} (both changed the same lines; the file holds both versions between <<<<<<< and >>>>>>>)` : c.kind === 'binary' ? `${c.path} (changed on both sides and not text, so yours was kept)` : `${c.path} (${c.kind}, the changed version was kept)`).join('; ')}.`, true);
     else onNotice(r.upToDate ? 'Already up to date.' : `Pulled ${r.updated.length + r.removed.length} ${r.updated.length + r.removed.length === 1 ? 'change' : 'changes'} from Design Center.`, false);
   });
   autoPull.current = () => { pull(true); };
@@ -427,7 +454,9 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
           : dirty ? null
           : conflicts ? <span title="Pick Keep mine, Keep theirs or Keep both on each one in the editor, then push">{conflicts} {conflicts === 1 ? 'conflict' : 'conflicts'} to sort out before pushing</span>
           : behind ? <><span>Design Center has changes</span><button onClick={() => pull()} className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Pull</button></>
-          : toPush && readOnly ? <span title="This connection is read only. Turn it off in settings to push.">Saved on this computer · read only, {toPush} {toPush === 1 ? 'change' : 'changes'} not sent</span>
+          : toPush && readOnly ? <><span>Saved on this computer · read only, {toPush} {toPush === 1 ? 'change' : 'changes'} not sent</span>
+            <button onClick={async () => { if (await allowChanges()) refresh(); }} title="The connection is read only, so nothing is sent to Design Center. Allow changes to push, lock and publish."
+              className="h-6 px-2.5 rounded-md text-[12px] font-semibold border border-accent-border text-accent hover:bg-accent-dim">Allow changes…</button></>
           : toPush && perms.canModify === false ? <span title="Design Center shares this project with you as a Viewer. Your changes stay on this computer.">Saved on this computer · view only in Design Center</span>
           : toPush && lockedBy ? <span title="Push when they're done. If they change the same lines, a Pull shows both versions.">Saved on this computer · {lockedBy} is editing in Design Center</span>
           : toPush ? <><span>Saved on this computer</span><button onClick={push} title="Send your saved changes to Design Center" className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Push {toPush} {toPush === 1 ? 'change' : 'changes'}</button></>
@@ -472,6 +501,15 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
     setSt({ link, me, perms: link && me ? await S.projectPermissions(link.projectId).catch(() => ({})) : {} });
   };
   const run = async (fn: () => Promise<string | void>) => { try { const t = await fn(); if (t) onNotice(t, false); } catch (e) { onNotice(String(e).replace(/^Error: /, ''), true); } };
+  // Put in Design Center: the title bar's button for a project that's only here (signs in or allows changes first, if needed).
+  useEffect(() => {
+    const f = async () => {
+      if (await S.readLink(root) || !(await allowChanges())) return;
+      setDlg(<PutInDesignCenter root={root} name={name} onClose={() => setDlg(null)} onDone={(t) => { setDlg(null); window.dispatchEvent(new Event('ads-files-changed')); onChanged(); onNotice(t, false); }} />);
+    };
+    window.addEventListener('ads-put-in-dc', f);
+    return () => window.removeEventListener('ads-put-in-dc', f);
+  }, [root, name]);
   const l = st?.link, me = st?.me, p = st?.perms ?? {};
   const why = (can?: boolean) => (!l ? 'This folder isn\'t linked to a Design Center project.' : !me ? 'Sign in to Anypoint first.' : me.read_only ? 'The connection is read only. Turn it off in settings.' : can === false ? 'Your Design Center permissions don\'t allow it on this project.' : null);
   const urls = l && me ? S.projectUrls(me.host, me.org_id, l.projectId) : null;
@@ -482,21 +520,19 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
     if (!paths.length) return;
     let r = await invoke<{ written: string[]; existing: string[] }>('import_into', { root, folder: '', sources: paths, overwrite: false });
     if (r.existing.length) {
-      if (!(await ask(`${r.existing.length === 1 ? r.existing[0] + ' is' : r.existing.length + ' files are'} already in the project${r.existing.length > 1 ? ` (${r.existing.slice(0, 5).join(', ')}${r.existing.length > 5 ? '…' : ''})` : ''}. Replace?`))) return;
+      if (!(await ask(`${r.existing.length === 1 ? r.existing[0] + ' is' : r.existing.length + ' files are'} already in the project${r.existing.length > 1 ? ` (${r.existing.slice(0, 5).join(', ')}${r.existing.length > 5 ? '…' : ''})` : ''}. Replace?`, 'Replace'))) return;
       r = await invoke('import_into', { root, folder: '', sources: paths, overwrite: true });
     }
     onChanged();
     return `Imported ${r.written.length} ${r.written.length === 1 ? 'file' : 'files'}.`;
   });
   const items: [string, string | null, () => void][] = !st ? [] : [
-    ...(l ? [] : [['Put in Design Center…', !me ? 'Sign in to Anypoint first.' : me.read_only ? 'The connection is read only. Turn it off in settings.' : null,
-      () => setDlg(<PutInDesignCenter root={root} name={name} onClose={() => setDlg(null)} onDone={(t) => { setDlg(null); window.dispatchEvent(new Event('ads-files-changed')); onChanged(); onNotice(t, false); }} />)] as [string, string | null, () => void]]),
     ['Import file or zip…', null, importFiles],
     ['Import from URL…', null, () => setDlg(<UrlImport root={root} onClose={() => setDlg(null)} onDone={(t) => { setDlg(null); onChanged(); onNotice(t, false); }} />)],
     ['Import from Exchange…', me ? null : 'Sign in to Anypoint first.', () => setDlg(<AddDependency importing onClose={() => setDlg(null)} onAdd={(d) => { setDlg(null); run(async () => {
       // A folder with that name is already here: ask, and send the old one to the trash rather than deleting it.
       if (await invoke('open_project', { root: `${root}/${d.assetId}` }).then(() => true, () => false)) {
-        if (!(await ask(`The project already has a ${d.assetId} folder. Replace it? The old one goes to the ${TRASH}.`))) return '';
+        if (!(await ask(`The project already has a ${d.assetId} folder. Replace it? The old one goes to the ${TRASH}.`, 'Replace'))) return '';
         await invoke('delete_file', { root, path: d.assetId });
       }
       onNotice(`Importing ${d.assetId} ${d.version}…`, false);
@@ -569,7 +605,7 @@ function PutInDesignCenter({ root, name, onClose, onDone }: { root: string; name
       const want = (x?.d.name || name).trim(); setV(want);
       if (t.has(want)) { let n = 2; while (t.has(`${want} ${n}`)) n++; setV(`${want} ${n}`); setNote(`Design Center already has ${want}, so this suggests a free name.`); }
     }, (e) => setErr(String(e).replace(/^Error: /, '')));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   const n = v.trim();
   const clash = !!taken?.has(n);
   const go = async () => {
@@ -606,7 +642,7 @@ function UrlImport({ root, onClose, onDone }: { root: string; onClose: () => voi
     try {
       const text = await invoke<string>('fetch_url', { url: url.trim() });
       const exists = await invoke<string>('read_text_file', { root, path: file.trim() }).then(() => true, () => false);
-      if (exists && !(await ask(`${file.trim()} is already in the project. Replace it?`))) { setBusy(false); return; }
+      if (exists && !(await ask(`${file.trim()} is already in the project. Replace it?`, 'Replace'))) { setBusy(false); return; }
       await invoke('write_file_exact', { root, path: file.trim(), text });
       onDone(`Imported ${file.trim()}. Files it includes aren't fetched: import them too, or fix the paths.`);
     } catch (e) { setErr(String(e).replace(/^Error: /, '')); setBusy(false); }

@@ -12,9 +12,14 @@ process.on('unhandledRejection', (e) => { console.log('FAIL an unhandled rejecti
 
 const port = 46000 + (process.pid % 1000);
 await M.mcpCommand('mcp_start', { port, tools: [], instructions: '' }, '0.0.0', () => {});
-const post = (body) => fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body });
+M.initMcp(join(tmpdir(), `mcp-key-${process.pid}`));
+const { key } = await M.mcpCommand('mcp_status', {}, '0.0.0', () => {});
+const post = (body) => fetch(`http://127.0.0.1:${port}/mcp/${key}`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body });
 let bad = 0;
 const check = (ok, what) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if (!ok) bad++; };
+// The address without its key, or with a wrong one, isn't the server.
+check((await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', body: '{}' })).status === 404, 'the address without the key answers 404');
+check((await fetch(`http://127.0.0.1:${port}/mcp/${'0'.repeat(48)}`, { method: 'POST', body: '{}' })).status === 404, 'a wrong key answers 404');
 
 const r1 = await post('{"jsonrpc": "2.0", "id": 1, "method": ');
 check(r1.status === 400 && (await r1.json()).error?.code === -32700, `malformed JSON gets 400 and a parse error (${r1.status})`);

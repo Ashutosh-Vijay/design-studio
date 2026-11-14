@@ -5,7 +5,6 @@ import RELEASES from './releases.json';
 import { isVsCode } from './components/WindowControls';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { confirm } from '@tauri-apps/plugin-dialog';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { Icons } from './components/Icons';
@@ -17,8 +16,15 @@ export const APP_FULL_NAME = 'Design Studio for MuleSoft';
 
 // Every "are you sure?" goes through this and is awaited. In the app, window.confirm is Tauri's dialog
 // plugin's and returns a promise, which counts as "yes" when tested like a boolean: so it never waited.
-export const ask = (message: string): Promise<boolean> =>
-  isTauri ? confirm(message, { title: APP_NAME, kind: 'warning' }) : Promise.resolve(window.confirm(message));
+// They show in the app's own dialog (App.tsx mounts it and registers here), with the action named on the button
+// and, where saving is the likely answer, a second choice: "Save and close" beside "Close without saving".
+export type Question = { message: string; ok: string; alt?: string; danger?: boolean; done: (a: 'ok' | 'alt' | null) => void };
+let asker: ((q: Question) => void) | null = null;
+export const setAsker = (f: typeof asker) => { asker = f; };
+export const choose = (message: string, ok: string, alt?: string, danger?: boolean) => new Promise<'ok' | 'alt' | null>((done) => {
+  if (asker) asker({ message, ok, alt, danger, done }); else done(window.confirm(message) ? 'ok' : null);
+});
+export const ask = async (message: string, ok = 'OK', danger = false) => (await choose(message, ok, undefined, danger)) === 'ok';
 
 const css = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 const STAGES = ['Starting…', 'Loading the editor…', 'Warming up the AMF engine…', 'Almost ready…'];

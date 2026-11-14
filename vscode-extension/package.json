@@ -1113,6 +1113,59 @@
         }
       },
       {
+        "name": "designStudio_org_dashboard",
+        "toolReferenceName": "designStudio_org_dashboard",
+        "displayName": "Design Studio: Org dashboard",
+        "modelDescription": "The signed-in organization's APIs at a glance (the Dashboard): every Exchange asset with its latest version, who published it and when, whether API Governance is on, and each governed API's conformance (rulesets passing and failing). Read only.",
+        "userDescription": "The signed-in organization's APIs at a glance (the Dashboard): every Exchange asset with its latest version, who published it and when, whether API Governance is on, and each governed API's conformance (rulesets passing and failing).",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "org_id": {
+              "type": "string",
+              "description": "A business group id (default: the signed-in organization)"
+            }
+          }
+        }
+      },
+      {
+        "name": "designStudio_conformance_report",
+        "toolReferenceName": "designStudio_conformance_report",
+        "displayName": "Design Studio: Conformance report",
+        "modelDescription": "One governed API's API Governance report: each ruleset passed or failed, and each failing rule with its message and the place in the spec. Take the urn from org_dashboard.",
+        "userDescription": "One governed API's API Governance report: each ruleset passed or failed, and each failing rule with its message and the place in the spec.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "urn": {
+              "type": "string",
+              "description": "The API's urn from org_dashboard"
+            }
+          },
+          "required": [
+            "urn"
+          ]
+        }
+      },
+      {
         "name": "designStudio_search_exchange",
         "toolReferenceName": "designStudio_search_exchange",
         "displayName": "Design Studio: Search exchange",

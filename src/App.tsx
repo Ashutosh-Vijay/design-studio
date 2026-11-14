@@ -7,6 +7,7 @@ import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
+import { undo, redo, undoDepth, redoDepth } from '@codemirror/commands';
 import { listen } from '@tauri-apps/api/event';
 import { METHODS, baseExtensions, languageFor, yamlPathAt, setUses, growSelection, shrinkSelection } from './editor';
 import { BUILTIN_TYPES, SCALAR_KEYS, entries, kids, normalizePath, buildOutline, buildOasOutline, buildAsyncOutline, isAsync, keyPathAt, libraryPaths, shelfContext, shelfEdit, type Decl, type Outline, type Resource, type ShelfCtx } from './raml';
@@ -21,14 +22,15 @@ import { SettingsScreen } from './Settings';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { APP_NAME, About, Splash, ask, checkForUpdate, installUpdate, useUpdate, NOTES } from './Brand';
+import { APP_NAME, About, Splash, ask, choose, setAsker, checkForUpdate, installUpdate, useUpdate, NOTES, type Question } from './Brand';
 import { WindowControls, isTauri, isVsCode, windowLabel, multiWindow, WINDOW } from './components/WindowControls';
 import { AsyncForms } from './AsyncApi';
 import { Inspector, OasInspector, type AmfModel, type At, type SampleResult } from './Inspector';
 import { OasJsonInspector, buildOasJsonOutline, oasJsonSelection, oasJsonAdd } from './OasJson';
-import { ConnectDialog, SyncBar, ProjectMenu, TRASH } from './SyncUI';
+import { ConnectDialog, SyncBar, ProjectMenu, TRASH, type Me } from './SyncUI';
 import { host as mcpHost, startDispatcher, McpPanel, useMcpStatus, autoStartError } from './mcp';
 import { AcademyScreen, academyDone } from './Academy';
+import { DashboardScreen } from './Dashboard';
 import { LESSONS } from './course';
 import { PublishDialog, ExchangePanel, DepsPanel } from './ExchangeUI';
 import { readLink, projectPermissions } from './sync';
@@ -37,7 +39,7 @@ import { ApiMap } from './ApiMap';
 import { CreateDialog, NewFileDialog } from './Create';
 import { rulesets as projectRulesets, readSettings as readGovSettings, profileFor, type Finding, type Settings as GovSettings } from './governance';
 import { diff, remove as removeNode, dropRefs, declLines, usesName, qualify, addChild, find, freeName } from './splice';
-import { ThemePref, applyTheme, isDarkPref, savedTheme } from './theme';
+import { ThemePref, applyTheme, isDarkPref, savedTheme, K } from './theme';
 
 // What the Rust side returns for an opened folder (src-tauri/src/lib.rs, open_project).
 type Project = { root: string; name: string; main: string | null; files: { path: string; size: number }[]; dirs: string[] };
@@ -59,6 +61,9 @@ function ago(t: number) {
   const d = Math.round(h / 24); return d === 1 ? 'Yesterday' : `${d} days ago`;
 }
 const base = (p: string) => p.split('/').pop() || p;
+// AMF's syntax error quotes everything after the slip, as Design Center shows it. Here the list and the hover keep
+// the start; the copy button still gives all of it.
+const short = (m: string) => (m.length > 280 ? m.slice(0, 280).trimEnd() + '…' : m);
 // Exchange's files are never edited here; and with a Viewer role in Design Center, nothing is (viewerOnly).
 let viewerOnly = false;
 const isExchangeFile = (p: string) => p === 'exchange.json' || p.startsWith('exchange_modules/');
@@ -85,7 +90,7 @@ export default function App() {
   useEffect(() => { const t = setTimeout(() => checkForUpdate(), 8000); return () => clearTimeout(t); }, []);
   const restartToUpdate = async () => {
     // The installer closes the app directly (no close prompt), so unsaved work is dealt with here.
-    if (dirtyCount && !(await ask(`${dirtyCount} ${dirtyCount === 1 ? 'file has' : 'files have'} unsaved changes. Save and restart to update?`))) return;
+    if (dirtyCount && !(await ask(`${dirtyCount} ${dirtyCount === 1 ? 'file has' : 'files have'} unsaved changes. Save and restart to update?`, 'Save and restart'))) return;
     if (dirtyCount) await syncRef.current?.saveAll();
     await installUpdate();
   };
@@ -98,8 +103,8 @@ export default function App() {
     if (seen && seen !== version && NOTES.some((r) => r.version === version)) { setAboutNotes(true); setAbout(true); }
   }, [version]);
   // The palette: '' everything (Ctrl K), '@' symbols (Ctrl Shift O), '>' commands (F1).
-  const [paletteOpen, setPaletteOpen] = useState<false | '' | '@' | '>'>(false);
-  const paletteRef = useRef<{ symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState<false | '' | '@' | '>' | '#'>(false);
+  const paletteRef = useRef<PaletteLent | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
   const [connectOpen, setConnectOpen] = useState(false);
   const [creating, setCreating] = useState<'api' | 'fragment' | null>(null);
@@ -111,10 +116,25 @@ export default function App() {
   // API Design Academy: from the start screen, or the palette anywhere (a window event, since the project view has the palette).
   const [academy, setAcademy] = useState(false);
   useEffect(() => { const f = () => setAcademy(true); window.addEventListener('ads-academy', f); return () => window.removeEventListener('ads-academy', f); }, []);
+  useEffect(() => { const f = () => setPaletteOpen('#'); window.addEventListener('ads-find-in-files', f); return () => window.removeEventListener('ads-find-in-files', f); }, []);
+  // The Dashboard (PLAN 6.2): the organization's APIs and their governance, from the start screen or the palette.
+  const [dashboard, setDashboard] = useState(false);
+  useEffect(() => { const f = () => setDashboard(true); window.addEventListener('ads-dashboard', f); return () => window.removeEventListener('ads-dashboard', f); }, []);
   // Panels that need Anypoint (Dependencies' + when signed out) ask for the sign-in dialog.
   useEffect(() => { const f = () => setConnectOpen(true); window.addEventListener('ads-connect', f); return () => window.removeEventListener('ads-connect', f); }, []);
   const mcp = useMcpStatus();
   useEffect(() => { if (isTauri) startDispatcher(); }, []);
+  // Who is signed in to Anypoint, for the title bar: read at the start, when the window comes back, and after
+  // anything that can change it (sign-in, Settings, Allow changes).
+  const [me, setMe] = useState<Me | null>(null);
+  const [settingsStart, setSettingsStart] = useState<'anypoint' | undefined>(undefined);
+  useEffect(() => {
+    if (!isTauri) return;
+    const f = () => { invoke<Me | null>('anypoint_status').then(setMe, () => setMe(null)); };
+    f();
+    window.addEventListener('focus', f); window.addEventListener('ads-signed-in', f);
+    return () => { window.removeEventListener('focus', f); window.removeEventListener('ads-signed-in', f); };
+  }, [settingsOpen, connectOpen]);
 
   useEffect(() => {
     applyTheme(theme.pref, theme.accent);
@@ -123,7 +143,14 @@ export default function App() {
   }, [theme]);
 
   // Leaving a project (or the window) with unsaved files asks first.
-  const okToLeave = async () => dirtyCount === 0 || await ask(`${dirtyCount} ${dirtyCount === 1 ? 'file has' : 'files have'} unsaved changes. Leave without saving?`);
+  // Three answers: save and go, go without saving, or stay. A file that can't be saved keeps you here (it says why).
+  const leaveOrSave = async (n: number, verb: 'leave' | 'close') => {
+    if (!n) return true;
+    const a = await choose(`${n} ${n === 1 ? 'file has' : 'files have'} unsaved changes.`, `Save and ${verb}`, `${verb === 'leave' ? 'Leave' : 'Close'} without saving`);
+    if (a === 'ok') return syncRef.current ? syncRef.current.saveAll().then(() => true, () => false) : true;
+    return a === 'alt';
+  };
+  const okToLeave = () => leaveOrSave(dirtyCount, 'leave');
   // Closing the window with unsaved files asks first. (A browser-style beforeunload prompt would be
   // a blocking native dialog in WebView2, so the guard sits on Tauri's close request instead.)
   const dirtyRef = useRef(0);
@@ -131,8 +158,7 @@ export default function App() {
   useEffect(() => {
     if (!isTauri) return;
     const un = getCurrentWindow().onCloseRequested(async (e) => {
-      const n = dirtyRef.current;
-      if (n && !(await ask(`${n} ${n === 1 ? 'file has' : 'files have'} unsaved changes. Close without saving?`))) e.preventDefault();
+      if (!(await leaveOrSave(dirtyRef.current, 'close'))) e.preventDefault();
     });
     return () => { un.then((f) => f()); };
   }, []);
@@ -180,7 +206,7 @@ export default function App() {
   useEffect(() => {
     const root = multiWindow && new URLSearchParams(location.search).get('open');
     if (root) openFolder(root);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => { if (multiWindow) invoke('claim_project', { root: project?.root ?? null }).catch(() => {}); }, [project?.root]);
 
   // A zip is unpacked into a new folder, and that folder is the project from then on.
@@ -217,6 +243,8 @@ export default function App() {
       if (!isVsCode && mod && e.key === ',') { e.preventDefault(); setSettingsOpen(!settingsOpen); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(''); }
       else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); setPaletteOpen('@'); }
+      // Find in files. In VS Code the key stays its own search; the palette's # does the same there.
+      else if (!isVsCode && project && mod && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); setPaletteOpen('#'); }
       else if (e.key === 'F1') { e.preventDefault(); setPaletteOpen('>'); }
       else if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); if (isTauri) openFolder(); }
       else if (multiWindow && !isVsCode && mod && e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newWindow(); }
@@ -227,7 +255,7 @@ export default function App() {
   });
 
   const settingsBtn = (cls: string) => (
-    <button className={cls} title={isVsCode ? 'Settings' : 'Settings (Ctrl ,)'} aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+    <button className={cls} title={isVsCode ? 'Settings' : K('Settings (Ctrl ,)')} aria-label="Settings" onClick={() => setSettingsOpen(true)}>
       <Icons.Settings size={16} />
     </button>
   );
@@ -256,13 +284,17 @@ export default function App() {
             onChanged={async () => { await syncRef.current?.reload(); }} onPublish={() => syncRef.current?.publish()} />
         )}
         <div data-tauri-drag-region className="flex-1 h-full" />
-        <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title="Search files and commands (Ctrl K)" onClick={() => setPaletteOpen('')}>
+        <button className="w-8 h-7 flex items-center justify-center rounded-md text-content-faint hover:bg-surface-2 hover:text-content" title={K("Search files and commands (Ctrl K)")} onClick={() => setPaletteOpen('')}>
           <Icons.Search size={15} />
         </button>
         {mcp?.running && <button onClick={() => setMcpOpen(true)} title={`AI tools are connected at 127.0.0.1:${mcp.port} (${mcp.requests} ${mcp.requests === 1 ? 'call' : 'calls'}). Click for details.`}
           className="h-7 px-2 flex items-center gap-1.5 rounded-md text-[11.5px] text-content-muted hover:bg-surface-2 hover:text-content"><Icons.Sparkle size={13} />AI tools</button>}
         {!mcp?.running && autoStartError && <button onClick={() => setMcpOpen(true)} title={autoStartError}
           className="h-7 px-2 flex items-center gap-1.5 rounded-md text-[11.5px] text-err hover:bg-surface-2"><Icons.Sparkle size={13} />AI tools didn't start</button>}
+        {me && <button onClick={() => { setSettingsStart('anypoint'); setSettingsOpen(true); }}
+          title={`Signed in to Anypoint as ${me.username}${me.org_name ? ` in ${me.org_name}` : ''}. ${me.read_only ? 'Read only: nothing is sent to Design Center or Exchange.' : 'Changes are allowed: push, lock and publish.'} Click for the connection.`}
+          className="h-7 max-w-[220px] px-2 flex items-center gap-1.5 rounded-md text-[11.5px] text-content-muted hover:bg-surface-2 hover:text-content">
+          <Icons.DesignCenter size={14} /><span className="truncate">{me.org_name || me.username}</span>{me.read_only && <Icons.Lock size={11} />}</button>}
         {upd.state === 'ready' && <button onClick={restartToUpdate} title={`Version ${upd.version} is downloaded. Restart to use it (a few seconds).`}
           className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-[12px] font-medium text-accent border border-accent-border bg-accent-dim hover:brightness-110">
           <span className="w-1.5 h-1.5 rounded-full bg-accent" />Update ready</button>}
@@ -290,19 +322,21 @@ export default function App() {
         />
         </Boundary>
       ) : (
-        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onNewWindow={newWindow} onOpenZip={openZip} onPull={() => setConnectOpen(true)} onCreate={setCreating} onAcademy={() => setAcademy(true)}
+        <StartView recent={recent} opening={opening} error={error} onOpen={openFolder} onNewWindow={newWindow} onOpenZip={openZip} onPull={() => setConnectOpen(true)} onCreate={setCreating} onAcademy={() => setAcademy(true)} onDashboard={() => setDashboard(true)}
           onRemove={(root) => { const l = recent.filter((r) => r.root !== root); writeRecent(l); setRecent(l); }} />
       )}
 
-      {toast && !project && <Toast key={toast} text={toast} onClose={() => setToast(null)} />}
+      {toast && !project && <div className="fixed bottom-10 right-4 z-50"><Toast key={toast} text={toast} onClose={() => setToast(null)} /></div>}
+      <AskHost />
       {connectOpen && <ConnectDialog openRoot={project?.root} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
       {creating && <CreateDialog what={creating} onClose={() => setCreating(null)} onCreated={(root) => { setCreating(null); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
       {about && <About version={version} whatsNew={aboutNotes} onClose={() => { setAbout(false); setAboutNotes(false); }} onRestart={restartToUpdate} />}
       {mcpOpen && <McpPanel onClose={() => setMcpOpen(false)} />}
       {academy && <AcademyScreen onClose={() => setAcademy(false)} onCreate={() => { setAcademy(false); if (project) setPendingNotice('Go back to all projects to create one.'); else setCreating('api'); }} />}
+      {dashboard && <DashboardScreen onClose={() => setDashboard(false)} onConnect={() => setConnectOpen(true)} />}
       <Splash />
-      {settingsOpen && <SettingsScreen pref={theme.pref} accent={theme.accent} onTheme={(pref, accent) => setTheme({ pref, accent })} onClose={() => setSettingsOpen(false)}
+      {settingsOpen && <SettingsScreen pref={theme.pref} accent={theme.accent} onTheme={(pref, accent) => setTheme({ pref, accent })} start={settingsStart} onClose={() => { setSettingsOpen(false); setSettingsStart(undefined); }}
         onConnect={() => { setSettingsOpen(false); setConnectOpen(true); }} onMcp={() => { setSettingsOpen(false); setMcpOpen(true); }} onAbout={() => { setSettingsOpen(false); setAbout(true); }} projectRoot={project?.root} />}
       {paletteOpen !== false && (
         <Palette project={project} recent={recent} start={paletteOpen} lent={project ? paletteRef.current : null} onClose={() => setPaletteOpen(false)}
@@ -312,15 +346,36 @@ export default function App() {
   );
 }
 
-// The app's toasts, bottom right over everything. Plain notes and successes leave by themselves after a few
+// The app's question dialog (Brand.tsx's ask and choose). One at a time: a newer question answers the older "no".
+function AskHost() {
+  const [q, setQ] = useState<Question | null>(null);
+  const cur = useRef<Question | null>(null);
+  useEffect(() => { setAsker((n) => { cur.current?.done(null); cur.current = n; setQ(n); }); return () => setAsker(null); }, []);
+  if (!q) return null;
+  const answer = (a: 'ok' | 'alt' | null) => { cur.current = null; setQ(null); q.done(a); };
+  return (
+    <Modal title={APP_NAME} width={440} onCancel={() => answer(null)} footer={<>
+      <button className={btnQuiet} onClick={() => answer(null)}>Cancel</button>
+      {q.alt && <button className={btnQuiet} onClick={() => answer('alt')}>{q.alt}</button>}
+      <button autoFocus className={q.danger ? btnDanger : btnMain} onClick={() => answer('ok')}>{q.ok}</button>
+    </>}>
+      <p className="m-0 text-[13px] leading-relaxed text-content select-text">{q.message}</p>
+    </Modal>
+  );
+}
+const btnQuiet = 'h-[28px] px-3 rounded-md text-[12.5px] font-medium border border-line bg-surface-2 text-content-secondary hover:text-content hover:border-content-ghost';
+const btnMain = 'h-[28px] px-3 rounded-md text-[12.5px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover';
+const btnDanger = 'h-[28px] px-3 rounded-md text-[12.5px] font-semibold bg-err text-white hover:brightness-110';
+
+// The app's toasts, bottom right over everything (their place comes from the stack that holds them). Plain notes and successes leave by themselves after a few
 // seconds (not while the pointer is on them); errors and notes with buttons stay until closed or answered.
 function Toast({ text, err, ok, actions, onClose }: { text: string; err?: boolean; ok?: boolean; actions?: [string, () => void][]; onClose: () => void }) {
   const [hover, setHover] = useState(false);
   const stays = err || !!actions?.length;
-  useEffect(() => { if (stays || hover) return; const t = setTimeout(onClose, 6000); return () => clearTimeout(t); }, [stays, hover]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (stays || hover) return; const t = setTimeout(onClose, 6000); return () => clearTimeout(t); }, [stays, hover]);
   return (
     <div role={err ? 'alert' : 'status'} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      className={`ds-toast fixed bottom-10 right-4 z-50 w-max max-w-[min(440px,calc(100vw-32px))] flex items-start gap-2.5 pl-3.5 pr-2.5 py-2.5 rounded-lg bg-surface-2 border shadow-[var(--shadow)] text-[12.5px] ${ok ? 'border-[color-mix(in_oklch,var(--ok)_45%,transparent)]' : err ? 'border-[color-mix(in_oklch,var(--err)_45%,transparent)]' : 'border-line'}`}>
+      className={`ds-toast w-max max-w-[min(440px,calc(100vw-32px))] flex items-start gap-2.5 pl-3.5 pr-2.5 py-2.5 rounded-lg bg-surface-2 border shadow-[var(--shadow)] text-[12.5px] ${ok ? 'border-[color-mix(in_oklch,var(--ok)_45%,transparent)]' : err ? 'border-[color-mix(in_oklch,var(--err)_45%,transparent)]' : 'border-line'}`}>
       <span className={`flex mt-0.5 ${ok ? 'text-ok' : err ? 'text-err' : 'text-accent'}`}>{ok ? <Icons.Check size={14} /> : <Icons.Dot size={12} />}</span>
       <div className="flex-1 min-w-0">
         <p className={`select-text break-words ${err ? 'text-err' : 'text-content'}`}>{text}</p>
@@ -333,9 +388,9 @@ function Toast({ text, err, ok, actions, onClose }: { text: string; err?: boolea
   );
 }
 
-function StartView({ recent, opening, error, onOpen, onNewWindow, onOpenZip, onPull, onCreate, onRemove, onAcademy }: {
+function StartView({ recent, opening, error, onOpen, onNewWindow, onOpenZip, onPull, onCreate, onRemove, onAcademy, onDashboard }: {
   recent: Recent[]; opening: string | null; error: string | null;
-  onOpen: (root?: string) => void; onNewWindow: (root: string) => void; onOpenZip: () => void; onPull: () => void; onCreate: (what: 'api' | 'fragment') => void; onRemove: (root: string) => void; onAcademy: () => void;
+  onOpen: (root?: string) => void; onNewWindow: (root: string) => void; onOpenZip: () => void; onPull: () => void; onCreate: (what: 'api' | 'fragment') => void; onRemove: (root: string) => void; onAcademy: () => void; onDashboard: () => void;
 }) {
   const learned = academyDone();
   const [createMenu, setCreateMenu] = useState(false);
@@ -371,7 +426,7 @@ function StartView({ recent, opening, error, onOpen, onNewWindow, onOpenZip, onP
           >
             <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent bg-accent-dim"><Icons.Folder size={17} /></span>
             <span className="flex-1"><span className="block font-semibold">Open folder</span><span className="block text-[11.5px] text-content-faint">A spec project on this computer</span></span>
-            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-surface-3 text-content-muted">Ctrl O</span>
+            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded bg-surface-3 text-content-muted">{K('Ctrl O')}</span>
           </button>
           <button disabled={!isTauri || !!opening} onClick={onOpenZip}
             className="mt-2 w-full flex items-center gap-3 p-3 rounded-lg border border-line bg-surface text-left hover:border-accent-border disabled:opacity-50 disabled:cursor-not-allowed">
@@ -382,6 +437,11 @@ function StartView({ recent, opening, error, onOpen, onNewWindow, onOpenZip, onP
             className="mt-2 w-full flex items-center gap-3 p-3 rounded-lg border border-line bg-surface text-left hover:border-accent-border disabled:opacity-50 disabled:cursor-not-allowed">
             <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent bg-accent-dim"><Icons.DesignCenter size={19} /></span>
             <span className="flex-1"><span className="block font-semibold">Pull from Design Center</span><span className="block text-[11.5px] text-content-faint">Sign in, open one project or pull them all</span></span>
+          </button>
+          <button disabled={!isTauri || !!opening} onClick={onDashboard}
+            className="mt-2 w-full flex items-center gap-3 p-3 rounded-lg border border-line bg-surface text-left hover:border-accent-border disabled:opacity-50 disabled:cursor-not-allowed">
+            <span className="w-9 h-9 rounded-lg flex items-center justify-center text-accent bg-accent-dim"><Icons.Activity size={17} /></span>
+            <span className="flex-1"><span className="block font-semibold">Dashboard</span><span className="block text-[11.5px] text-content-faint">Your organization's APIs, who published them, and governance</span></span>
           </button>
           {!isTauri && <p className="mt-3 text-[12px] text-warn">Running in a plain browser. Start the app with npm run tauri dev to open folders.</p>}
           {opening && <p className="mt-3 text-[12px] text-content-faint">Opening {opening}…</p>}
@@ -412,7 +472,7 @@ function StartView({ recent, opening, error, onOpen, onNewWindow, onOpenZip, onP
                     <span className="block font-mono text-[11px] text-content-faint truncate">{r.root}</span>
                   </span>
                   <span className="text-[11.5px] text-content-faint">{ago(r.opened)}</span>
-                  {multiWindow && <button title={`Open in a new ${WINDOW} (Ctrl click)`} aria-label={`Open ${r.name} in a new ${WINDOW}`} onClick={(e) => { e.stopPropagation(); onNewWindow(r.root); }}
+                  {multiWindow && <button title={`Open in a new ${WINDOW} (${K('Ctrl click')})`} aria-label={`Open ${r.name} in a new ${WINDOW}`} onClick={(e) => { e.stopPropagation(); onNewWindow(r.root); }}
                     className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">
                     <Icons.NewWindow size={13} />
                   </button>}
@@ -434,9 +494,12 @@ function StartView({ recent, opening, error, onOpen, onNewWindow, onOpenZip, onP
 type OpenFile = { state: EditorState; disk: string };
 
 type PaletteItem = { group: string; label: string; detail?: string; run: () => void };
+// What the project view lends the palette: its symbols and commands, and for Find in files (#) the project's text
+// (unsaved edits included) and a way to a place in a file.
+type PaletteLent = { symbols: () => PaletteItem[]; commands: () => PaletteItem[]; texts: () => Promise<[string, string][]>; goTo: (path: string, from: number) => void };
 function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFileRef, paletteRef, syncRef }: {
   project: Project; initialNotice: string | null; onDirtyCount: (n: number) => void; onRefresh: () => Promise<void>; openFileRef: MutableRefObject<(path: string) => void>;
-  paletteRef: MutableRefObject<{ symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null>;
+  paletteRef: MutableRefObject<PaletteLent | null>;
   syncRef: MutableRefObject<SyncHooks | null>;
 }) {
   const [filter, setFilter] = useState('');
@@ -446,7 +509,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [crumb, setCrumb] = useState<{ key: string; from: number }[]>([]);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
-  const [notice, setNotice] = useState<{ text: string; err: boolean; ok?: boolean; actions?: [string, () => void][] } | null>(null);
+  // Notes with buttons (unsaved work found, a file changed on disk) wait in their own list until answered: a later
+  // note, like "Copied", never takes their place.
+  type Note = { text: string; err: boolean; ok?: boolean; actions?: [string, () => void][] };
+  const [notice, setPlain] = useState<Note | null>(null);
+  const [questions, setQuestions] = useState<Note[]>([]);
+  const setNotice = (n: Note | null) => { if (n?.actions?.length) setQuestions((q) => [...q.filter((x) => x.text !== n.text), n]); else setPlain(n); };
   const fail = (e: unknown) => setNotice({ text: String(e), err: true });
   useEffect(() => { if (initialNotice) setNotice({ text: initialNotice, err: false }); }, [initialNotice]);
   const [rail, setRail] = useState<'files' | 'api' | 'deps' | 'exchange' | 'map'>('api');
@@ -515,7 +583,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       if (v && a) { v.dispatch({ effects: roCompartment.reconfigure(roExtensions(true)) }); files.current.get(a)!.state = v.state; }
     })();
     return () => { gone = true; viewerOnly = false; };
-  }, [project.root]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [project.root]);
   const gen = useRef(0), applied = useRef(0), sentOverlay = useRef(new Set<string>());
   const checkTimers = useRef<number[]>([]);
   const scheduleRef = useRef<() => void>(() => {});
@@ -550,7 +618,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       clearTimeout(outlineTimer.current);
       outlineTimer.current = window.setTimeout(() => live.current.rebuildOutline(), 120);
     }
-  }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  }), []);
   const libraryFiles = useRef(new Set<string>());
   const usesTimer = useRef(0);
   // The name under the cursor: if it's a declaration, mark it and its uses in this file (Highlight uses).
@@ -733,6 +801,16 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   openFileRef.current = openFile;
   // What the palette can reach in this project: every declaration and resource, and the project's commands.
   paletteRef.current = {
+    // Every text file of the project but Exchange's own copies, as it is now (an open file's unsaved text, else the disk's).
+    texts: async () => {
+      const out: [string, string][] = [];
+      for (const f of project.files) {
+        if (f.path.startsWith('exchange_modules/') || f.size > 2_000_000) continue;
+        try { out.push([f.path, await readAny(f.path)]); } catch { /* not text: nothing to find in it */ }
+      }
+      return out;
+    },
+    goTo: (path, from) => { reveal(path, from); },
     symbols: () => {
       const o = outlineRef.current; if (!o) return [];
       const res: PaletteItem[] = [];
@@ -746,16 +824,17 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       const c = (label: string, detail: string, run: () => void): PaletteItem => ({ group: 'Commands', label, detail, run });
       return [
         c('Go to definition', 'F12', at(goToDefinition)), c('Find references', 'Shift F12', at(findReferences)), c('Rename symbol', 'F2', at(renameSymbol)),
-        c('Save all', 'Ctrl S saves one', () => { for (const p of [...dirty]) save(p); }), c('Check the spec now', 'full AMF check', () => runCheck('validate')),
+        c('Save all', K('Ctrl S saves one'), () => { for (const p of [...dirty]) save(p); }), c('Check the spec now', 'full AMF check', () => runCheck('validate')),
         c('New file…', 'Files +', () => fileMenuItems('')[0][1]?.()), c('New folder…', 'Files +', () => fileMenuItems('')[1][1]?.()),
         c('Show Files', 'left rail', () => setRail('files')), c('Show API', 'left rail', () => setRail('api')), c('Show Dependencies', 'left rail', () => setRail('deps')),
         c('Show Exchange', 'left rail', () => setRail('exchange')), c('Show API map', 'left rail', () => setRail('map')),
-        c('Show Inspector', 'right rail, Ctrl Alt B', () => { setRpanel('insp'); setInspOpen(true); }), c('Show Documentation', 'right rail', () => { setRpanel('docs'); setInspOpen(true); }),
+        c('Show Inspector', K('right rail, Ctrl Alt B'), () => { setRpanel('insp'); setInspOpen(true); }), c('Show Documentation', 'right rail', () => { setRpanel('docs'); setInspOpen(true); }),
         c('Show Project errors', 'bottom', () => setProblemsOpen(true)), c('Publish to Exchange…', 'title bar', () => setPublishing('')),
-        c('Grow selection', 'Ctrl Shift Right', () => { if (view.current) { growSelection(view.current); view.current.focus(); } }),
-        c('Shrink selection', 'Ctrl Shift Left', () => { if (view.current) { shrinkSelection(view.current); view.current.focus(); } }),
+        c('Grow selection', K('Ctrl Shift Right'), () => { if (view.current) { growSelection(view.current); view.current.focus(); } }),
+        c('Shrink selection', K('Ctrl Shift Left'), () => { if (view.current) { shrinkSelection(view.current); view.current.focus(); } }),
         c('API Design Academy', 'lessons', () => window.dispatchEvent(new Event('ads-academy'))),
-        c('Go to symbol', 'Ctrl Shift O', () => setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'O', ctrlKey: true, shiftKey: true })), 0)),
+        c('Find in files', isVsCode ? '# in this box' : K('Ctrl Shift F'), () => setTimeout(() => window.dispatchEvent(new Event('ads-find-in-files')), 0)),
+        c('Go to symbol', K('Ctrl Shift O'), () => setTimeout(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'O', ctrlKey: true, shiftKey: true })), 0)),
       ];
     },
   };
@@ -811,7 +890,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     if (rail !== 'map' || !project.main) return;
     const t = textOf(project.main);
     if (t != null) setMapRoot(t); else invoke<string>('read_text_file', { root: project.root, path: project.main }).then((x) => setMapRoot(x.replace(/\r\n/g, '\n')), () => {});
-  }, [rail, amfModel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rail, amfModel]);
 
   // ---------- Autocomplete, hover and go to definition (M1 step 5). All local, from the outline. ----------
   const outlineRef = useRef<Outline | null>(null);
@@ -1003,7 +1082,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const what = { type: 'type', trait: 'trait', rt: 'resource type' }[kind];
     setDialog(<ConfirmDialog title={`Delete ${d.alias ? d.alias + '.' : ''}${d.name}?`} danger okLabel="Delete"
       body={<>Deletes the {what} {uses ? <>and removes it from the {uses === 1 ? 'one place that uses' : `${uses} places that use`} it, in {plan.map((p) => base(p.f)).join(', ')}.</> : 'Nothing uses it.'}
-        {kind === 'type' && uses ? <> Where a property was only that type, it becomes <span className="font-mono">any</span>.</> : null} Ctrl Z undoes it in each open file.</>}
+        {kind === 'type' && uses ? <> Where a property was only that type, it becomes <span className="font-mono">any</span>.</> : null} {K('Ctrl Z')} undoes it in each open file.</>}
       onCancel={() => setDialog(null)}
       onOk={async () => {
         setDialog(null);
@@ -1231,8 +1310,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       else clashes.push({ path, keep: () => { f.disk = disk; }, load });
     }
     if (clashes.length) setNotice({ text: `${clashes.length === 1 ? base(clashes[0].path) + ' changed' : clashes.map((c) => base(c.path)).join(', ') + ' changed'} on disk, and you have unsaved edits in ${clashes.length === 1 ? 'it' : 'them'}.`, err: true, actions: [
-      ['Keep mine', () => { clashes.forEach((c) => c.keep()); setNotice(null); }],
-      ['Load from disk', () => { clashes.forEach((c) => c.load()); setNotice(null); }],
+      ['Keep mine', () => { clashes.forEach((c) => c.keep()); }],
+      ['Load from disk', () => { clashes.forEach((c) => c.load()); }],
     ] });
     if (listChanged) await onRefresh();
     if (outlineChanged) rebuildOutline();
@@ -1263,9 +1342,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             if (activeRef.current !== r.path) continue; // it couldn't be opened, so don't write into another file
             const v = view.current!; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: r.text } });
           }
-          setNotice(null);
         }],
-        ['Discard', () => { real.forEach((r) => invoke('clear_recovery', { root: project.root, path: r.path })); setNotice(null); }],
+        ['Discard', () => { real.forEach((r) => invoke('clear_recovery', { root: project.root, path: r.path })); }],
       ] });
     });
     // Journal unsaved text, only what changed since the last write; clear it once a file is saved or reverted.
@@ -1283,10 +1361,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     const hidden = () => { if (document.visibilityState === 'hidden') journal(); };
     document.addEventListener('visibilitychange', hidden); window.addEventListener('pagehide', journal);
     return () => { un.then((f) => f()); clearInterval(t); document.removeEventListener('visibilitychange', hidden); window.removeEventListener('pagehide', journal); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------- Live errors from amf-server: a quick parse after edits, a full check when idle or on save ----------
-  const amf = (op: string, args: Record<string, unknown>) => invoke<any>('amf', { op, args }); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const amf = (op: string, args: Record<string, unknown>) => invoke<any>('amf', { op, args });
   const checkable = !!project.main && /\.(raml|ya?ml|json)$/i.test(project.main);
   live.current = { main: project.main, checkable, updateCursorViews, rebuildOutline, runCheck, onDiskChange };
 
@@ -1350,7 +1428,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     window.addEventListener('ads-governance-changed', f);
     return () => window.removeEventListener('ads-governance-changed', f);
   }, [project.root]);
-  useEffect(() => { govAlive.current = true; readGovSettings(project.root).then(setGovSettings, () => {}); return () => { govAlive.current = false; govWorker.current?.terminate(); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { govAlive.current = true; readGovSettings(project.root).then(setGovSettings, () => {}); return () => { govAlive.current = false; govWorker.current?.terminate(); }; }, []);
 
   async function runCheck(mode: 'parse' | 'validate') {
     if (!checkable) return;
@@ -1395,12 +1473,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       else if (e.payload.state !== 'starting') setEngine({ state: e.payload.state, detail: e.payload.detail });
     });
     return () => { un.then((f) => f()); checkTimers.current.forEach(clearTimeout); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (project.main) openFile(project.main).then(rebuildOutline);
     if (checkable) amf('open', { root: project.root, main: project.main }).then(() => runCheck('validate')).catch((e) => setEngine({ state: 'failed', detail: String(e) }));
-  }, [project.main]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [project.main]);
 
   // Wavy underlines in the editor for the open file's problems.
   useEffect(() => {
@@ -1411,7 +1489,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       const from = Math.min(l.from + p.col, l.to);
       const el = doc.line(Math.min(Math.max(p.endLine, p.line, 1), doc.lines)); // AMF reports some problems at line 0
       const to = Math.max(from, Math.min(el.from + p.endCol, el.to));
-      return { from, to: to > from ? to : Math.min(from + 1, doc.length), severity: p.severity, message: p.message };
+      return { from, to: to > from ? to : Math.min(from + 1, doc.length), severity: p.severity, message: short(p.message) };
     });
     // AMF reports a bad example (or any included file) at its own location, where the fix goes. The
     // !include line that pulls it in gets marked too, so the problem shows where you wrote it.
@@ -1466,7 +1544,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   }
 
   async function closeTab(path: string) {
-    if (dirty.has(path) && !(await ask(`${base(path)} has unsaved changes. Close it anyway?`))) return;
+    if (dirty.has(path)) { const a = await choose(`${base(path)} has unsaved changes.`, 'Save and close', 'Close without saving'); if (!a || (a === 'ok' && !(await save(path)))) return; }
     const i = tabs.indexOf(path), rest = tabs.filter((t) => t !== path);
     files.current.delete(path); forget(path);
     setDirty((d) => { const n = new Set(d); n.delete(path); return n; });
@@ -1481,7 +1559,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   // Several tabs at once (the tab menu): one question for the unsaved ones among them.
   async function closeTabs(paths: string[]) {
     const unsaved = paths.filter((p) => dirty.has(p));
-    if (unsaved.length && !await ask(`${unsaved.length === 1 ? base(unsaved[0]) + ' has' : unsaved.length + ' of them have'} unsaved changes. Close anyway?`)) return;
+    if (unsaved.length) {
+      const a = await choose(`${unsaved.length === 1 ? base(unsaved[0]) + ' has' : unsaved.length + ' of them have'} unsaved changes.`, 'Save and close', 'Close without saving');
+      if (!a) return;
+      if (a === 'ok') for (const p of unsaved) if (!(await save(p))) return;
+    }
     const gone = new Set(paths), rest = tabs.filter((t) => !gone.has(t));
     for (const p of paths) { files.current.delete(p); forget(p); }
     setDirty((d) => { const n = new Set(d); paths.forEach((p) => n.delete(p)); return n; });
@@ -1502,6 +1584,12 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       else if (mod && k === 'w' && activeRef.current) { e.preventDefault(); closeTab(activeRef.current); }
       else if (e.ctrlKey && e.key === 'Tab' && tabs.length > 1) { e.preventDefault(); const i = tabs.indexOf(activeRef.current ?? ''); show(tabs[(i + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length]); }
       else if (mod && k === 'j') { e.preventDefault(); setProblemsOpen((o) => !o); }
+      // Undo and redo from the forms: a text field first undoes its own typing; when that changes nothing (or the
+      // focus is on a checkbox or a button), it's the document's undo, the same one the code editor has.
+      else if (mod && (k === 'z' || k === 'y') && view.current && (e.target as HTMLElement).closest?.('[data-forms]')) {
+        const t = e.target as HTMLInputElement, was = typeof t.value === 'string' ? t.value : null, again = k === 'y' || e.shiftKey;
+        setTimeout(() => { if (view.current && (was == null || t.value === was)) (again ? redo : undo)(view.current); }, 0);
+      }
       else if (mod && e.altKey && k === 'b') { e.preventDefault(); setInspOpen((o) => !o); }
     };
     window.addEventListener('keydown', onKey);
@@ -1546,7 +1634,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     if ((workspace.current?.clientWidth ?? window.innerWidth) < 760) setNavOpen(false);
   }, []);
   const addRef = useRef(addToApi); addRef.current = addToApi;
-  const treeAdd = useMemo(() => (sec: string) => { addRef.current(sec).catch(fail); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const treeAdd = useMemo(() => (sec: string) => { addRef.current(sec).catch(fail); }, []);
   // The + buttons need a RAML 1.0 API (not a fragment, not 0.8) or an OAS 3.0 spec as the root file, that this person may edit.
   const rootHead = (project.main && textOf(project.main)) || '';
   const canAdd = !!project.main && !viewOnly && !isReadOnly(project.main)
@@ -1575,9 +1663,10 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   const leftWidth = Math.min(panes.left, Math.max(220, workspaceWidth - 448));
   const rightWidth = Math.min(panes.right, Math.max(260, workspaceWidth - 448 - (navOpen && rail !== 'map' ? leftWidth : 0)));
   const rightVisible = inspOpen && (workspaceWidth < 760 || workspaceWidth >= 648 + (navOpen && rail !== 'map' ? leftWidth : 0));
-  const mainWidth = workspaceWidth - 88 - (navOpen && rail !== 'map' && workspaceWidth >= 760 ? leftWidth : 0) - (rightVisible && (rpanel === 'docs' || !front) && workspaceWidth >= 760 ? rightWidth : 0);
+  const mainWidth = workspaceWidth - 104 - (navOpen && rail !== 'map' && workspaceWidth >= 760 ? leftWidth : 0) - (rightVisible && (rpanel === 'docs' || !front) && workspaceWidth >= 760 ? rightWidth : 0);
   // The forms for the open file: in the right panel, or in the middle when the forms are in front.
   const inspector = (
+            <div data-forms className="contents">
             <Boundary resetKey={doc ? doc.path + ":" + doc.line : ""} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The form hit a problem: {e}. The code editor still works; move the cursor to try again.</div>}>
             {doc && active === doc.path && /\.raml$/i.test(doc.path) && !doc.text.startsWith('#%RAML 0.8') ? (
               <Inspector file={doc.path} text={doc.text} line={doc.line} isMain={doc.path === project.main} readOnly={viewOnly ? 'View only: your Design Center role' : isReadOnly(doc.path)} outline={outline} model={amfModel}
@@ -1602,21 +1691,22 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
               <div className="p-4 text-[12.5px] text-content-faint">{!active ? 'Open a file to see it here.' : 'Forms are for RAML 1.0, OAS 3 and AsyncAPI 2 specs.'}</div>
             )}
             </Boundary>
+            </div>
   );
   return (
     <>
       <div ref={workspace} className="relative flex-1 min-h-0 flex">
-        <nav aria-label="Project panels" className="w-12 shrink-0 bg-rail border-r border-line flex flex-col py-2.5">
-          {([['files', 'Files', <Icons.File size={18} />], ['api', 'API', <Icons.ApiSpec size={18} />], ['deps', 'Dependencies', <Icons.Deps size={18} />], ['exchange', 'Exchange', <Icons.Exchange size={18} />], ['map', 'API map', <Icons.Map size={18} />]] as const).map(([id, title, icon]) => (
+        <nav aria-label="Project panels" className="w-[52px] shrink-0 bg-rail border-r border-line flex flex-col py-2">
+          {([['files', 'Files', 'Files', <Icons.File size={17} />], ['api', 'API', 'API', <Icons.ApiSpec size={17} />], ['deps', 'Dependencies', 'Deps', <Icons.Deps size={17} />], ['exchange', 'Exchange', 'Exchange', <Icons.Exchange size={17} />], ['map', 'API map', 'Map', <Icons.Map size={17} />]] as const).map(([id, title, word, icon]) => (
             <button key={id} title={title} aria-label={title} aria-pressed={rail === id && (id === 'map' || navOpen)} onClick={() => { if (id !== 'map') { setNavOpen(rail !== id || !navOpen); if (workspaceWidth < 760) setInspOpen(false); } setRail(id); }}
-              className={`relative h-9 mx-2 my-0.5 rounded-md flex items-center justify-center ${rail === id && (id === 'map' || navOpen) ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
-              {rail === id && (id === 'map' || navOpen) && <span className="absolute -left-2 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
-              {icon}
+              className={`relative h-[42px] mx-1 my-0.5 rounded-md flex flex-col items-center justify-center gap-0.5 ${rail === id && (id === 'map' || navOpen) ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
+              {rail === id && (id === 'map' || navOpen) && <span className="absolute -left-1 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
+              {icon}<span className="text-[9px] leading-none">{word}</span>
             </button>
           ))}
         </nav>
 
-        {rail !== 'map' && navOpen && <><aside aria-label={`${{ files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[rail]} panel`} style={{ width: leftWidth }} className={`shrink-0 bg-surface border-r border-line flex flex-col min-h-0 ${workspaceWidth < 760 ? 'absolute left-12 inset-y-0 z-30 shadow-[var(--shadow)]' : ''}`}>
+        {rail !== 'map' && navOpen && <><aside aria-label={`${{ files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[rail]} panel`} style={{ width: leftWidth }} className={`shrink-0 bg-surface border-r border-line flex flex-col min-h-0 ${workspaceWidth < 760 ? 'absolute left-[52px] inset-y-0 z-30 shadow-[var(--shadow)]' : ''}`}>
           <div className="h-9 shrink-0 flex items-center px-3 border-b border-line-subtle text-[12.5px] font-semibold"><span className="flex-1">{{ files: 'Files', api: 'API', deps: 'Dependencies', exchange: 'Exchange' }[rail]}</span>
             {rail === 'files' && <button title="New file or folder" onClick={(e) => { const b = e.currentTarget.getBoundingClientRect(); setMenu({ path: '', x: b.left, y: b.bottom + 2 }); }}
               className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.Plus size={14} /></button>}</div>
@@ -1683,7 +1773,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                 className={`group relative flex items-center gap-2 pl-3 pr-2 text-[12.5px] border-r border-line-secondary cursor-pointer shrink-0 ${p === active ? 'bg-surface text-content' : 'text-content-faint hover:text-content-secondary'}`}>
                 {p === active && <span className="absolute left-0 right-0 top-0 h-0.5 bg-accent" />}
                 <span>{base(p)}</span>
-                <button onClick={(e) => { e.stopPropagation(); closeTab(p); }} title={dirty.has(p) ? 'Unsaved changes. Close' : 'Close (Ctrl W)'}
+                <button onClick={(e) => { e.stopPropagation(); closeTab(p); }} title={dirty.has(p) ? 'Unsaved changes. Close' : K('Close (Ctrl W)')}
                   className="w-4 h-4 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content">
                   {dirty.has(p) ? <span className="w-[7px] h-[7px] rounded-full bg-content-muted group-hover:hidden" /> : null}
                   <span className={dirty.has(p) ? 'hidden group-hover:flex' : 'flex'}><Icons.X size={12} /></span>
@@ -1692,6 +1782,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             ))}
           </div>
           <div className="h-7 shrink-0 flex items-center gap-1 px-3 border-b border-line-subtle text-[12px] text-content-faint whitespace-nowrap overflow-hidden">
+            <span className="min-w-0 flex items-center gap-1 overflow-hidden">
             {active && <span>{active}</span>}
             {crumb.map((c, i) => (
               <span key={i} className="flex items-center gap-1">
@@ -1701,9 +1792,17 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
                 </button>
               </span>
             ))}
-            {active && !viewOnly && isExchangeFile(active) && <span className="ml-auto flex items-center gap-1"><Icons.Lock size={11} />Read-only: managed by Exchange</span>}
+            </span>
+            {active && !viewOnly && isExchangeFile(active) && <span className="ml-auto shrink-0 flex items-center gap-1"><Icons.Lock size={11} />Read-only: managed by Exchange</span>}
             {/* Forms or code in front: Design Center's visual editor and its RAML editor, but you can always switch back. */}
-            {formable && <span className={`${active && !viewOnly && isExchangeFile(active) ? 'ml-3' : 'ml-auto'} flex items-center h-5 p-px rounded-md border border-line bg-bg`}>
+            {/* With the forms in front, undo and redo are buttons too: the forms change the document, and it has one history. */}
+            {front && <span className={`${active && !viewOnly && isExchangeFile(active) ? 'ml-3' : 'ml-auto'} shrink-0 flex items-center gap-0.5`}>
+              {([['Undo', undo, undoDepth], ['Redo', redo, redoDepth]] as const).map(([label, run, depth]) => (
+                <button key={label} title={`${label} the last change`} disabled={!view.current || !depth(view.current.state)} onClick={() => view.current && run(view.current)}
+                  className="h-5 px-1.5 rounded text-[12px] text-content-secondary hover:bg-surface-2 hover:text-content disabled:text-content-ghost disabled:hover:bg-transparent">{label}</button>
+              ))}
+            </span>}
+            {formable && <span className={`${front ? 'ml-2' : active && !viewOnly && isExchangeFile(active) ? 'ml-3' : 'ml-auto'} shrink-0 flex items-center h-5 p-px rounded-md border border-line bg-bg`}>
               {([[false, 'Code', 'The code in front, the forms in the Inspector'], [true, 'Forms', 'Guide me through it: the forms in front, the code beside them']] as const).map(([on, label, tip]) => (
                 <button key={label} title={on && mainWidth < 600 ? 'Edit the forms. Switch to Code to see the specification.' : tip} aria-pressed={guided === on} onClick={() => setGuided(on)}
                   className={`h-full px-2.5 rounded-[5px] text-[12px] ${guided === on ? 'bg-surface-3 text-content font-semibold' : 'text-content-faint hover:text-content-secondary'}`}>{label}</button>
@@ -1730,33 +1829,39 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             onClose={() => setPublishing(null)} onShowErrors={() => { setPublishing(null); setProblemsOpen(true); }}
             onDone={async (text) => { setPublishing(null); await syncRef.current?.reload(); setPublished((n) => n + 1); setNotice({ text, err: false, ok: true }); }} />}
           {!active && <div className="flex-1 flex items-center justify-center p-6 text-content-faint text-[12.5px]">{project.main ? <span className="flex items-center gap-2"><Spinner />Opening…</span> : 'Open a specification from Files, then choose Set as root file from its menu.'}</div>}
-          {notice && <Toast key={notice.text} {...notice} onClose={() => setNotice(null)} />}
+          {(notice || questions.length > 0) && <div className="fixed bottom-10 right-4 z-50 flex flex-col items-end gap-2">
+            {questions.map((q) => {
+              const done = () => setQuestions((l) => l.filter((x) => x !== q));
+              return <Toast key={q.text} {...q} actions={q.actions!.map(([label, run]) => [label, () => { done(); run(); }] as [string, () => void])} onClose={done} />;
+            })}
+            {notice && <Toast key={notice.text} {...notice} onClose={() => setPlain(null)} />}
+          </div>}
         </main>
         {rightVisible && (rpanel === 'docs' || !front) && workspaceWidth >= 760 && <PaneDivider label={rpanel === 'docs' ? 'Documentation panel width' : 'Inspector panel width'} value={rightWidth} min={260} max={Math.max(260, Math.min(700, workspaceWidth - 448 - (navOpen && rail !== 'map' ? leftWidth : 0)))} reverse onChange={(right) => setPanes((p) => ({ ...p, right }))} />}
         {rightVisible && rpanel === 'docs' && (
-          <aside aria-label="Documentation panel" style={{ width: rightWidth }} className={`shrink-0 bg-surface border-l border-line flex flex-col min-h-0 ${workspaceWidth < 760 ? 'absolute right-10 inset-y-0 z-30 shadow-[var(--shadow)]' : ''}`}>
-            <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Documentation</div>
+          <aside aria-label="Documentation panel" style={{ width: rightWidth }} className={`shrink-0 bg-surface border-l border-line flex flex-col min-h-0 ${workspaceWidth < 760 ? 'absolute right-[52px] inset-y-0 z-30 shadow-[var(--shadow)]' : ''}`}>
+            <div className="h-9 shrink-0 flex items-center gap-2 px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Documentation<span className="ml-auto flex items-center gap-1 text-[11px] font-normal text-content-faint"><Icons.Play size={8} />Try it calls a local mock</span></div>
             <Boundary resetKey={project.root} fallback={(e) => <div className="p-4 text-[12.5px] text-err select-text">The documentation hit a problem: {e}.</div>}>
               <DocsPanel model={amfModel} resolve={async () => (await amf('resolvedModel', {})).model} onOpenAt={revealAt} startMock={async () => ({ port: (await amf('mock', { on: true })).port })} />
             </Boundary>
           </aside>
         )}
         {rightVisible && rpanel === 'insp' && !front && (
-          <aside aria-label="Inspector panel" style={{ width: rightWidth }} className={`shrink-0 bg-surface border-l border-line flex flex-col min-h-0 ${workspaceWidth < 760 ? 'absolute right-10 inset-y-0 z-30 shadow-[var(--shadow)]' : ''}`}>
+          <aside aria-label="Inspector panel" style={{ width: rightWidth }} className={`shrink-0 bg-surface border-l border-line flex flex-col min-h-0 ${workspaceWidth < 760 ? 'absolute right-[52px] inset-y-0 z-30 shadow-[var(--shadow)]' : ''}`}>
             <div className="h-9 shrink-0 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold">Inspector</div>
             {inspector}
           </aside>
         )}
-        <nav aria-label="Editor panels" className="w-10 shrink-0 bg-rail border-l border-line flex flex-col items-center py-2.5">
-          {([['insp', 'Inspector (Ctrl Alt B)', <Icons.Target size={17} />], ['docs', 'Documentation', <Icons.Book size={17} />]] as const).map(([id, title, icon]) => {
+        <nav aria-label="Editor panels" className="w-[52px] shrink-0 bg-rail border-l border-line flex flex-col items-center py-2">
+          {([['insp', K('Inspector (Ctrl Alt B)'), 'Inspect', <Icons.Target size={17} />], ['docs', 'Documentation, and Try it against a local mock', 'Docs', <Icons.Book size={17} />]] as const).map(([id, title, word, icon]) => {
             // With the forms in front, the Inspector is the middle panel: its button puts the code back in front.
             const on = id === 'insp' && front ? true : rightVisible && rpanel === id;
             return (
               <button key={id} title={id === 'insp' && front ? 'Inspector (in front): put the code back in front' : title} aria-label={title} aria-pressed={on}
                 onClick={() => { if (id === 'insp' && front) { setGuided(false); setRpanel('insp'); setInspOpen(true); } else if (on) setInspOpen(false); else { if (workspaceWidth < leftWidth + 648) setNavOpen(false); setRpanel(id); setInspOpen(true); } }}
-                className={`relative w-8 h-9 my-0.5 rounded-md flex items-center justify-center ${on ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
+                className={`relative w-11 h-[42px] my-0.5 rounded-md flex flex-col items-center justify-center gap-0.5 ${on ? 'bg-surface-2 text-content' : 'text-content-faint hover:text-content-secondary'}`}>
                 {on && <span className="absolute -right-1 top-2 bottom-2 w-0.5 bg-accent rounded-sm" />}
-                {icon}
+                {icon}<span className="text-[9px] leading-none">{word}</span>
               </button>
             );
           })}
@@ -1766,7 +1871,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
         <div className="fixed inset-0 z-40" onMouseDown={() => setTabMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTabMenu(null); }}>
           <div className="fixed min-w-[190px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" style={{ left: Math.min(tabMenu.x, window.innerWidth - 210), top: tabMenu.y }} onMouseDown={(e) => e.stopPropagation()}>
             {([
-              ['Close', 'Ctrl W', () => closeTab(tabMenu.path)],
+              ['Close', K('Ctrl W'), () => closeTab(tabMenu.path)],
               ['Close others', '', tabs.length > 1 ? () => closeTabs(tabs.filter((t) => t !== tabMenu.path)) : null],
               ['Close saved', '', tabs.some((t) => !dirty.has(t)) ? () => closeTabs(tabs.filter((t) => !dirty.has(t))) : null],
               ['Close all', '', () => closeTabs(tabs)],
@@ -1994,7 +2099,7 @@ function ProblemsPanel({ problems, open, setOpen, engine, onGo, gov, onGovRun, o
           {engine.state === 'checking' && <span className="w-2.5 h-2.5 rounded-full border-2 border-warn border-t-transparent animate-spin" />}
           {engine.state === 'checking' ? 'Checking' : engine.state === 'ready' ? (engine.ms ?? '') : engine.state === 'starting' ? 'Starting the checker' : ''}
         </span>
-        <button onClick={() => setOpen(!open)} title={open ? 'Hide (Ctrl J)' : 'Show (Ctrl J)'} className="w-[22px] h-[22px] rounded flex items-center justify-center text-content-faint hover:bg-surface-2 hover:text-content">
+        <button onClick={() => setOpen(!open)} title={open ? K('Hide (Ctrl J)') : K('Show (Ctrl J)')} className="w-[22px] h-[22px] rounded flex items-center justify-center text-content-faint hover:bg-surface-2 hover:text-content">
           {open ? <Icons.ChevronDown size={12} /> : <span className="rotate-180 flex"><Icons.ChevronDown size={12} /></span>}
         </button>
       </div>
@@ -2059,7 +2164,7 @@ function ProblemsPanel({ problems, open, setOpen, engine, onGo, gov, onGovRun, o
               {problems.filter((p) => p.file === f).map((p, i) => (
                 <div key={i} onClick={() => onGo(p)} className="group/p flex items-center gap-2 min-h-[26px] pl-7 pr-3 text-[12.5px] cursor-pointer hover:bg-[var(--hover-overlay)]">
                   <span className={`w-2 h-2 shrink-0 ${p.severity === 'error' ? 'rounded-full bg-err' : 'rotate-45 bg-warn'}`} />
-                  <span className="text-content select-text">{p.message}</span>
+                  <span className="text-content select-text" title={p.message.length > 280 ? p.message.slice(0, 1200) : undefined}>{short(p.message)}</span>
                   <button title="Copy the error" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${p.file}:${p.line}:${p.col + 1} ${p.severity}: ${p.message}`); }}
                     className="ml-auto opacity-0 group-hover/p:opacity-100 w-5 h-5 rounded flex items-center justify-center text-content-faint hover:bg-surface-3 hover:text-content"><Icons.Copy size={12} /></button>
                   <span className="font-mono text-[11px] text-content-faint whitespace-nowrap">{p.line}:{p.col + 1}</span>
@@ -2269,18 +2374,36 @@ export function setZoom(z: number) {
 }
 if (isTauri && !isVsCode && savedZoom() !== 1) getCurrentWebview().setZoom(savedZoom()).catch(() => {});
 function Palette({ project, recent, start, lent, onClose, onOpenFile, onOpenFolder, onTheme }: {
-  project: Project | null; recent: Recent[]; start: '' | '@' | '>'; lent: { symbols: () => PaletteItem[]; commands: () => PaletteItem[] } | null; onClose: () => void;
+  project: Project | null; recent: Recent[]; start: '' | '@' | '>' | '#'; lent: PaletteLent | null; onClose: () => void;
   onOpenFile: (p: string) => void; onOpenFolder: (root?: string) => void; onTheme: (p: ThemePref) => void;
 }) {
   const [q, setQ] = useState<string>(start);
   const [idx, setIdx] = useState(0);
+  // Find in files (#): the texts are read once, when the # is first typed.
+  const finding = q.startsWith('#') && !!lent;
+  const [texts, setTexts] = useState<[string, string][] | null>(null);
+  useEffect(() => { if (finding && !texts) lent!.texts().then(setTexts, () => setTexts([])); }, [finding]);
   const items = useMemo(() => {
+    if (finding) {
+      const needle = q.slice(1).trim().toLowerCase(), found: PaletteItem[] = [];
+      if (needle.length < 2 || !texts) return found;
+      for (const [path, text] of texts) {
+        const low = text.toLowerCase();
+        for (let at = low.indexOf(needle); at >= 0 && found.length < 200; at = low.indexOf(needle, at + needle.length)) {
+          const from = text.lastIndexOf('\n', at - 1) + 1, end = text.indexOf('\n', at);
+          const line = text.slice(0, at).split('\n').length;
+          found.push({ group: 'In files', label: text.slice(from, end < 0 ? text.length : end).trim().slice(0, 120), detail: `${path}:${line}`, run: () => lent!.goTo(path, at) });
+        }
+      }
+      return found;
+    }
     const all: { group: string; label: string; detail?: string; run: () => void }[] = [
       ...(project ? project.files.map((f) => ({ group: 'Files', label: f.path, run: () => onOpenFile(f.path) })) : []),
       ...recent.map((r) => ({ group: 'Recent projects', label: r.name, detail: r.root, run: () => onOpenFolder(r.root) })),
-      ...(isTauri ? [{ group: 'Commands', label: 'Open folder…', detail: 'Ctrl O', run: () => onOpenFolder() }] : []),
-      ...(multiWindow ? [{ group: 'Commands', label: `New ${WINDOW}`, detail: isVsCode ? undefined : 'Ctrl Shift N', run: () => { invoke('open_window', { root: null }).catch(() => {}); } }] : []),
+      ...(isTauri ? [{ group: 'Commands', label: 'Open folder…', detail: K('Ctrl O'), run: () => onOpenFolder() }] : []),
+      ...(multiWindow ? [{ group: 'Commands', label: `New ${WINDOW}`, detail: isVsCode ? undefined : K('Ctrl Shift N'), run: () => { invoke('open_window', { root: null }).catch(() => {}); } }] : []),
       ...(multiWindow ? recent.map((r) => ({ group: 'Commands', label: `Open ${r.name} in a new ${WINDOW}`, detail: r.root, run: () => { invoke('open_window', { root: r.root }).catch(() => {}); } })) : []),
+      ...(isTauri ? [{ group: 'Commands', label: 'Dashboard', detail: "the organization's APIs and governance", run: () => window.dispatchEvent(new Event('ads-dashboard')) }] : []),
       { group: 'Commands', label: 'Switch to Dusk', detail: 'theme', run: () => onTheme('dark') },
       { group: 'Commands', label: 'Switch to Paper', detail: 'theme', run: () => onTheme('light') },
       ...(lent ? lent.commands() : []),
@@ -2290,7 +2413,7 @@ function Palette({ project, recent, start, lent, onClose, onOpenFile, onOpenFold
     const only = q.startsWith('@') ? 'Symbols' : q.startsWith('>') ? 'Commands' : null;
     const words = q.replace(/^[@>]/, '').toLowerCase().split(/\s+/).filter(Boolean);
     return all.filter((it) => !only || it.group === only).filter((it) => words.every((w) => (it.label + ' ' + (it.detail || '') + ' ' + it.group).toLowerCase().includes(w))).slice(0, 40);
-  }, [q, project, recent, lent, onOpenFile, onOpenFolder, onTheme]);
+  }, [q, project, recent, lent, onOpenFile, onOpenFolder, onTheme, finding, texts]);
   const go = (i: number) => { const it = items[i]; onClose(); if (it) it.run(); };
   let lastGroup = '';
   return (
@@ -2298,12 +2421,12 @@ function Palette({ project, recent, start, lent, onClose, onOpenFile, onOpenFold
       <div className="w-[600px] max-w-[calc(100vw-32px)] rounded-[10px] bg-surface border border-line shadow-[var(--shadow)] overflow-hidden">
         <div className="flex items-center gap-2.5 h-11 px-3.5 border-b border-line text-content-faint">
           <Icons.Search size={16} />
-          <input autoFocus value={q} placeholder="Type a file, a project or a command. @ for symbols, > for commands" spellCheck={false}
+          <input autoFocus value={q} placeholder="Type a file, a project or a command. @ symbols, > commands, # find in files" spellCheck={false}
             onChange={(e) => { setQ(e.target.value); setIdx(0); }}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') { e.preventDefault(); setIdx((i) => Math.min(i + 1, items.length - 1)); }
               else if (e.key === 'ArrowUp') { e.preventDefault(); setIdx((i) => Math.max(i - 1, 0)); }
-              else if (e.key === 'Enter') go(idx);
+              else if (e.key === 'Enter') { e.preventDefault(); go(idx); }
             }}
             className="flex-1 bg-transparent outline-none text-[14px] text-content" />
         </div>
@@ -2311,17 +2434,18 @@ function Palette({ project, recent, start, lent, onClose, onOpenFile, onOpenFold
           {items.map((it, i) => {
             const head = it.group !== lastGroup ? (lastGroup = it.group) : null;
             return (
-              <div key={it.group + it.label}>
+              <div key={it.group === 'In files' ? i : it.group + it.label}>
                 {head && <div className="px-2 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.5px] text-content-faint">{head}</div>}
                 <div onMouseEnter={() => setIdx(i)} onClick={() => go(i)}
                   className={`flex items-center gap-2 h-[30px] px-2 rounded-md cursor-pointer text-[13px] ${i === idx ? 'bg-accent-dim text-content' : 'text-content-secondary'}`}>
-                  <span className={it.group === 'Files' ? 'font-mono text-[12.5px]' : ''}>{it.label}</span>
+                  <span className={`truncate ${it.group === 'Files' || it.group === 'In files' ? 'font-mono text-[12.5px]' : ''}`}>{it.label}</span>
                   {it.detail && <span className="ml-auto font-mono text-[11.5px] text-content-faint truncate max-w-[300px]">{it.detail}</span>}
                 </div>
               </div>
             );
           })}
-          {items.length === 0 && <div className="p-4 text-content-faint text-[12.5px]">No matches.</div>}
+          {items.length === 0 && <div className="p-4 text-content-faint text-[12.5px]">{!finding ? 'No matches.' : q.trim().length < 3 ? 'Type what to find in the project\'s files.' : !texts ? 'Reading the files…' : 'Nothing found in the project\'s files.'}</div>}
+          {finding && items.length === 200 && <div className="px-2 pt-2 text-[11.5px] text-content-faint">The first 200 are shown. Type more to narrow it.</div>}
         </div>
       </div>
     </div>

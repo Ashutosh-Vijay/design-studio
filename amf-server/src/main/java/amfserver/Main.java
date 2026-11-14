@@ -148,7 +148,7 @@ public class Main {
       // The model of a spec in another folder (a version published to Exchange), for "what changed".
       // Parsed fresh: no cache, and no overlays apply out there.
       case "modelOf" -> {
-        if (root == null) throw new IllegalStateException("no project open");
+        
         AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient()
           .parse(fileUrl(Path.of(req.path("dir").asText()).resolve(req.path("main").asText()))).get();
         ObjectNode r = reply(req); r.set("model", model(parsed.baseUnit())); send(r);
@@ -217,7 +217,7 @@ public class Main {
   }
 
   static ObjectNode check(JsonNode req, boolean validate) throws Exception {
-    if (root == null) throw new IllegalStateException("no project open");
+    
     long t0 = System.nanoTime();
     AMFConfiguration config = APIConfiguration.API().withResourceLoaders(loaders());
     if (!req.path("noCache").asBoolean()) config = config.withUnitCache(CACHE);
@@ -301,7 +301,7 @@ public class Main {
   // resolved: inheritance, unions and links applied (the payload validator needs it: a closed type's
   // inherited properties are only its own once resolved).
   static amf.shapes.client.platform.model.domain.AnyShape declaredType(JsonNode req, boolean resolved) throws Exception {
-    if (root == null) throw new IllegalStateException("no project open");
+    
     AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient().parse(fileUrl(root.resolve(main))).get();
     BaseUnit top = !resolved ? parsed.baseUnit()
       : APIConfiguration.fromSpec(parsed.sourceSpec()).withResourceLoaders(loaders()).baseUnitClient().transform(parsed.baseUnit(), PipelineId.Editing()).baseUnit();
@@ -598,7 +598,7 @@ public class Main {
 
   // AMF's Compatibility pipeline, as Design Center's Download as / Duplicate As. Not guaranteed valid; the result is checked like any file.
   static ObjectNode convert(JsonNode req) throws Exception {
-    if (root == null) throw new IllegalStateException("no project open");
+    
     String path = req.path("path").asText(), to = req.path("to").asText();
     AMFParseResult parsed = APIConfiguration.API().withResourceLoaders(loaders()).baseUnitClient().parse(fileUrl(root.resolve(path))).get();
     AMFConfiguration target = switch (to) {
@@ -666,7 +666,9 @@ public class Main {
 
   static String abs(String rel) { return root.resolve(rel).normalize().toString().replace('\\', '/'); }
   static String rel(String resource) {
-    String p = pathOf(resource), r = root.toString().replace('\\', '/') + "/";
+    String p = pathOf(resource);
+    if (root == null) return p; // a model read with no project open (the Dashboard's published versions)
+    String r = root.toString().replace('\\', '/') + "/";
     return p.toLowerCase().startsWith(r.toLowerCase()) ? p.substring(r.length()) : p;
   }
 

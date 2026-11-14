@@ -77,7 +77,7 @@ export function ApiMap({ model, outline, rootFile, rootText, onOpenAt, onReveal 
   const [zoom, setZoom] = useState(1);
   const box = useRef<HTMLDivElement>(null);
   // Big specs start with libraries folded.
-  useEffect(() => { if (g && closed == null) setClosed(new Set(g.nodes.size > 250 ? [...g.nodes.values()].filter((n) => n.kind === 'type' && n.group !== rootFile).map((n) => n.group!) : [])); }, [g]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (g && closed == null) setClosed(new Set(g.nodes.size > 250 ? [...g.nodes.values()].filter((n) => n.kind === 'type' && n.group !== rootFile).map((n) => n.group!) : [])); }, [g]);
 
   // Positions: four columns; types in groups by file, each group folding to its header. Within a column,
   // nodes follow the average place of what uses them, which keeps lines short.

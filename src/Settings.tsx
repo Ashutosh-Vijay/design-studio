@@ -5,11 +5,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Icons } from './components/Icons';
-import { APP_NAME, ask, autoUpdates } from './Brand';
+import { APP_NAME, autoUpdates } from './Brand';
 import { btn, editorPrefs, applyEditorPrefs, ZOOMS, savedZoom, setZoom } from './App';
-import { ACCENTS, isDarkPref, type ThemePref } from './theme';
+import { ACCENTS, isDarkPref, K, MAC, type ThemePref } from './theme';
 import { projectsDir } from './sync';
-import { lockWhileEditing, type Me } from './SyncUI';
+import { allowChanges, lockWhileEditing, type Me } from './SyncUI';
 import { isTauri, isVsCode, multiWindow, WINDOW } from './components/WindowControls';
 import { useMcpStatus, savedPort } from './mcp';
 import { remoteOk } from './mcpTools';
@@ -27,18 +27,18 @@ const SECTIONS: { id: Section; label: string; icon: keyof typeof Icons; keywords
   { id: 'about', label: 'About', icon: 'Help', keywords: ['version', 'updates', 'licence', 'license', "what's new"] },
 ];
 
-export function SettingsScreen({ pref, accent, onTheme, onClose, onConnect, onMcp, onAbout, projectRoot }: {
-  pref: ThemePref; accent: string; onTheme: (p: ThemePref, a: string) => void; onClose: () => void;
+export function SettingsScreen({ pref, accent, onTheme, onClose, onConnect, onMcp, onAbout, projectRoot, start }: {
+  pref: ThemePref; accent: string; onTheme: (p: ThemePref, a: string) => void; onClose: () => void; start?: Section;
   onConnect: () => void; onMcp: () => void; onAbout: () => void; projectRoot?: string;
 }) {
   // This project's settings show while one is open.
   const sections = SECTIONS.filter((x) => (!x.desktop || isTauri) && (x.id !== 'project' || projectRoot));
-  const [section, setSection] = useState<Section>('appearance');
+  const [section, setSection] = useState<Section>(start ?? 'appearance');
   const [search, setSearch] = useState('');
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     return q ? sections.filter((s) => s.label.toLowerCase().includes(q) || s.keywords.some((k) => k.includes(q))) : sections;
-  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search]);
   // Searching moves to the first section that matches.
   useEffect(() => { if (visible.length && !visible.some((s) => s.id === section)) setSection(visible[0].id); }, [visible, section]);
 
@@ -162,12 +162,12 @@ function Appearance({ pref, accent, onTheme }: { pref: ThemePref; accent: string
       </Row>
       {/* In VS Code, its own zoom does this (View, Appearance). */}
       {!isVsCode && (
-        <Row label="Interface size" desc="Everything: icons, panels and text. Ctrl Plus, Ctrl Minus and Ctrl 0 work anywhere.">
+        <Row label="Interface size" desc={K("Everything: icons, panels and text. Ctrl Plus, Ctrl Minus and Ctrl 0 work anywhere.")}>
           <div className="flex items-center gap-1.5 text-[12.5px]">
-            <button className={btn + ' !w-8 !px-0'} title="Smaller (Ctrl Minus)" aria-label="Smaller" disabled={zoom <= ZOOMS[0]} onClick={() => setZoom(ZOOMS[ZOOMS.indexOf(zoom) - 1])}>−</button>
+            <button className={btn + ' !w-8 !px-0'} title={K("Smaller (Ctrl Minus)")} aria-label="Smaller" disabled={zoom <= ZOOMS[0]} onClick={() => setZoom(ZOOMS[ZOOMS.indexOf(zoom) - 1])}>−</button>
             <span className="w-12 text-center tabular-nums text-content-secondary">{Math.round(zoom * 100)}%</span>
-            <button className={btn + ' !w-8 !px-0'} title="Bigger (Ctrl Plus)" aria-label="Bigger" disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onClick={() => setZoom(ZOOMS[ZOOMS.indexOf(zoom) + 1])}>+</button>
-            <button className={`ml-1 text-[12px] text-accent hover:underline ${zoom === 1 ? 'invisible' : ''}`} title="Ctrl 0" onClick={() => setZoom(1)}>Reset</button>
+            <button className={btn + ' !w-8 !px-0'} title={K("Bigger (Ctrl Plus)")} aria-label="Bigger" disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onClick={() => setZoom(ZOOMS[ZOOMS.indexOf(zoom) + 1])}>+</button>
+            <button className={`ml-1 text-[12px] text-accent hover:underline ${zoom === 1 ? 'invisible' : ''}`} title={K("Ctrl 0")} onClick={() => setZoom(1)}>Reset</button>
           </div>
         </Row>
       )}
@@ -202,13 +202,13 @@ function Anypoint({ onConnect }: { onConnect: () => void }) {
     <Page title="Anypoint" desc="Your connection to Design Center and Exchange.">
       {me === undefined ? <div className="text-[12.5px] text-content-faint">Checking…</div> : signedIn ? <>
         <Row label={me.username} desc={me.org_name}>
-          <button className={btn} onClick={async () => { await invoke('anypoint_disconnect'); setMe(null); }}>Sign out</button>
+          <button className={btn} onClick={async () => { await invoke('anypoint_disconnect'); setMe(null); window.dispatchEvent(new Event('ads-signed-in')); }}>Sign out</button>
         </Row>
         <Row label="Read only" desc="Every change to Design Center is refused before it's sent. Turn it off to push, lock and publish.">
           <Toggle label="Read only" on={me.read_only} onChange={async (on) => {
             // Turning writes on is the one that needs a second look.
-            if (!on && !(await ask(`Let Design Studio push changes to Design Center in ${me.org_name || 'this organization'}? Pushing saves files, takes the lock and can delete files there.`))) return;
-            await invoke('anypoint_set_read_only', { on }); setMe({ ...me, read_only: on });
+            if (!on) { if (await allowChanges()) setMe({ ...me, read_only: false }); return; }
+            await invoke('anypoint_set_read_only', { on }); setMe({ ...me, read_only: on }); window.dispatchEvent(new Event('ads-signed-in'));
           }} />
         </Row>
         <Row label="Lock while I edit" desc={me.read_only ? 'Needs read only off: locking is a change in Design Center.' : 'Your first edit locks the branch in Design Center, so others can only read it until you push or close the project.'}>
@@ -310,13 +310,13 @@ function About({ onAbout }: { onAbout: () => void }) {
 
 // Every key here is one the app or its editor really binds: App.tsx (app and project keys), editor.ts and App.tsx's
 // editor keymaps, and CodeMirror's default, search, fold and completion keymaps. Ctrl is Cmd on a Mac.
-const MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
 function Shortcuts() {
   const C = MAC ? 'Cmd' : 'Ctrl';
   const groups: [string, [string, string[]][]][] = [
     ['General', [
       ['Search files, projects and commands', [`${C} K`]],
       ['Go to a symbol', [`${C} Shift O`]],
+      ...(isVsCode ? [] : [['Find in files', [`${C} Shift F`]]] as [string, string[]][]),
       ['Commands', ['F1']],
       ['Open folder', [`${C} O`]],
       ...(multiWindow && !isVsCode ? [['New window', [`${C} Shift N`]]] as [string, string[]][] : []),
