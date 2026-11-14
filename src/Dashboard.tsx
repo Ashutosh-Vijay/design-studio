@@ -674,7 +674,7 @@ function Deployments({ r, onOpen }: { r: D.Reading; onOpen: (a: D.Api) => void }
                       <td className={`${td} font-medium`}>{x.name}</td>
                       {envs.map((e) => <td key={e.id} className={td}>{(x.cells.get(e.name) ?? []).map((i) => (
                         <span key={i.id} className="inline-flex items-center gap-1.5 mr-3 whitespace-nowrap" title={`${i.label || 'Instance'} ${i.id}${i.endpoint ? ' · ' + i.endpoint : ''}`}>
-                          {dot(/active/i.test(i.status) ? 'ok' : /unregistered|inactive/i.test(i.status) ? 'warn' : 'faint')}<span className="font-mono text-[12px]">{i.version}</span>{i.label && <span className="text-content-faint">{i.label}</span>}
+                          {dot(/^active$/i.test(i.status) ? 'ok' : /unregistered|inactive/i.test(i.status) ? 'warn' : 'faint')}<span className="font-mono text-[12px]">{i.version}</span>{i.label && <span className="text-content-faint">{i.label}</span>}
                         </span>
                       ))}{!(x.cells.get(e.name) ?? []).length && <span className="text-content-ghost">None</span>}</td>)}
                     </tr>
@@ -718,14 +718,18 @@ function Health({ r }: { r: D.Reading }) {
   const [q, setQ] = useState('');
   const [down, setDown] = useState(false);
   const [sort, setSort] = useState<{ col: string; asc: boolean }>({ col: 'state', asc: true });
+  // Apps (Runtime Manager: is it running) and APIs (API Manager: is an app claiming the instance) are shown apart:
+  // mixed in one list, "started" beside "active" for the same name read as the same thing.
+  const [from, setFrom] = useState<'apps' | 'apis'>(r.access.runtime === 'ok' ? 'apps' : 'apis');
   const put = (s: D.Saved) => { setSaved(s); D.saveHealth(r.org.id, s); };
   if (r.access.runtime !== 'ok' && r.access.apimanager !== 'ok') return <NoAccess r={r} s="runtime" what="Runtime Manager's apps or API Manager's APIs" />;
   const urlOf = (k: string, d: string) => saved[k]?.url ?? d;
-  // What can be checked: every app, and every managed API instance, with the address Anypoint knows (if any).
-  const all = [
-    ...r.apps.map((a) => ({ key: `app:${a.env}/${a.name}`, name: a.name, env: a.env, production: a.production, what: a.runtime, status: a.status, health: a.health, url: a.url })),
-    ...r.instances.map((i) => ({ key: `api:${i.env}/${i.id}`, name: `${i.name}${i.label ? ` (${i.label})` : ''}`, env: i.env, production: i.production, what: `API ${i.version}`, status: i.status, health: /active/i.test(i.status) ? 'up' as const : 'other' as const, url: i.endpoint })),
-  ];
+  // What can be checked, with the address Anypoint knows (if any).
+  const all = from === 'apps'
+    ? r.apps.map((a) => ({ key: `app:${a.env}/${a.name}`, name: a.name, env: a.env, production: a.production, what: a.runtime, tip: a.mule ? `Mule ${a.mule}` : '', status: a.status, health: a.health, url: a.url }))
+    : r.instances.map((i) => ({ key: `api:${i.env}/${i.id}`, name: `${i.name}${i.label ? ` (${i.label})` : ''}`, env: i.env, production: i.production, what: `Exchange version ${i.version}`,
+      tip: 'The version of the Exchange asset this API instance is linked to in API Manager. It changes only when someone changes it there (or a pipeline does), not when a newer version is published.',
+      status: i.status, health: /^active$/i.test(i.status) ? 'up' as const : 'other' as const, url: i.endpoint }));
   const envNames = [...new Set(all.map((x) => x.env))];
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   // Down: Anypoint says so, or the last check failed. Sorted with the worst first by default.
@@ -760,6 +764,16 @@ function Health({ r }: { r: D.Reading }) {
           <p className="m-0 flex-1 text-[12.5px] text-content-muted leading-relaxed">Anypoint's own status for each app and API, and a check of the address you give each one (a health endpoint works best). A check is one GET from this computer, only when you press Check: nothing runs on a timer. The addresses are kept on this computer.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          {r.access.runtime === 'ok' && r.access.apimanager === 'ok' && (
+            <span className="flex items-center gap-0.5 p-0.5 rounded-lg bg-surface-2 border border-line">
+              {([['apps', 'Apps', 'Runtime Manager', r.apps.length], ['apis', 'APIs', 'API Manager', r.instances.length]] as const).map(([id, label, src, n]) => (
+                <button key={id} onClick={() => setFrom(id)} aria-pressed={from === id} title={id === 'apps' ? 'Runtime Manager: whether each deployed Mule app is running' : 'API Manager: whether a running app has claimed each API instance (Autodiscovery)'}
+                  className={`h-6 px-2.5 rounded-md text-[12px] whitespace-nowrap ${from === id ? 'bg-surface-3 text-content font-medium' : 'text-content-muted hover:text-content'}`}>
+                  {label}<span className="ml-1.5 font-normal text-content-faint">{src} · {n}</span>
+                </button>
+              ))}
+            </span>
+          )}
           <label className="flex items-center gap-1.5 h-7 w-[240px] px-2 rounded-md bg-surface-2 border border-line text-content-faint focus-within:border-accent-border">
             <Icons.Search size={12} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name or status" aria-label="Filter" spellCheck={false} className="flex-1 min-w-0 bg-transparent outline-none text-[12px] text-content" />
           </label>
@@ -776,12 +790,12 @@ function Health({ r }: { r: D.Reading }) {
         </div>
         <div className="rounded-lg border border-line bg-surface overflow-auto">
           {items.length ? <table className="w-full text-[12.5px] border-separate border-spacing-0">
-            <thead><tr>{head('Name', 'name')}{head('Environment', 'env')}{head('Anypoint says', 'state')}{head('Address to check')}{head('Last check', 'check')}{head('')}</tr></thead>
+            <thead><tr>{head('Name', 'name')}{head('Environment', 'env')}{head(from === 'apps' ? 'Runtime Manager says' : 'API Manager says', 'state')}{head('Address to check')}{head('Last check', 'check')}{head('')}</tr></thead>
             <tbody>{items.map((x) => {
               const last = saved[x.key]?.last;
               return (
                 <tr key={x.key}>
-                  <td className={td}><div className="font-medium">{x.name}</div><div className="text-[11px] text-content-faint">{x.what}</div></td>
+                  <td className={td}><div className="font-medium">{x.name}</div><div className="text-[11px] text-content-faint" title={x.tip || undefined}>{x.what}</div></td>
                   <td className={`${td} text-content-muted whitespace-nowrap`}>{x.env}{x.production && <span className="ml-1.5 text-[10.5px] px-1.5 py-px rounded border border-line">Production</span>}</td>
                   <td className={td}><span className={`inline-flex items-center gap-1.5 whitespace-nowrap ${x.health === 'up' ? 'text-ok' : x.health === 'down' ? 'text-err' : 'text-content-muted'}`}>{dot(x.health === 'up' ? 'ok' : x.health === 'down' ? 'err' : 'faint')}{x.status || 'unknown'}</span></td>
                   <td className={`${td} w-[38%]`}>
