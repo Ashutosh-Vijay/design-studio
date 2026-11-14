@@ -37,17 +37,86 @@ function GovMark({ a, long }: { a: D.Api; long?: boolean }) {
   );
 }
 
-// A part this account can't read: said in place, plainly, with who can change it.
+// ---------- When a part can't be shown ----------
+// Three kinds, three looks. Not allowed (the usual one): calm amber, a lock, the permission to ask for, and a
+// request ready to send. Not in the subscription: neutral. Couldn't be read (Anypoint failed): red, with Try again.
+// A missing permission is an expected state, not an error, so it's never red.
+const PERMS: Record<D.Section, string[]> = {
+  exchange: ['Exchange Viewer'], governance: ['Governance Viewer'],
+  apimanager: ['View Environment', 'View APIs Configuration'], runtime: ['View Environment', 'Read Applications'],
+};
+const TONE = {
+  denied: { box: 'border-warn-border bg-surface', glow: 'var(--warn)', badge: 'bg-warn-tint text-warn border-warn-border', text: 'text-warn' },
+  off: { box: 'border-line bg-surface', glow: '', badge: 'bg-surface-2 text-content-muted border-line', text: 'text-content-muted' },
+  error: { box: 'border-err-border bg-surface', glow: 'var(--err)', badge: 'bg-err-tint text-err border-err-border', text: 'text-err' },
+  ok: { box: 'border-line bg-surface', glow: '', badge: 'bg-surface-2 text-content-muted border-line', text: 'text-content-muted' },
+};
+const glow = (k: keyof typeof TONE) => (TONE[k].glow ? { backgroundImage: `linear-gradient(to bottom, color-mix(in oklch, ${TONE[k].glow} 11%, transparent), transparent 140px)` } : undefined);
+const retry = () => window.dispatchEvent(new Event('ads-dash-refresh'));
+// The message to send an administrator: which permissions, where they're granted, and what for.
+function request(org: string, sections: D.Section[]) {
+  const perms = [...new Set(sections.flatMap((s) => PERMS[s]))];
+  return `Hi, could you give my Anypoint account ${perms.length === 1 ? 'this permission' : 'these permissions'} in ${org}: ${perms.join(', ')}? They're granted in Access Management, under Users, my user, Add permissions${sections.some((s) => s === 'apimanager' || s === 'runtime') ? ' (View APIs Configuration and Read Applications are per environment)' : ''}. I need ${perms.length === 1 ? 'it' : 'them'} to see ${sections.map((s) => D.SECTION_LABEL[s]).join(', ').replace(/, ([^,]*)$/, ' and $1')} in Design Studio's dashboard. Thanks!`;
+}
+function CopyRequest({ org, sections, small }: { org: string; sections: D.Section[]; small?: boolean }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button onClick={() => { navigator.clipboard.writeText(request(org, sections)).then(() => { setDone(true); setTimeout(() => setDone(false), 2200); }, () => {}); }}
+      title="Copies a short message for your administrator, naming the permissions and where they're granted"
+      className={`inline-flex items-center gap-1.5 rounded-md font-medium border border-line bg-surface text-content-secondary hover:text-content hover:border-content-ghost ${small ? 'h-6 px-2 text-[11.5px]' : 'h-[30px] px-3 text-[12.5px]'}`}>
+      {done ? <><span className="text-ok flex"><Icons.Check size={small ? 11 : 13} /></span>Copied</> : <><Icons.Copy size={small ? 11 : 13} />Copy request for your admin</>}
+    </button>
+  );
+}
+const Chip = ({ children, tone = 'denied' }: { children: ReactNode; tone?: keyof typeof TONE }) => (
+  <span className={`inline-flex items-center h-6 px-2 rounded-md border text-[11.5px] font-medium whitespace-nowrap ${TONE[tone].badge}`}>{children}</span>
+);
+function Badge({ kind, size = 44 }: { kind: D.Access; size?: number }) {
+  return (
+    <span className={`shrink-0 rounded-full border flex items-center justify-center ${TONE[kind].badge}`} style={{ width: size, height: size }}>
+      {kind === 'denied' ? <Icons.Lock size={size * 0.42} /> : kind === 'off' ? <Icons.Package size={size * 0.42} /> : <Icons.X size={size * 0.42} />}
+    </span>
+  );
+}
+
+// A whole tab that can't show: a centred card.
 function NoAccess({ r, s, what }: { r: D.Reading; s: D.Section; what: string }) {
   const a = r.access[s];
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
-      <div className="text-[14px] font-semibold">{a === 'denied' ? `No access to ${D.SECTION_LABEL[s]}` : a === 'off' ? `${D.SECTION_LABEL[s]} isn't part of this subscription` : `${D.SECTION_LABEL[s]} couldn't be read`}</div>
-      <p className="m-0 max-w-[480px] text-[12.5px] text-content-muted leading-relaxed">
-        {a === 'denied' ? <>Your Anypoint account doesn't have permission to read {what} in {r.org.name}. An organization administrator can grant it in Access Management. Everything else on the dashboard still works.</>
-          : a === 'off' ? <>The organization's subscription doesn't include it, so there's nothing to show.</>
-          : <>{r.why[s]} Refresh to try again.</>}
-      </p>
+    <div className="flex-1 overflow-auto flex items-center justify-center p-6">
+      <div className={`w-full max-w-[500px] rounded-xl border px-7 py-7 text-center shadow-[var(--shadow)] ${TONE[a].box}`} style={glow(a)}>
+        <div className="flex justify-center"><Badge kind={a} /></div>
+        <h3 className="m-0 mt-4 text-[15px] font-semibold">{a === 'denied' ? `No access to ${D.SECTION_LABEL[s]}` : a === 'off' ? `${D.SECTION_LABEL[s]} isn't part of this subscription` : `${D.SECTION_LABEL[s]} couldn't be read`}</h3>
+        <p className="m-0 mt-2 text-[12.5px] text-content-secondary leading-relaxed">
+          {a === 'denied' ? <>Your Anypoint account can't read {what} in <b className="font-medium text-content">{r.org.name}</b>. An organization administrator can grant it in Access Management.</>
+            : a === 'off' ? <>The organization's subscription doesn't include it, so there's nothing to show here.</>
+            : <>{r.why[s]}</>}
+        </p>
+        {a === 'denied' && <>
+          <div className="mt-4 text-[11px] font-semibold uppercase tracking-[0.5px] text-content-faint">Permission to ask for</div>
+          <div className="mt-2 flex flex-wrap justify-center gap-1.5">{PERMS[s].map((p) => <Chip key={p}>{p}</Chip>)}</div>
+        </>}
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          {a === 'denied' && <CopyRequest org={r.org.name} sections={[s]} />}
+          {a === 'error' && <button className={btnPrimary} onClick={retry}>Try again</button>}
+        </div>
+        {a !== 'error' && <p className="m-0 mt-4 text-[11.5px] text-content-faint">Everything else on the dashboard still works.</p>}
+      </div>
+    </div>
+  );
+}
+// The same, inside a page: a row with an accent bar on the left.
+function NoAccessInline({ r, s, what }: { r: D.Reading; s: D.Section; what: string }) {
+  const a = r.access[s];
+  return (
+    <div className={`relative flex items-center gap-3 pl-4 pr-3.5 py-3 rounded-lg border overflow-hidden ${TONE[a].box}`} style={TONE[a].glow ? { backgroundImage: `linear-gradient(to right, color-mix(in oklch, ${TONE[a].glow} 9%, transparent), transparent 55%)` } : undefined}>
+      <span className={`absolute left-0 inset-y-0 w-[3px] ${a === 'denied' ? 'bg-warn' : a === 'error' ? 'bg-err' : 'bg-content-ghost'}`} />
+      <Badge kind={a} size={30} />
+      <div className="flex-1 min-w-0 text-[12.5px]">
+        <div className="font-semibold">{a === 'denied' ? `No access to ${D.SECTION_LABEL[s]}` : a === 'off' ? `${D.SECTION_LABEL[s]} isn't in this subscription` : `${D.SECTION_LABEL[s]} couldn't be read`}</div>
+        <div className="mt-0.5 text-content-muted">{a === 'denied' ? <>So {what} {what.endsWith('s') ? 'are' : 'is'} left out. Ask for {PERMS[s].map((p, i) => <span key={p}>{i ? ' and ' : ''}<b className="font-medium text-content-secondary">{p}</b></span>)}.</> : r.why[s]}</div>
+      </div>
+      {a === 'denied' ? <CopyRequest org={r.org.name} sections={[s]} small /> : a === 'error' ? <button className={btn} onClick={retry}>Try again</button> : null}
     </div>
   );
 }
@@ -102,6 +171,7 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
     } catch (e) { if (mine === run.current) { setError(String(e).replace(/^Error: /, '')); setStep(null); } }
   }
   useEffect(() => { if (org) load(org); return () => { run.current++; }; }, [org?.id]);
+  useEffect(() => { const f = () => { if (org) load(org); }; window.addEventListener('ads-dash-refresh', f); return () => window.removeEventListener('ads-dash-refresh', f); }, [org?.id]);
 
   const s = useMemo(() => (reading ? D.summary(reading) : null), [reading, tick]);
   const govOn = reading?.governance === 'on';
@@ -180,9 +250,14 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
             {tab === 'deployments' && reading.apps.length > 0 && <button className={btn} onClick={() => exportCsv('apps', D.csvApps(reading.apps), reading.apps.length)} title="Every app in every environment, as a CSV file">Export CSV…</button>}
           </div>
           {(missing.length > 0 || reading.notes.length > 0) && (
-            <div className="shrink-0 px-4 py-1.5 border-b border-line-subtle bg-[color-mix(in_oklch,var(--warn)_9%,transparent)] text-[12px] text-content-secondary select-text">
-              {missing.length > 0 && <>This account can't read {missing.map((k) => D.SECTION_LABEL[k]).join(', ').replace(/, ([^,]*)$/, ' or $1')} in {reading.org.name}, so {missing.length === 1 ? 'that part is' : 'those parts are'} left out. </>}
-              {reading.notes.join(' ')}
+            <div className="shrink-0 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-4 py-2 border-b border-warn-border bg-warn-tint text-[12px] text-content-secondary select-text">
+              {missing.length > 0 && <>
+                <span className="text-warn flex"><Icons.Lock size={13} /></span>
+                <span>Not visible with this account:</span>
+                {missing.map((k) => <Chip key={k}>{D.SECTION_LABEL[k]}</Chip>)}
+              </>}
+              {reading.notes.length > 0 && <span className={missing.length ? 'text-content-muted' : ''}>{reading.notes.join(' ')}</span>}
+              {missing.length > 0 && <span className="ml-auto"><CopyRequest org={reading.org.name} sections={missing} small /></span>}
             </div>
           )}
 
@@ -278,17 +353,23 @@ function Overview({ r, s, show, onOpen, onTab }: { r: D.Reading; s: ReturnType<t
   const prodDown = r.apps.filter((a) => a.production && a.health === 'down');
   const govRead = r.access.governance === 'ok' || r.access.governance === 'off';
   // Nothing the dashboard shows is readable: one page that says what it needs, instead of empty cards.
-  if (!ex && !govRead && !rt && !mgr) return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
-      <div className="text-[14px] font-semibold">This account can't read anything the dashboard shows in {r.org.name}</div>
-      <p className="m-0 max-w-[520px] text-[12.5px] text-content-muted leading-relaxed">Each part needs its own Anypoint permission, which an organization administrator grants in Access Management:</p>
-      <ul className="m-0 p-0 list-none text-[12.5px] text-content-secondary leading-loose">
-        <li><b className="font-medium">Exchange Viewer</b> for the APIs, versions, endpoints and activity</li>
-        <li><b className="font-medium">Governance Viewer</b> for API Governance and conformance</li>
-        <li><b className="font-medium">View APIs Configuration</b> (API Manager) for what's managed where</li>
-        <li><b className="font-medium">Read Applications</b> (Runtime Manager) for what's deployed, and Health</li>
-      </ul>
-      <p className="m-0 text-[12px] text-content-faint">The design side of Design Studio works without any of them.</p>
+  if ((!ex || s.apis + s.fragments + s.others === 0) && !govRead && !rt && !mgr) return (
+    <div className="flex-1 overflow-auto flex items-center justify-center p-6">
+      <div className={`w-full max-w-[560px] rounded-xl border px-7 py-7 shadow-[var(--shadow)] ${TONE.denied.box}`} style={glow('denied')}>
+        <div className="flex justify-center"><Badge kind="denied" /></div>
+        <h3 className="m-0 mt-4 text-center text-[15px] font-semibold">This account can't see anything here yet</h3>
+        <p className="m-0 mt-2 text-center text-[12.5px] text-content-secondary leading-relaxed">Each part of the dashboard needs its own Anypoint permission in <b className="font-medium text-content">{r.org.name}</b>. An organization administrator grants them in Access Management.</p>
+        <div className="mt-5 rounded-lg border border-line bg-surface divide-y divide-line-subtle">
+          {([['exchange', 'APIs, versions, endpoints and activity'], ['governance', 'Governance and conformance'], ['apimanager', "What's managed in each environment"], ['runtime', "What's deployed, and Health"]] as const).map(([s, what]) => (
+            <div key={s} className="flex items-center gap-3 px-3.5 py-2.5 text-[12.5px]">
+              <span className="flex-1 min-w-0 text-content-secondary">{what}</span>
+              <span className="flex flex-wrap justify-end gap-1">{PERMS[s].filter((p) => p !== 'View Environment' || s === 'apimanager').map((p) => <Chip key={p}>{p}</Chip>)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 flex justify-center"><CopyRequest org={r.org.name} sections={['exchange', 'governance', 'apimanager', 'runtime']} /></div>
+        <p className="m-0 mt-4 text-center text-[11.5px] text-content-faint">The design side of Design Studio works without any of them.</p>
+      </div>
     </div>
   );
   return (
@@ -382,7 +463,7 @@ function Overview({ r, s, show, onOpen, onTab }: { r: D.Reading; s: ReturnType<t
                 );
               })}
             </div>}
-            {ex && <div className={card}>
+            {ex && apis.length > 0 && <div className={card}>
               <div className={head}>By publisher</div>
               {people.slice(0, 10).map((p) => (
                 <div key={p.name} className="flex items-center gap-3 h-8 px-3.5 border-b border-line-subtle last:border-b-0 text-[12.5px]">
@@ -585,7 +666,7 @@ function Deployments({ r, onOpen }: { r: D.Reading; onOpen: (a: D.Api) => void }
               </table></div>
             ) : <div className="px-3.5 py-4 text-[12.5px] text-content-faint">{q ? 'Nothing matches.' : 'No API is managed in API Manager in any environment yet.'}</div>}
           </div>
-        ) : <div className={`${card} px-3.5 py-3 text-[12.5px] text-content-muted`}>{r.access.apimanager === 'denied' ? "This account can't read API Manager, so which version is managed where is left out." : r.why.apimanager}</div>}
+        ) : <NoAccessInline r={r} s="apimanager" what="which version is managed where" />}
 
         {r.access.runtime === 'ok' ? (
           <div className={card}>
@@ -606,7 +687,7 @@ function Deployments({ r, onOpen }: { r: D.Reading; onOpen: (a: D.Api) => void }
               </table></div>
             ) : <div className="px-3.5 py-4 text-[12.5px] text-content-faint">{q || env !== 'all' ? 'Nothing matches.' : 'No apps are deployed in any environment yet.'}</div>}
           </div>
-        ) : <div className={`${card} px-3.5 py-3 text-[12.5px] text-content-muted`}>{r.access.runtime === 'denied' ? "This account can't read Runtime Manager, so the apps are left out." : r.why.runtime}</div>}
+        ) : <NoAccessInline r={r} s="runtime" what="the apps" />}
       </div>
     </div>
   );
