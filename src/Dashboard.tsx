@@ -12,6 +12,7 @@ import { Select } from './components/Popup';
 import { WindowControls } from './components/WindowControls';
 import { Spinner, btn, btnPrimary } from './App';
 import type { Me } from './SyncUI';
+import { cmpVersion } from './sync';
 import * as D from './dashdata';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -673,7 +674,7 @@ function Deployments({ r, onOpen }: { r: D.Reading; onOpen: (a: D.Api) => void }
                     <tr key={x.assetId} onClick={() => api && onOpen(api)} className={api ? 'cursor-pointer hover:bg-[var(--hover-overlay)]' : ''}>
                       <td className={`${td} font-medium`}>{x.name}</td>
                       {envs.map((e) => <td key={e.id} className={td}>{(x.cells.get(e.name) ?? []).map((i) => (
-                        <span key={i.id} className="inline-flex items-center gap-1.5 mr-3 whitespace-nowrap" title={`${i.label || 'Instance'} ${i.id}${i.endpoint ? ' · ' + i.endpoint : ''}`}>
+                        <span key={i.id} className="inline-flex items-center gap-1.5 mr-3 whitespace-nowrap" title={`${i.label || 'Instance'} ${i.id}${i.endpoint ? ' · ' + i.endpoint : ''}${api && cmpVersion(i.version, api.version) < 0 ? ` · linked to Exchange ${i.version}, latest is ${api.version}` : ''}`}>
                           {dot(/^active$/i.test(i.status) ? 'ok' : /unregistered|inactive/i.test(i.status) ? 'warn' : 'faint')}<span className="font-mono text-[12px]">{i.version}</span>{i.label && <span className="text-content-faint">{i.label}</span>}
                         </span>
                       ))}{!(x.cells.get(e.name) ?? []).length && <span className="text-content-ghost">None</span>}</td>)}
@@ -727,9 +728,15 @@ function Health({ r }: { r: D.Reading }) {
   // What can be checked, with the address Anypoint knows (if any).
   const all = from === 'apps'
     ? r.apps.map((a) => ({ key: `app:${a.env}/${a.name}`, name: a.name, env: a.env, production: a.production, what: a.runtime, tip: a.mule ? `Mule ${a.mule}` : '', status: a.status, health: a.health, url: a.url }))
-    : r.instances.map((i) => ({ key: `api:${i.env}/${i.id}`, name: `${i.name}${i.label ? ` (${i.label})` : ''}`, env: i.env, production: i.production, what: `Exchange version ${i.version}`,
-      tip: 'The version of the Exchange asset this API instance is linked to in API Manager. It changes only when someone changes it there (or a pipeline does), not when a newer version is published.',
-      status: i.status, health: /^active$/i.test(i.status) ? 'up' as const : 'other' as const, url: i.endpoint }));
+    : r.instances.map((i) => {
+      // The label is shown only when it says something the name doesn't.
+      const latest = r.apis.find((a) => a.groupId === i.groupId && a.assetId === i.assetId)?.version;
+      const behind = !!latest && !!i.version && cmpVersion(i.version, latest) < 0;
+      return { key: `api:${i.env}/${i.id}`, name: `${i.name}${i.label && i.label !== i.name ? ` (${i.label})` : ''}`, env: i.env, production: i.production,
+        what: `Exchange version ${i.version}${behind ? ` · latest is ${latest}` : ''}`,
+        tip: `The version of the Exchange asset this API instance is linked to in API Manager${behind ? ` (Exchange's latest is ${latest})` : ''}. It changes only when someone changes it there (Change API version) or a pipeline does, not when a newer version is published. It doesn't change what runs: Autodiscovery pairs the app with the instance by its ID.`,
+        status: i.status, health: /^active$/i.test(i.status) ? 'up' as const : 'other' as const, url: i.endpoint };
+    });
   const envNames = [...new Set(all.map((x) => x.env))];
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   // Down: Anypoint says so, or the last check failed. Sorted with the worst first by default.
