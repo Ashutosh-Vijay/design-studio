@@ -220,7 +220,7 @@ export function About({ version, onClose, onRestart, whatsNew = false }: { versi
               : upd.state !== 'checking' && upd.state !== 'downloading' && <button onClick={() => checkForUpdate(true)} className="text-accent hover:underline">Check now</button>}
           </div>}
           <div className="text-[10px] leading-[1.6] text-content-faint">
-            {APP_FULL_NAME}. AMF by MuleSoft / Salesforce, Apache License 2.0. Anypoint, Design Center, Exchange and MuleSoft are trademarks of Salesforce, Inc.
+            {APP_FULL_NAME}. AMF by MuleSoft / Salesforce, Apache License 2.0. Editor fonts JetBrains Mono, Fira Code, Cascadia Code, IBM Plex Mono and Geist Mono, SIL Open Font License 1.1. Anypoint, Design Center, Exchange and MuleSoft are trademarks of Salesforce, Inc.
             Not affiliated with, endorsed by, or sponsored by MuleSoft or Salesforce.
           </div>
         </div>

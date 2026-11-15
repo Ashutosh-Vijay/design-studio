@@ -21,7 +21,12 @@ export function entries(text: string): Entry[] {
 function parseEntries(text: string): Entry[] {
   const out: Entry[] = [];
   let pos = 0, block = -1; // inside a | or > text block: lines indented deeper than its key are text, not keys
+  // Inside a quoted value that runs over several lines: every line is text until the closing quote, at any
+  // indentation (a real spec continued a "description" at column 0, which ended types: early).
+  let quote: '"' | "'" | null = null;
+  const closes = (s: string, qc: '"' | "'") => (qc === '"' ? /^(?:[^"\\]|\\.)*"/ : /^(?:[^']|'')*'(?!')/).test(s);
   for (const [i, l] of text.split('\n').entries()) {
+    if (quote) { if (closes(l, quote)) quote = null; pos += l.length + 1; continue; }
     if (block >= 0 && (!l.trim() || l.match(/^\s*/)![0].length > block)) { pos += l.length + 1; continue; }
     block = -1;
     const m = l.match(KEY_RE);
@@ -32,6 +37,7 @@ function parseEntries(text: string): Entry[] {
       const val = (q ? q[1] : raw.replace(/\s+#.*$/, '')).trim();
       out.push({ line: i, ind, key: m[3].replace(/^["']|["']$/g, ''), val, from: pos + ind, dash: !!m[2] });
       if (/^[|>][-+0-9]*$/.test(val)) block = ind;
+      else if (!q && /^["']/.test(raw) && !closes(raw.slice(1), raw[0] as '"' | "'")) quote = raw[0] as '"' | "'";
     }
     pos += l.length + 1;
   }

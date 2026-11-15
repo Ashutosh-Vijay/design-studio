@@ -445,16 +445,16 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
 
   return (
     <>
-      <button onClick={openBranches} title="Branches" className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[12px] text-content-secondary hover:bg-surface-2">
-        <Icons.Branch size={13} /><span>{link.projectName}/<b>{link.branch}</b></span><Icons.ChevronDown size={11} />
+      <button onClick={openBranches} title={`Branches (${link.projectName}/${link.branch})`} className="h-7 px-2.5 min-w-[90px] shrink rounded-md flex items-center gap-1.5 text-[12px] text-content-secondary whitespace-nowrap hover:bg-surface-2">
+        <Icons.Branch size={13} className="shrink-0" /><span className="truncate min-w-0">{link.projectName}/<b>{link.branch}</b></span><Icons.ChevronDown size={11} className="shrink-0" />
       </button>
-      <span className="text-[12px] text-content-faint flex items-center gap-2">
+      <span className="text-[12px] text-content-faint flex items-center gap-2 whitespace-nowrap min-w-0 shrink-[3] [&>span]:truncate [&>span]:min-w-0 [&>button]:shrink-0">
         {holding && <span className="flex" title="You hold the lock in Design Center while you edit. It's let go when you push or close the project."><Icons.Lock size={12} /></span>}
         {busy ? <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />{busy}</span>
           : dirty ? null
           : conflicts ? <span title="Pick Keep mine, Keep theirs or Keep both on each one in the editor, then push">{conflicts} {conflicts === 1 ? 'conflict' : 'conflicts'} to sort out before pushing</span>
           : behind ? <><span>Design Center has changes</span><button onClick={() => pull()} className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Pull</button></>
-          : toPush && readOnly ? <><span>Saved on this computer · read only, {toPush} {toPush === 1 ? 'change' : 'changes'} not sent</span>
+          : toPush && readOnly ? <><span title="Saved on this computer. The connection is read only, so nothing is sent to Design Center.">Saved on this computer · read only, {toPush} {toPush === 1 ? 'change' : 'changes'} not sent</span>
             <button onClick={async () => { if (await allowChanges()) refresh(); }} title="The connection is read only, so nothing is sent to Design Center. Allow changes to push, lock and publish."
               className="h-6 px-2.5 rounded-md text-[12px] font-semibold border border-accent-border text-accent hover:bg-accent-dim">Allow changes…</button></>
           : toPush && perms.canModify === false ? <span title="Design Center shares this project with you as a Viewer. Your changes stay on this computer.">Saved on this computer · view only in Design Center</span>
@@ -463,7 +463,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
           : <button onClick={() => run('Checking Design Center…', async () => {})} title="Check Design Center now" className="hover:text-content">Up to date with Design Center</button>}
       </span>
       <button onClick={onPublish} disabled={!!busy || perms.canPublish === false} title={perms.canPublish === false ? "Your Design Center permissions don't allow publishing this project." : readOnly ? 'This connection is read only. Turn it off in settings to publish.' : 'Publish this project to Exchange'}
-        className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[12px] text-accent border border-accent-border hover:bg-accent-dim disabled:opacity-50">
+        className="h-7 px-2.5 shrink-0 whitespace-nowrap rounded-md flex items-center gap-1.5 text-[12px] text-accent border border-accent-border hover:bg-accent-dim disabled:opacity-50">
         <Icons.Exchange size={14} />Publish
       </button>
       {menu && (

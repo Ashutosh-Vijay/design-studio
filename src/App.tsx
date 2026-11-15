@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import logo from './assets/logo.svg';
 import govWorkerUrl from './governance.worker.ts?worker&url';
 import logoSmall from './assets/logo-small.svg';
-import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import { Compartment, EditorState, type Extension, type StateEffect } from '@codemirror/state';
 import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { EditorView, hoverTooltip, keymap } from '@codemirror/view';
 import { setDiagnostics, type Diagnostic } from '@codemirror/lint';
@@ -264,17 +264,17 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-bg text-content select-none">
       {/* Title bar: the window has no OS decorations, so this is the drag region */}
       <header data-tauri-drag-region className="h-11 shrink-0 flex items-center gap-2.5 pl-3 bg-surface border-b border-line">
-        <button className="w-8 h-7 flex items-center justify-center rounded-md hover:bg-surface-2" title={`About ${APP_NAME}`} onClick={() => setAbout(true)}>
+        <button className="w-8 h-7 shrink-0 flex items-center justify-center rounded-md hover:bg-surface-2" title={`About ${APP_NAME}`} onClick={() => setAbout(true)}>
           <img src={logoSmall} width={22} height={22} alt="" />
         </button>
         {project && <button title="Back to all projects" onClick={async () => { if (await okToLeave()) { setProject(null); setDirtyCount(0); } }}
-          className="h-7 pl-1.5 pr-2.5 -ml-1 flex items-center gap-1 rounded-md text-[12px] text-content-muted hover:bg-surface-2 hover:text-content">
+          className="h-7 pl-1.5 pr-2.5 -ml-1 shrink-0 whitespace-nowrap flex items-center gap-1 rounded-md text-[12px] text-content-muted hover:bg-surface-2 hover:text-content">
           <Icons.ArrowLeft size={14} />Projects</button>}
         {project && <span className="w-px h-4 bg-line" />}
-        <span data-tauri-drag-region className="text-[13px] font-semibold">{project ? project.name : APP_NAME}</span>
+        <span data-tauri-drag-region className="text-[13px] font-semibold whitespace-nowrap truncate min-w-[60px] max-w-[280px]" title={project ? project.name : undefined}>{project ? project.name : APP_NAME}</span>
         {project && isTauri && <ProjectMenu key={`menu:${project.root}`} root={project.root} name={project.name} onNotice={(t, err) => syncRef.current?.notice(t, err)}
           onChanged={() => { syncRef.current?.reload(); }} onOpen={(root) => openFolder(root)} onGone={() => { const l = recent.filter((r) => r.root !== project.root); writeRecent(l); setRecent(l); setProject(null); setDirtyCount(0); }} />}
-        {project && <span data-tauri-drag-region className="text-[12px] text-content-faint">{dirtyCount ? `${dirtyCount} unsaved` : 'All changes saved'}</span>}
+        {project && <span data-tauri-drag-region className="text-[12px] text-content-faint whitespace-nowrap truncate min-w-0 shrink-[2]">{dirtyCount ? `${dirtyCount} unsaved` : 'All changes saved'}</span>}
         <div data-tauri-drag-region className="flex-1 h-full" />
         {project && isTauri && (
           <SyncBar key={`sync:${project.root}`} root={project.root} dirty={dirtyCount}
@@ -293,8 +293,8 @@ export default function App() {
           className="h-7 px-2 flex items-center gap-1.5 rounded-md text-[11.5px] text-err hover:bg-surface-2"><Icons.Sparkle size={13} />AI tools didn't start</button>}
         {me && <button onClick={() => { setSettingsStart('anypoint'); setSettingsOpen(true); }}
           title={`Signed in to Anypoint as ${me.username}${me.org_name ? ` in ${me.org_name}` : ''}. ${me.read_only ? 'Read only: nothing is sent to Design Center or Exchange.' : 'Changes are allowed: push, lock and publish.'} Click for the connection.`}
-          className="h-7 max-w-[220px] px-2 flex items-center gap-1.5 rounded-md text-[11.5px] text-content-muted hover:bg-surface-2 hover:text-content">
-          <Icons.DesignCenter size={14} /><span className="truncate">{me.org_name || me.username}</span>{me.read_only && <Icons.Lock size={11} />}</button>}
+          className="h-7 max-w-[220px] min-w-[40px] shrink px-2 flex items-center gap-1.5 rounded-md text-[11.5px] text-content-muted whitespace-nowrap hover:bg-surface-2 hover:text-content">
+          <Icons.DesignCenter size={14} className="shrink-0" /><span className="truncate min-w-0">{me.org_name || me.username}</span>{me.read_only && <Icons.Lock size={11} className="shrink-0" />}</button>}
         {upd.state === 'ready' && <button onClick={restartToUpdate} title={`Version ${upd.version} is downloaded. Restart to use it (a few seconds).`}
           className="h-7 px-2.5 flex items-center gap-1.5 rounded-md text-[12px] font-medium text-accent border border-accent-border bg-accent-dim hover:brightness-110">
           <span className="w-1.5 h-1.5 rounded-full bg-accent" />Update ready</button>}
@@ -491,7 +491,7 @@ function StartView({ recent, opening, error, onOpen, onNewWindow, onOpenZip, onP
 }
 
 // One open file: its editor state and the text on disk (with LF line endings, as the editor holds it).
-type OpenFile = { state: EditorState; disk: string };
+type OpenFile = { state: EditorState; disk: string; snap?: StateEffect<unknown> }; // snap: where it was scrolled when left
 
 type PaletteItem = { group: string; label: string; detail?: string; run: () => void };
 // What the project view lends the palette: its symbols and commands, and for Find in files (#) the project's text
@@ -772,9 +772,11 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
 
   function show(path: string) {
     const v = view.current!, f = files.current.get(path)!;
-    if (activeRef.current && files.current.has(activeRef.current)) files.current.get(activeRef.current)!.state = v.state;
+    if (activeRef.current && files.current.has(activeRef.current)) { const o = files.current.get(activeRef.current)!; o.state = v.state; o.snap = v.scrollSnapshot(); }
     activeRef.current = path;
     v.setState(f.state);
+    // Back where it was left (setState scrolls to the top). Going to a place (definition, problem) scrolls after this.
+    if (f.snap) v.dispatch({ effects: f.snap });
     setActive(path);
     const pos = f.state.selection.main.head, line = f.state.doc.lineAt(pos);
     setCursor({ line: line.number, col: pos - line.from + 1 });
@@ -1480,6 +1482,82 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     if (checkable) amf('open', { root: project.root, main: project.main }).then(() => runCheck('validate')).catch((e) => setEngine({ state: 'failed', detail: String(e) }));
   }, [project.main]);
 
+  // The type an example on line n (1-based) has to match: the type: beside it, or beside the examples: above a named one.
+  function exampleTypeAt(doc: EditorState['doc'], n: number) {
+    const l = doc.line(n);
+    if (!/^\s*(- )?[\w.-]+\s*:/.test(l.text)) return '';
+    let ind = l.text.match(/^\s*/)![0].length, at = n;
+    if (!/^\s*(- )?examples?\s*:/.test(l.text)) { // a named example: its examples: is the line above at less indent
+      for (let k = n - 1; k >= 1; k--) { const t = doc.line(k).text, ki = t.match(/^\s*/)![0].length; if (!t.trim()) continue; if (ki < ind) { if (!/^\s*examples\s*:/.test(t)) return ''; ind = ki; at = k; break; } }
+      if (at === n) return '';
+    }
+    for (const dn of [-1, 1]) for (let k = at + dn; k >= 1 && k <= doc.lines; k += dn) {
+      const t = doc.line(k).text, ki = t.match(/^\s*/)![0].length;
+      if (t.trim() && ki < ind) break;
+      const tm = ki === ind && t.match(/^\s*type\s*:\s*([^\s#]+)/); if (tm) return tm[1];
+    }
+    return '';
+  }
+
+  // A missing example file, made from the type it has to match. AMF renders the type as JSON Schema (libraries,
+  // inheritance and unions resolved its way); the sample takes the type's own examples, defaults and enums first.
+  async function createExample(from: string, target: string, type: string) {
+    try {
+      let text = '{}\n';
+      const many = type.endsWith('[]'), name = type.replace(/\[\]$/, '');
+      const d = name && !BUILTIN_TYPES.includes(name) ? findDecl(from, name) : null;
+      if (name && !d && !BUILTIN_TYPES.includes(name)) throw new Error(`${name} isn't a declared type, so there's nothing to build the example from.`);
+      if (d) {
+        await syncOverlays();
+        const root = JSON.parse((await amf('jsonSchema', { name: d.name, file: d.file })).text);
+        // AMF's schema can point at a type it doesn't include (People: Person[] has only People): fetch each one.
+        root.definitions ??= {};
+        for (let round = 0; round < 30; round++) {
+          const missing = [...JSON.stringify(root).matchAll(/"\$ref":"#\/definitions\/([^"]+)"/g)].map((m) => decodeURIComponent(m[1])).filter((n) => !root.definitions[n]);
+          if (!missing.length) break;
+          for (const n of new Set(missing)) {
+            const r = await amf('jsonSchema', { name: n.includes('.') ? n.split('.').pop() : n, file: '' }).catch(() => null);
+            const got = r ? JSON.parse(r.text) : null;
+            root.definitions[n] = got?.definitions?.[n] ?? got?.definitions?.[n.split('.').pop()!] ?? {};
+            Object.entries(got?.definitions ?? {}).forEach(([k, v]) => { root.definitions[k] ??= v; });
+          }
+        }
+        const seen: string[] = [];
+        const sample = (s: any): unknown => {
+          if (!s || typeof s !== 'object') return null;
+          if (s.$ref) {
+            const ref = String(s.$ref);
+            if (seen.filter((x) => x === ref).length > 1) return null; // a type that contains itself: stop after one level
+            seen.push(ref);
+            const t = ref.replace(/^#\//, '').split('/').reduce((o: any, k) => o?.[decodeURIComponent(k)], root);
+            const v = sample(t); seen.pop(); return v;
+          }
+          if (s.example !== undefined) return s.example;
+          if (Array.isArray(s.examples) && s.examples.length) return s.examples[0];
+          if (s.default !== undefined) return s.default;
+          if (Array.isArray(s.enum) && s.enum.length) return s.enum[0];
+          if (s.const !== undefined) return s.const;
+          for (const k of ['anyOf', 'oneOf']) if (Array.isArray(s[k]) && s[k].length) return sample(s[k][0]);
+          if (Array.isArray(s.allOf)) return Object.assign({}, ...s.allOf.map((x: any) => sample(x)).filter((x: unknown) => x && typeof x === 'object'));
+          const t = Array.isArray(s.type) ? s.type.find((x: string) => x !== 'null') : s.type;
+          if (t === 'object' || s.properties) return Object.fromEntries(Object.entries(s.properties ?? {}).filter(([k]) => !/^\/.*\/$/.test(k)).map(([k, v]) => [k, sample(v)]));
+          if (t === 'array') return [sample(s.items ?? {})];
+          if (t === 'integer') return s.minimum ?? 0;
+          if (t === 'number') return s.minimum ?? 0;
+          if (t === 'boolean') return true;
+          if (t === 'null') return null;
+          if (t === 'string') return s.format === 'date-time' || s.format === 'date-time-only' ? '2026-01-01T10:00:00Z' : s.format === 'date' ? '2026-01-01' : s.format === 'time' ? '10:00:00' : s.format === 'email' ? 'name@example.com' : /uri|url/.test(s.format ?? '') ? 'https://example.com' : 'string';
+          return s.definitions ? null : {};
+        };
+        const v = sample(root);
+        text = JSON.stringify(many ? [v] : v, null, 2) + '\n';
+      }
+      await invoke('write_file_exact', { root: project.root, path: target, text });
+      await onRefresh();
+      setNotice({ text: `Created ${target}${d ? ` from ${type}` : ''}. Fill in real values; AMF checks it against the type.`, err: false, actions: [['Open', () => { openFile(target); }]] });
+    } catch (e) { fail(e); }
+  }
+
   // Wavy underlines in the editor for the open file's problems.
   useEffect(() => {
     const v = view.current; if (!v || !active) return;
@@ -1497,25 +1575,24 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     for (let n = 1; n <= doc.lines; n++) {
       const l = doc.line(n), m = l.text.match(/!include\s+(\S+)/); if (!m) continue;
       const target = m[1].startsWith('/') ? m[1].slice(1) : normalizePath(dir + m[1]);
+      const from = l.from + l.text.indexOf(m[1]);
+      // For an example, the type it has to match.
+      const type = exampleTypeAt(doc, n);
+      // A JSON file that isn't there yet: offer to make it, from the type when there is one.
+      if (/\.json$/i.test(target) && !project.files.some((f) => f.path === target) && !isReadOnly(active)) {
+        const src = active;
+        diags.push({ from, to: from + m[1].length, severity: 'error', message: `${target} doesn't exist yet.`,
+          actions: [{ name: type ? `Create it from ${type}` : 'Create it', apply: () => { createExample(src, target, type); } }] });
+        continue;
+      }
       const here = problems.filter((p) => p.file === target && p.file !== active);
       if (!here.length) continue;
-      const from = l.from + l.text.indexOf(m[1]);
       const worst = here.some((p) => p.severity === 'error') ? 'error' : here.some((p) => p.severity === 'warning') ? 'warning' : 'info';
-      // For an example, name the type it has to match: the type: next to it, at the same indent.
-      let type = '';
-      if (/^\s*(- )?examples?\s*:/.test(l.text)) {
-        const ind = l.text.match(/^\s*/)![0].length;
-        for (const dn of [-1, 1]) for (let k = n + dn; k >= 1 && k <= doc.lines && !type; k += dn) {
-          const t = doc.line(k).text, ki = t.match(/^\s*/)![0].length;
-          if (t.trim() && ki < ind) break;
-          const tm = ki === ind && t.match(/^\s*type\s*:\s*(\S+)/); if (tm) type = tm[1];
-        }
-      }
       const head = type ? `This example doesn't match ${type}.` : `Problems in ${base(target)}.`;
       diags.push({ from, to: from + m[1].length, severity: worst, message: head + '\n' + here.map((p) => `${base(target)}, line ${p.line}: ${p.message}`).join('\n') });
     }
     v.dispatch(setDiagnostics(v.state, diags));
-  }, [problems, active]);
+  }, [problems, active, project.files]);
 
   async function goToProblem(p: Problem) {
     await openFile(p.file);
@@ -2355,14 +2432,25 @@ function ZipDialog({ zip, dest, onOk, onCancel }: { zip: string; dest: string; o
   );
 }
 // Editor text size and wrapping: a CSS variable and a class on <html>, so every open editor follows at once.
-export const editorPrefs = (): { size: number; wrap: boolean; colors: 'dc' | 'studio' } => { try { return { size: 12.5, wrap: false, colors: 'dc', ...JSON.parse(localStorage.getItem('ads.editor') ?? '{}') }; } catch { return { size: 12.5, wrap: false, colors: 'dc' }; } };
+// font: the editor's (also code names and paths everywhere); ui: the interface's. Either can be any installed font.
+type EditorPrefs = { size: number; wrap: boolean; colors: 'dc' | 'studio'; font: string; ui: string; line: number };
+const EDITOR_DEFAULTS: EditorPrefs = { size: 12.5, wrap: false, colors: 'dc', font: 'JetBrains Mono', ui: 'Inter', line: 1.6 };
+export const editorPrefs = (): EditorPrefs => { try { return { ...EDITOR_DEFAULTS, ...JSON.parse(localStorage.getItem('ads.editor') ?? '{}') }; } catch { return { ...EDITOR_DEFAULTS }; } };
+export const SYSTEM_FONT = 'System font';
 export function applyEditorPrefs(p = editorPrefs()) {
-  document.documentElement.style.setProperty('--editor-size', `${p.size}px`);
+  const s = document.documentElement.style, sans = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+  s.setProperty('--font-mono', `"${p.font.replace(/"/g, '')}", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`);
+  s.setProperty('--font-sans', p.ui === SYSTEM_FONT ? sans : `"${p.ui.replace(/"/g, '')}", "Inter", ${sans}`);
+  s.setProperty('--editor-line', String(p.line));
+  s.setProperty('--editor-size', `${p.size}px`);
   document.documentElement.classList.toggle('ads-wrap', p.wrap);
   document.documentElement.classList.toggle('ads-dc', p.colors === 'dc');
   window.dispatchEvent(new Event('ads-editor-prefs'));
 }
 applyEditorPrefs();
+// A font that finishes loading after the editor measured its characters (a bundled one picked, or an installed one
+// on a slow disk) would leave the cursor off the text: the editor measures again.
+document.fonts?.addEventListener('loadingdone', () => window.dispatchEvent(new Event('ads-editor-prefs')));
 // Interface size: the window's own zoom (as Ctrl Plus in a browser), so icons, panels and text all scale and
 // positions stay right. Settings and Ctrl Plus, Ctrl Minus, Ctrl 0 set it.
 export const ZOOMS = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];

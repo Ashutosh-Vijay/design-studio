@@ -194,6 +194,93 @@ export function SampleCheck({ name, run }: { name: string; run: (payload: string
     </Sec>
   );
 }
+// Write a type from a pasted JSON body: each value's type (dates recognised), nested objects and lists written out
+// in place (Extract to Declaration names them later), every property required or every one optional, names as in
+// the JSON or recased. It replaces the type's properties (or items); its description and the rest stay.
+type Case = 'same' | 'camel' | 'snake' | 'kebab';
+function recase(k: string, c: Case) {
+  if (c === 'same') return k;
+  const w = k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').split(/[^A-Za-z0-9]+/).filter(Boolean).map((x) => x.toLowerCase());
+  if (!w.length) return k;
+  return c === 'camel' ? w[0] + w.slice(1).map((x) => x[0].toUpperCase() + x.slice(1)).join('') : w.join(c === 'snake' ? '_' : '-');
+}
+function scalarType(v: unknown) {
+  if (typeof v === 'boolean') return 'boolean';
+  if (typeof v === 'number') return Number.isInteger(v) ? 'integer' : 'number';
+  if (typeof v === 'string') return /^\d{4}-\d{2}-\d{2}$/.test(v) ? 'date-only'
+    : /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.test(v) ? 'datetime'
+    : /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(v) ? 'datetime-only' : 'string';
+  return 'any'; // null: nothing to tell the type from
+}
+// Lines for a value under a key (relative indent), or the one-word type when it fits on the key's line.
+function typeLines(v: unknown, req: boolean, c: Case): string | string[] {
+  if (Array.isArray(v)) {
+    const objs = v.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) as Record<string, unknown>[];
+    if (objs.length) { // every key any item has, first non-null value wins
+      const merged: Record<string, unknown> = {};
+      for (const o of objs) for (const [k, x] of Object.entries(o)) if (merged[k] == null) merged[k] = x;
+      const some = new Set(Object.keys(merged).filter((k) => objs.some((o) => !(k in o)))); // not in every item: optional
+      return ['type: array', 'items:', ...propLines(merged, req, c, some).map((l) => '  ' + l)];
+    }
+    const first = v.find((x) => x != null);
+    if (Array.isArray(first)) { const t = typeLines(first, req, c); return ['type: array', 'items:', ...(typeof t === 'string' ? ['  type: ' + t] : t.map((l) => '  ' + l))]; }
+    return `${first === undefined ? 'any' : scalarType(first)}[]`;
+  }
+  if (v && typeof v === 'object') return propLines(v as Record<string, unknown>, req, c);
+  return scalarType(v);
+}
+function propLines(o: Record<string, unknown>, req: boolean, c: Case, optional = new Set<string>()): string[] {
+  const out = ['type: object', 'properties:'];
+  const keys = Object.keys(o);
+  if (!keys.length) return ['type: object'];
+  for (const k of keys) {
+    let name = recase(k, c) + (req && !optional.has(k) ? '' : '?');
+    if (!/^[\w.-]+\??$/.test(name)) name = JSON.stringify(name);
+    const t = typeLines(o[k], req, c);
+    if (typeof t === 'string') out.push(`  ${name}: ${t}`);
+    else out.push(`  ${name}:`, ...t.map((l) => '    ' + l));
+  }
+  return out;
+}
+export function JsonToType({ name, onApply }: { name: string; onApply: (lines: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [req, setReq] = useState<'all' | 'none'>('all');
+  const [c, setC] = useState<Case>('same');
+  const [err, setErr] = useState<string | null>(null);
+  const go = () => {
+    let v: unknown;
+    try { v = JSON.parse(text); } catch (e) { setErr('Not valid JSON: ' + String(e).replace(/^SyntaxError: /, '')); return; }
+    if (!v || typeof v !== 'object') { setErr('Paste a JSON object or list: a single value is just a type name.'); return; }
+    const t = typeLines(v, req === 'all', c);
+    onApply(typeof t === 'string' ? ['type: ' + t] : t);
+    setOpen(false); setText(''); setErr(null);
+  };
+  if (!open) return <button onClick={() => setOpen(true)} className={BTN} title="Paste a JSON body and its properties are written as this type">From JSON…</button>;
+  return (
+    <div className="basis-full mt-1">
+      <Sec title="Type from JSON">
+        <div className="flex flex-col gap-1.5">
+          <textarea value={text} autoFocus spellCheck={false} rows={8} placeholder={`A JSON ${name}, as an API would send it`}
+            onChange={(e) => { setText(e.target.value); setErr(null); }} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) go(); }}
+            className="w-full px-2 py-1 rounded border border-line bg-surface-input text-content outline-none focus:border-accent font-mono text-[11.5px] leading-snug resize-y placeholder:text-content-ghost" />
+          <div className="flex gap-1.5">
+            <label className="flex flex-col gap-0.5 flex-1 min-w-0"><span className="text-[11.5px] text-content-faint">Properties</span>
+              <Select value={req} onChange={(v) => setReq(v as 'all' | 'none')} className="w-full text-[12px]" options={[{ value: 'all', label: 'All required' }, { value: 'none', label: 'All optional' }]} /></label>
+            <label className="flex flex-col gap-0.5 flex-1 min-w-0"><span className="text-[11.5px] text-content-faint">Names</span>
+              <Select value={c} onChange={(v) => setC(v as Case)} className="w-full text-[12px]" options={[{ value: 'same', label: 'As in the JSON' }, { value: 'camel', label: 'camelCase' }, { value: 'snake', label: 'snake_case' }, { value: 'kebab', label: 'kebab-case' }]} /></label>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button disabled={!text.trim()} onClick={go} className="h-[26px] px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-40">Write the type</button>
+            <button onClick={() => { setOpen(false); setErr(null); }} className={BTN}>Cancel</button>
+            <span className="text-[11px] text-content-faint">Replaces its properties. {K('Ctrl Z')} undoes it.</span>
+          </div>
+          {err && <div className="text-[12px] text-err select-text">{err}</div>}
+        </div>
+      </Sec>
+    </div>
+  );
+}
 // What can go into an extracted trait, in the order RAML usually writes them.
 const TRAIT_PARTS = ['queryParameters', 'queryString', 'headers', 'securedBy', 'body', 'responses'];
 
@@ -554,6 +641,11 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           {d && isType && isMain && <button onClick={() => onMove(d)} className={BTN}>Move to library…</button>}
           {isType && amfType && <button data-nav onClick={() => onCopyType(node.name, file, 'jsonSchema')} className={BTN} title="AMF renders this type as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>}
           {d && node.sect !== 'securitySchemes' && node.sect !== 'annotationTypes' && <button onClick={() => onDelete(d)} className={BTN + ' hover:!text-err'}>Delete…</button>}
+          {isType && !included && !readOnly && <JsonToType key={node.name} name={node.name} onApply={(lines) => onEdit((x) => {
+            let t = x;
+            for (const key of ['properties', 'items', 'type']) t = S.remove(t, [...node.path, key], false);
+            return S.addChild(t, node.path, lines);
+          })} />}
         </div>
         {/* Declared in its own file (name: !include file.raml): the form for it is in that file. */}
         {included && <Sec title="Defined in">{example(node.path)}<div className="mt-1 text-[11px] text-content-faint">Open the file to edit it.</div></Sec>}

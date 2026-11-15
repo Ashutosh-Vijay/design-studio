@@ -19,7 +19,7 @@ export const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'option
 const theme = EditorView.theme({
   '&': { height: '100%', color: 'var(--content)', backgroundColor: 'var(--surface)', fontSize: 'var(--editor-size, 12.5px)' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.6' },
+  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: 'var(--editor-line, 1.6)' },
   '.cm-content': { caretColor: 'var(--accent)', padding: '6px 0 40vh' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
   '.cm-gutters': { backgroundColor: 'var(--surface)', color: 'var(--content-ghost)', border: 'none' },

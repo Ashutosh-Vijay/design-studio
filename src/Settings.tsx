@@ -4,10 +4,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { appConfigDir, appCacheDir } from '@tauri-apps/api/path';
+import { Select } from './components/Popup';
 import { Icons } from './components/Icons';
-import { APP_NAME, autoUpdates } from './Brand';
-import { btn, editorPrefs, applyEditorPrefs, ZOOMS, savedZoom, setZoom } from './App';
-import { ACCENTS, isDarkPref, K, MAC, type ThemePref } from './theme';
+import { APP_NAME, autoUpdates, ask } from './Brand';
+import { btn, editorPrefs, applyEditorPrefs, ZOOMS, savedZoom, setZoom, SYSTEM_FONT } from './App';
+import { ACCENTS, applyTheme, isDarkPref, K, MAC, matchVsCode, type ThemePref } from './theme';
 import { projectsDir } from './sync';
 import { allowChanges, lockWhileEditing, type Me } from './SyncUI';
 import { isTauri, isVsCode, multiWindow, WINDOW } from './components/WindowControls';
@@ -17,12 +20,12 @@ import { readSettings as readGov, writeSettings as writeGov } from './governance
 
 type Section = 'appearance' | 'editor' | 'shortcuts' | 'project' | 'anypoint' | 'projects' | 'ai' | 'about';
 const SECTIONS: { id: Section; label: string; icon: keyof typeof Icons; keywords: string[]; desktop?: boolean }[] = [
-  { id: 'appearance', label: 'Appearance', icon: 'Panel', keywords: ['theme', 'dark', 'light', 'dusk', 'paper', 'system', 'accent', 'colour', 'color', 'interface size', 'zoom'] },
-  { id: 'editor', label: 'Editor', icon: 'Braces', keywords: ['text size', 'font', 'code colours', 'colors', 'design center', 'wrap', 'long lines', 'raml', 'oas'] },
+  { id: 'appearance', label: 'Appearance', icon: 'Panel', keywords: ['theme', 'dark', 'light', 'dusk', 'paper', 'system', 'vs code', 'match', 'accent', 'colour', 'color', 'interface size', 'zoom', 'font', 'interface font', 'reset'] },
+  { id: 'editor', label: 'Editor', icon: 'Braces', keywords: ['text size', 'font', 'editor font', 'line spacing', 'line height', 'code colours', 'colors', 'design center', 'wrap', 'long lines', 'raml', 'oas'] },
   { id: 'shortcuts', label: 'Shortcuts', icon: 'Command', keywords: ['keyboard', 'keys', 'hotkey', 'save', 'find', 'replace', 'rename', 'fold', 'comment', 'palette'] },
   { id: 'project', label: 'This project', icon: 'ApiSpec', keywords: ['governance', 'rulesets', 'rules', 'validate', 'auto', 'conformance'] },
   { id: 'anypoint', label: 'Anypoint', icon: 'DesignCenter', desktop: true, keywords: ['sign in', 'sign out', 'connect', 'account', 'organization', 'read only', 'lock', 'design center'] },
-  { id: 'projects', label: 'Projects', icon: 'Folder', desktop: true, keywords: ['folder', 'location', 'where', 'pull', 'create'] },
+  { id: 'projects', label: 'Folders', icon: 'Folder', desktop: true, keywords: ['projects', 'folder', 'location', 'where', 'pull', 'create', 'data', 'settings', 'cache', 'downloads'] },
   { id: 'ai', label: 'AI tools', icon: 'Sparkle', desktop: true, keywords: ['mcp', 'claude', 'copilot', 'cursor', 'agent', 'server', 'port', 'start', 'allow changes', 'publish', 'push'] },
   { id: 'about', label: 'About', icon: 'Help', keywords: ['version', 'updates', 'licence', 'license', "what's new"] },
 ];
@@ -145,9 +148,22 @@ function Appearance({ pref, accent, onTheme }: { pref: ThemePref; accent: string
   const [zoom, setZoomState] = useState(savedZoom);
   useEffect(() => { const f = () => setZoomState(savedZoom()); window.addEventListener('ads-zoom', f); return () => window.removeEventListener('ads-zoom', f); }, []);
   const dark = isDarkPref(pref);
+  const [ed, setEdState] = useState(editorPrefs);
+  const setUi = (ui: string) => { const p = { ...editorPrefs(), ui }; setEdState(p); try { localStorage.setItem('ads.editor', JSON.stringify(p)); } catch { /* ignore */ } applyEditorPrefs(p); };
+  const [n, setN] = useState(0); // remounts the font picker after a reset
+  const [match, setMatch] = useState(matchVsCode);
   return (
-    <Page title="Appearance" desc="Theme, accent colour and the size of everything.">
-      <Row label="Theme" desc={pref === 'system' ? `Follows your system, now ${dark ? 'dark' : 'light'}.` : undefined}>
+    <Page title="Appearance" desc="Theme, accent colour, fonts and the size of everything.">
+      {isVsCode && (
+        <Row label="Match VS Code theme" desc="Use your VS Code colour theme (surfaces, text, borders and accent) instead of Design Studio's own. It changes when VS Code's does.">
+          <Toggle label="Match VS Code theme" on={match} onChange={(on) => {
+            try { localStorage.setItem('ads.matchVsCode', on ? '1' : '0'); } catch { /* ignore */ }
+            setMatch(on); applyTheme(pref, accent);
+          }} />
+        </Row>
+      )}
+      {!match && <>
+      <Row label="Theme" desc={pref === 'system' ? `Follows ${isVsCode ? 'VS Code' : 'your system'}, now ${dark ? 'dark' : 'light'}.` : undefined}>
         <Choice value={pref} onChange={(p) => onTheme(p, accent)}
           options={[['dark', <><Icons.Moon size={12} />Dusk</>], ['light', <><Icons.Sun size={12} />Paper</>], ['system', <><Icons.Activity size={12} />System</>]]} />
       </Row>
@@ -160,6 +176,7 @@ function Appearance({ pref, accent, onTheme }: { pref: ThemePref; accent: string
           ))}
         </div>
       </Row>
+      </>}
       {/* In VS Code, its own zoom does this (View, Appearance). */}
       {!isVsCode && (
         <Row label="Interface size" desc={K("Everything: icons, panels and text. Ctrl Plus, Ctrl Minus and Ctrl 0 work anywhere.")}>
@@ -171,7 +188,33 @@ function Appearance({ pref, accent, onTheme }: { pref: ThemePref; accent: string
           </div>
         </Row>
       )}
+      <Row label="Interface font" desc="Menus, buttons and labels. The code editor has its own font, under Editor.">
+        <FontPicker key={n} value={ed.ui} choices={['Inter', SYSTEM_FONT]} placeholder="Like Segoe UI" onChange={setUi} />
+      </Row>
+      <Row label="Reset appearance and editor" desc="Theme, accent, interface size, fonts, text size, line spacing and code colours go back to how they came. Projects, sign-in and AI tools are kept.">
+        <button className={btn} onClick={async () => {
+          if (!(await ask('Reset the appearance and editor settings to how they came?', 'Reset'))) return;
+          try { localStorage.removeItem('ads.editor'); } catch { /* ignore */ }
+          try { localStorage.removeItem('ads.matchVsCode'); } catch { /* ignore */ }
+          applyEditorPrefs(); setEdState(editorPrefs()); setMatch(matchVsCode()); onTheme(isVsCode ? 'system' : 'dark', 'emerald'); applyTheme(isVsCode ? 'system' : 'dark', 'emerald'); if (!isVsCode) setZoom(1); setN((x) => x + 1);
+        }}>Reset…</button>
+      </Row>
     </Page>
+  );
+}
+
+// A font list whose last choice, Other installed font, opens a box for any font on this computer.
+const OTHER = 'Other installed font';
+function FontPicker({ value, choices, placeholder, onChange }: { value: string; choices: string[]; placeholder: string; onChange: (font: string) => void }) {
+  const [other, setOther] = useState(!choices.includes(value));
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <Select value={other ? OTHER : value} className="w-[210px] text-[12.5px]" options={[...choices, OTHER].map((c) => ({ value: c, label: c }))}
+        onChange={(v) => { if (v === OTHER) { setOther(true); return; } setOther(false); onChange(v); }} />
+      {other && <input defaultValue={choices.includes(value) ? '' : value} placeholder={placeholder} spellCheck={false} aria-label="Font name" autoFocus
+        onChange={(e) => { if (e.target.value.trim()) onChange(e.target.value.trim()); }}
+        className="w-[210px] h-[28px] px-2 rounded-md border border-line bg-surface-input text-[12.5px] text-content !outline-none focus:border-accent" />}
+    </div>
   );
 }
 
@@ -180,8 +223,15 @@ function Editor() {
   const setEd = (p: ReturnType<typeof editorPrefs>) => { setEdState(p); try { localStorage.setItem('ads.editor', JSON.stringify(p)); } catch { /* ignore */ } applyEditorPrefs(p); };
   return (
     <Page title="Editor" desc="How the code looks. Open editors change at once.">
+      <Row label="Font" desc="Also used for paths and code names across the app. The first five come with the app; for any other font on this computer, pick Other and type its name.">
+        <FontPicker value={ed.font} choices={['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'IBM Plex Mono', 'Geist Mono', 'Consolas']} placeholder="Like Source Code Pro" onChange={(font) => setEd({ ...ed, font })} />
+      </Row>
       <Row label="Text size">
-        <Choice value={ed.size} onChange={(size) => setEd({ ...ed, size })} options={[[11.5, 'Small'], [12.5, 'Medium'], [14, 'Large']]} />
+        <Select value={String(ed.size)} className="w-[130px] text-[12.5px]" onChange={(v) => setEd({ ...ed, size: Number(v) })}
+          options={[...new Set([11, 12, 12.5, 13, 14, 15, 16, ed.size])].sort((a, b) => a - b).map((x) => ({ value: String(x), label: `${x} px${x === 12.5 ? ' (default)' : ''}` }))} />
+      </Row>
+      <Row label="Line spacing">
+        <Choice value={ed.line} onChange={(line) => setEd({ ...ed, line })} options={[[1.4, 'Compact'], [1.6, 'Normal'], [1.8, 'Roomy']]} />
       </Row>
       <Row label="Code colours" desc="Design Center colours RAML and OAS by role: resources and paths, methods, traits, types and schemas. Design Studio's own colours give each method its own colour.">
         <Choice value={ed.colors} onChange={(colors) => setEd({ ...ed, colors })} options={[['dc', 'Design Center'], ['studio', 'Design Studio']]} />
@@ -275,8 +325,14 @@ function Projects() {
   const [home, setHome] = useState('');
   useEffect(() => { projectsDir().then(setHome); }, []);
   let custom = false; try { custom = !!localStorage.getItem('ads.projectsDir'); } catch { /* ignore */ }
+  // The app's own folders: settings (the Anypoint connection, the AI tools key) and downloads (the Dashboard's published versions).
+  const [dirs, setDirs] = useState<[string, string, string][]>([]);
+  useEffect(() => { Promise.all([appConfigDir(), appCacheDir()]).then(([c, k]) => setDirs([
+    ['Settings folder', 'The Anypoint connection (its tokens are in the system keychain) and the AI tools key.', c],
+    ['Downloads', "Published versions the Dashboard downloaded to count endpoints and compare. Safe to delete; they're downloaded again when needed.", k],
+  ]), () => {}); }, []);
   return (
-    <Page title="Projects" desc="Where projects you pull from Design Center or create go.">
+    <Page title="Folders" desc="Where Design Studio keeps your projects and its own files.">
       <Row label="Projects folder" desc={<span className="font-mono text-[11.5px] break-all">{home}</span>}>
         <div className="flex items-center gap-2">
           {custom && <button className="text-[12px] text-accent hover:underline" onClick={async () => { try { localStorage.removeItem('ads.projectsDir'); } catch { /* ignore */ } setHome(await projectsDir()); }}>Use the default</button>}
@@ -286,6 +342,11 @@ function Projects() {
           }}>Change…</button>
         </div>
       </Row>
+      {dirs.map(([label, desc, d]) => (
+        <Row key={label} label={label} desc={<>{desc} <span className="font-mono text-[11.5px] break-all">{d}</span></>}>
+          <button className={btn} onClick={() => revealItemInDir(d).catch(() => {})}>Open</button>
+        </Row>
+      ))}
     </Page>
   );
 }
