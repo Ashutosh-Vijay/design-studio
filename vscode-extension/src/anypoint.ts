@@ -253,6 +253,32 @@ export async function anypointCommand(cmd: string, a: Record<string, any>, tab =
       return me;
     }
     case 'anypoint_status': return readConn() ? (await access()).me : null;
+    // The Dashboard's Health checks (health_check in anypoint.rs): the person's own request, its status and time.
+    // A header marked secret takes its value from SecretStorage ("health:<key>"), never from the page.
+    case 'health_check': {
+      if (!/^https?:\/\//.test(a.url)) throw new Error('Use an http or https address.');
+      const headers: Record<string, string> = {};
+      for (const h of (a.headers ?? []) as { name: string; value: string; secret?: string | null }[]) {
+        const name = String(h.name ?? '').trim(); if (!name) continue;
+        if (h.secret) { const v = await ctx.secrets.get(`health:${h.secret}`); if (v == null) throw new Error(`The value of ${name} isn't in VS Code's secret storage any more. Set it again in the check's settings.`); headers[name] = v; }
+        else headers[name] = h.value ?? '';
+      }
+      const body: string | undefined = a.body && String(a.body).trim() ? String(a.body) : undefined;
+      if (body && !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) { try { JSON.parse(body); headers['Content-Type'] = 'application/json'; } catch { /* not JSON */ } }
+      const t0 = Date.now();
+      try {
+        const r = await fetch(a.url, { method: String(a.method || 'GET').toUpperCase(), headers, body, signal: AbortSignal.timeout(30000) });
+        await r.arrayBuffer().catch(() => {});
+        return { status: r.status, ms: Date.now() - t0 };
+      } catch (e) {
+        const timeout = e instanceof Error && /timeout|abort/i.test(e.name + e.message);
+        return { status: null, ms: Date.now() - t0, note: timeout ? 'No answer in 30 seconds.' : e instanceof Error ? (e.cause instanceof Error ? e.cause.message : e.message) : String(e) };
+      }
+    }
+    case 'health_secret': {
+      if (a.value == null) await ctx.secrets.delete(`health:${a.key}`); else await ctx.secrets.store(`health:${a.key}`, String(a.value));
+      return null;
+    }
     case 'anypoint_disconnect': {
       await releaseOnExit();
       await ctx.secrets.delete('client-secret'); await ctx.secrets.delete('refresh-token');

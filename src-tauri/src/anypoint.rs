@@ -423,6 +423,50 @@ pub async fn anypoint_status(app: AppHandle) -> Result<Option<Me>, String> {
   }).await.map_err(|e| e.to_string())?
 }
 
+// ---------- The Dashboard's Health checks: a request to the person's own API, as they set it up ----------
+// Not an Anypoint call (call() guards those): the address, method, headers and body are the person's, sent only when
+// they press Check. A header marked secret (a client_secret) is never in the page's storage: its value lives in the
+// system keychain under "health:<key>", and is read here as the request goes out. The answer is the status code and
+// the time; whether that code counts as up is the person's choice (some APIs answer a health check with a 401).
+#[derive(serde::Deserialize)]
+pub struct HealthHeader { name: String, value: String, secret: Option<String> }
+#[tauri::command]
+pub async fn health_check(method: String, url: String, headers: Vec<HealthHeader>, body: Option<String>) -> Result<Value, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    if !(url.starts_with("https://") || url.starts_with("http://")) { return Err("Use an http or https address.".into()); }
+    let m = reqwest::Method::from_bytes(method.trim().to_uppercase().as_bytes()).map_err(|_| format!("{method} isn't an HTTP method."))?;
+    static HEALTH: std::sync::OnceLock<reqwest::blocking::Client> = std::sync::OnceLock::new();
+    let c = HEALTH.get_or_init(|| reqwest::blocking::Client::builder().timeout(Duration::from_secs(30)).build().expect("http client")).clone();
+    let mut rq = c.request(m, &url);
+    let mut typed = false;
+    for h in headers {
+      let name = h.name.trim(); if name.is_empty() { continue; }
+      typed |= name.eq_ignore_ascii_case("content-type");
+      let v = match h.secret.filter(|k| !k.is_empty()) {
+        Some(k) => keychain(&format!("health:{k}"))?.get_password().map_err(|_| format!("The value of {name} isn't in the system keychain any more. Set it again in the check's settings."))?,
+        None => h.value,
+      };
+      rq = rq.header(name, v);
+    }
+    if let Some(b) = body.filter(|b| !b.trim().is_empty()) {
+      // A body that is JSON says so, unless a Content-Type was set.
+      if !typed && serde_json::from_str::<Value>(&b).is_ok() { rq = rq.header("Content-Type", "application/json"); }
+      rq = rq.body(b);
+    }
+    let t = std::time::Instant::now();
+    Ok(match rq.send() {
+      Ok(r) => { let status = r.status().as_u16(); let _ = r.bytes(); json!({ "status": status, "ms": t.elapsed().as_millis() as u64 }) }
+      Err(e) => json!({ "status": null, "ms": t.elapsed().as_millis() as u64, "note": if e.is_timeout() { "No answer in 30 seconds.".to_string() } else { e.to_string() } }),
+    })
+  }).await.map_err(|e| e.to_string())?
+}
+// A secret header value into the keychain (value Some), or out of it (None).
+#[tauri::command]
+pub fn health_secret(key: String, value: Option<String>) -> Result<(), String> {
+  let e = keychain(&format!("health:{key}"))?;
+  match value { Some(v) => e.set_password(&v).map_err(|e| e.to_string()), None => { let _ = e.delete_credential(); Ok(()) } }
+}
+
 #[tauri::command]
 pub async fn anypoint_disconnect(app: AppHandle) -> Result<(), String> {
   // Signing out lets go of every window's lock while the session can still say so.

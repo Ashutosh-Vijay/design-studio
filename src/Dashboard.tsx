@@ -10,9 +10,11 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
 import { WindowControls } from './components/WindowControls';
-import { Spinner, btn, btnPrimary } from './App';
+import { pickRandomLoader } from './components/Loaders';
+import { Modal, Spinner, btn, btnPrimary } from './App';
 import type { Me } from './SyncUI';
 import { cmpVersion } from './sync';
+import { ask } from './Brand';
 import * as D from './dashdata';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -122,8 +124,39 @@ function NoAccessInline({ r, s, what }: { r: D.Reading; s: D.Section; what: stri
   );
 }
 
+// The first reading of an organization: the start screen's loaders (one of three, at random), and a bar that moves
+// through the reading's parts. A refresh never shows this: the last reading stays on screen behind "Refreshing…".
+function Reading({ step, org }: { step: string | null; org: string }) {
+  const Loader = useMemo(() => pickRandomLoader(), []);
+  const colors = useMemo(() => {
+    const css = (n: string, f: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || f;
+    return { accent: css('--accent', '#10b981'), fg: css('--content', '#f3efe6') };
+  }, []);
+  // Where each part of the reading starts on the bar; within a part it creeps on, slower and slower.
+  const floor = /Governance/.test(step ?? '') ? 45 : /Manager/.test(step ?? '') ? 65 : 5;
+  const [p, setP] = useState(5);
+  useEffect(() => { setP((x) => Math.max(x, floor)); }, [floor]);
+  useEffect(() => { const t = setInterval(() => setP((x) => x + (95 - x) * 0.012), 120); return () => clearInterval(t); }, []);
+  return (
+    <div className="relative flex-1 flex flex-col items-center justify-center overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(1000px 700px at 50% 45%, color-mix(in oklch, var(--content) 3%, transparent), transparent 70%), radial-gradient(600px 400px at 50% 110%, color-mix(in oklch, var(--accent) 6%, transparent), transparent 70%)' }} />
+      <div className="relative" style={{ width: 200, height: 200 }}><Loader accent={colors.accent} fg={colors.fg} size={200} /></div>
+      <div className="relative mt-6 text-[15px] font-semibold text-content">Reading {org || 'the organization'}</div>
+      <div className="relative mt-1 h-5 text-[12.5px] text-content-faint">{step ?? 'Reading…'}</div>
+      <div className="relative mt-5 w-72 h-1.5 rounded-full bg-surface-2 overflow-hidden">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out" style={{ width: `${Math.min(p, 97)}%` }} />
+      </div>
+      <div className="relative mt-4 text-[11.5px] text-content-ghost">Read only: nothing in the organization is changed.</div>
+    </div>
+  );
+}
+
 type Tab = 'overview' | 'apis' | 'deployments' | 'health' | 'activity';
+// The last reading of each organization, for the account that read it: another account starts clean.
 const lastReading = new Map<string, D.Reading>();
+let readBy = '';
+// Specs downloaded by themselves to count endpoints: the newest few. The rest wait for "Count endpoints".
+const AUTO_COUNT = 40;
 
 export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; onConnect: () => void }) {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -140,6 +173,7 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
   const [sort, setSort] = useState<{ col: string; asc: boolean }>({ col: 'gov', asc: true });
   const [open, setOpen] = useState<D.Api | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [counting, setCounting] = useState(false);
   const run = useRef(0);
 
   useEffect(() => {
@@ -151,6 +185,8 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
   // Who's signed in, and their business groups. Signing in while the screen is open carries on from here.
   useEffect(() => {
     const f = () => invoke<Me | null>('anypoint_status').then(async (m) => {
+      const who = m ? `${m.host}/${m.username}` : '';
+      if (who !== readBy) { lastReading.clear(); readBy = who; setReading(null); setOrg(null); }
       setMe(m); if (!m) return;
       const list = await D.groups().catch(() => []);
       setOrgs(list.length ? list : [{ id: m.org_id, name: m.org_name }]);
@@ -166,9 +202,18 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
   // behind the shown one ("Refreshing…"), so the screen never empties.
   async function load(o: { id: string; name: string }, force = true) {
     const kept = lastReading.get(o.id);
-    if (kept) { setReading(kept); if (!force && Date.now() - kept.at < 5 * 60000) return; }
+    setReading(kept ?? null); // another group's reading never stays under this one's name
     const mine = ++run.current;
-    setError(null); setStep(kept ? 'Refreshing…' : 'Reading…');
+    const alive = () => mine === run.current, bump = () => { if (alive()) setTick((n) => n + 1); };
+    // Publishers and endpoint counts, behind the reading. Leaving the screen stops it, so it starts again here.
+    const background = async (r: D.Reading) => {
+      await D.details(r.apis, bump, alive);
+      if (r.access.exchange !== 'ok') return;
+      setCounting(true); await D.countAll(r.apis, bump, alive, AUTO_COUNT); if (alive()) setCounting(false);
+    };
+    setError(null);
+    if (kept && !force && Date.now() - kept.at < 5 * 60000) { setStep(null); background(kept); return; }
+    setStep(kept ? 'Refreshing…' : 'Reading…');
     if (!kept) setOpen(null);
     try {
       const r = await D.read(o, (s) => { if (mine === run.current) setStep(kept ? `Refreshing: ${s.replace(/^./, (c) => c.toLowerCase())}` : s); });
@@ -183,10 +228,21 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
       lastReading.set(o.id, r);
       setReading(r); setStep(null);
       setOpen((a) => a && (r.apis.find((x) => x.groupId === a.groupId && x.assetId === a.assetId) ?? null));
-      const alive = () => mine === run.current, bump = () => { if (alive()) setTick((n) => n + 1); };
-      await D.details(r.apis, bump, alive);
-      if (r.access.exchange === 'ok') D.countAll(r.apis, bump, alive);
-    } catch (e) { if (mine === run.current) { setError(String(e).replace(/^Error: /, '')); setStep(null); } }
+      background(r);
+    } catch (e) {
+      if (mine !== run.current) return;
+      setStep(null);
+      const why = String(e).replace(/^Error: /, '');
+      // A refresh that fails leaves the last reading on screen, and says so.
+      if (kept) { setNote(`Couldn't refresh: ${why} Showing the reading from ${new Date(kept.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`); setTimeout(() => setNote(null), 12000); background(kept); }
+      else setError(why);
+    }
+  }
+  // Every API's endpoints, when asked: one spec download each.
+  async function countRest() {
+    if (!reading) return;
+    const mine = run.current, alive = () => mine === run.current;
+    setCounting(true); await D.countAll(reading.apis, () => { if (alive()) setTick((n) => n + 1); }, alive); if (alive()) setCounting(false);
   }
   useEffect(() => { if (org) load(org, false); return () => { run.current++; }; }, [org?.id]);
   useEffect(() => { const f = () => { if (org) load(org); }; window.addEventListener('ads-dash-refresh', f); return () => window.removeEventListener('ads-dash-refresh', f); }, [org?.id]);
@@ -232,7 +288,7 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
           ? <Select value={org.id} onChange={(id) => { const o = orgs.find((x) => x.id === id); if (o) setOrg(o); }} className="h-7 min-w-[180px]" options={orgs.map((o) => ({ value: o.id, label: o.name }))} />
           : <span data-tauri-drag-region className="text-[12px] text-content-muted">{org.name}</span>)}
         <span data-tauri-drag-region className="flex-1 h-full" />
-        {step && <span className="flex items-center gap-2 text-[12px] text-content-faint"><Spinner />{step}</span>}
+        {step && reading && <span className="flex items-center gap-2 text-[12px] text-content-faint"><Spinner />{step}</span>}
         {reading && !step && <span className="text-[12px] text-content-faint" title={new Date(reading.at).toLocaleString()}>Read at {new Date(reading.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
         {org && <button className={btn} disabled={!!step} onClick={() => load(org)} title="Read everything again from Anypoint">Refresh</button>}
         <WindowControls />
@@ -250,7 +306,7 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
             <span className="text-err select-text max-w-[560px] text-center">{error}</span>
             {org && <button className={btn} onClick={() => load(org)}>Try again</button>}
           </div>
-        ) : !reading || !s ? <div className="flex-1 flex items-center justify-center text-content-faint text-[12.5px] gap-2"><Spinner />{step ?? 'Reading…'}</div>
+        ) : !reading || !s ? <Reading step={step} org={org?.name ?? ''} />
         : <>
           <div className="h-10 shrink-0 flex items-center gap-1 px-4 border-b border-line bg-surface">
             {([['overview', 'Overview'], ['apis', 'APIs and assets'], ['deployments', 'Deployments'], ['health', 'Health'], ['activity', 'Activity']] as const).map(([id, label]) => (
@@ -301,6 +357,9 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
                     {chip(gov === 'all', 'Any governance', () => setGov('all'))}
                     {GOV_ORDER.map((g) => chip(gov === g, D.GOV_LABEL[g], () => setGov(g), g))}
                   </span>}
+                  {reading.access.exchange === 'ok' && !counting && D.uncounted(reading.apis) > 0 && (
+                    <button className={btn} onClick={countRest} title="Downloads each of these APIs' latest published spec to count its endpoints. Stable versions are kept, so it's once per version.">Count endpoints for {D.uncounted(reading.apis)} more</button>
+                  )}
                   <span className="ml-auto text-[12px] text-content-faint">{rows.length} shown</span>
                 </div>
                 <div className="flex-1 min-h-0 overflow-auto">
@@ -324,7 +383,7 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
                           <td className="px-3 border-b border-line-subtle text-content-muted whitespace-nowrap" title={a.published ? new Date(a.published).toLocaleString() : ''}>{when(a.published, reading.at)}</td>
                           <td className="px-3 border-b border-line-subtle text-content-muted whitespace-nowrap max-w-[200px] truncate">{a.by || (a.versions ? '' : <span className="text-content-ghost">…</span>)}</td>
                           {kind !== 'fragment' && reading.access.exchange === 'ok' && <td className="px-3 border-b border-line-subtle text-content-muted whitespace-nowrap">
-                            {a.kind !== 'api' ? '' : a.counts === undefined ? <span className="text-content-ghost">…</span> : a.counts === null ? <span className="text-content-ghost" title="The published spec couldn't be read">?</span>
+                            {a.kind !== 'api' ? '' : a.counts === undefined ? <span className="text-content-ghost">{counting ? '…' : ''}</span> : a.counts === null ? <span className="text-content-ghost" title="The published spec couldn't be read">?</span>
                               : <span title={Object.entries(a.counts.methods).map(([m, n]) => `${n} ${m}`).join(', ')}>{a.counts.endpoints} <span className="text-content-faint">· {a.counts.operations} ops</span></span>}</td>}
                           {govOn && <td className="px-3 border-b border-line-subtle"><GovMark a={a} /></td>}
                           {reading.access.apimanager === 'ok' && <td className="px-3 border-b border-line-subtle text-content-muted whitespace-nowrap">{a.managed.length ? [...new Set(a.managed.map((m) => m.env))].join(', ') : <span className="text-content-ghost">Not managed</span>}</td>}
@@ -359,15 +418,7 @@ function Overview({ r, s, show, onOpen, onTab }: { r: D.Reading; s: ReturnType<t
     return [...m.values()].sort((a, b) => b.failing - a.failing || b.apis - a.apis);
   }, [r, apis.map((a) => a.by).join('|')]);
   const trend = D.history(r.org.id).filter((p) => p.governed > 0);
-  const tile = (label: string, value: ReactNode, sub: ReactNode, tone = '', go?: () => void) => (
-    <button key={label} onClick={go} disabled={!go} className={`text-left p-3.5 rounded-lg border border-line bg-surface ${go ? 'hover:border-accent-border cursor-pointer' : 'cursor-default'}`}>
-      <div className="text-[11.5px] text-content-muted">{label}</div>
-      <div className={`mt-1 text-[24px] leading-none font-semibold tabular-nums ${tone}`}>{value}</div>
-      <div className="mt-1.5 text-[11.5px] text-content-faint min-h-[16px]">{sub}</div>
-    </button>
-  );
   const card = 'rounded-lg border border-line bg-surface';
-  const head = 'h-9 flex items-center px-3.5 border-b border-line-subtle text-[12.5px] font-semibold';
   const prodDown = r.apps.filter((a) => a.production && a.health === 'down');
   const govRead = r.access.governance === 'ok' || r.access.governance === 'off';
   // Nothing the dashboard shows is readable: one page that says what it needs, instead of empty cards.
@@ -390,14 +441,59 @@ function Overview({ r, s, show, onOpen, onTab }: { r: D.Reading; s: ReturnType<t
       </div>
     </div>
   );
+  // What each ring and bar is made of. Status colours say status (conformant, failing, running, stopped); the
+  // kinds of API are identities, so they take the theme's other hues, always in the same order.
+  const govParts = [
+    { id: 'conformant' as const, label: 'Conformant', n: s.conformant, color: 'var(--ok)' },
+    { id: 'failing' as const, label: 'Not conformant', n: s.failing, color: 'var(--err)' },
+    { id: 'validating' as const, label: 'In validation', n: s.validating, color: 'var(--cyan)' },
+    ...(ex ? [{ id: 'none' as const, label: 'Not governed', n: s.apis - s.governed, color: 'var(--content-ghost)' }] : []),
+  ];
+  const appsOther = s.apps - s.appsUp - s.appsDown.length;
+  const runParts = [
+    { label: 'Running', n: s.appsUp, color: 'var(--ok)' },
+    { label: 'Stopped or failed', n: s.appsDown.length, color: 'var(--err)' },
+    { label: 'Starting or unknown', n: appsOther, color: 'var(--content-ghost)' },
+  ];
+  const KIND_HUES = ['var(--accent)', 'var(--cyan)', 'var(--violet)', 'var(--warn)'];
+  const kindParts = [...s.kinds.slice(0, 4).map(([k, n], i) => ({ label: k, n, color: KIND_HUES[i] })),
+    ...(s.kinds.length > 4 ? [{ label: 'Other kinds', n: s.kinds.slice(4).reduce((a, [, n]) => a + n, 0), color: 'var(--content-ghost)' }] : [])];
+  // Versions published in each of the last twelve months, from every version Exchange listed.
+  const months = (() => {
+    const out: { key: string; label: string; n: number }[] = [];
+    const now = new Date(r.at);
+    for (let i = 11; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); out.push({ key: `${d.getFullYear()}-${d.getMonth()}`, label: `${MONTHS[d.getMonth()]} ${d.getFullYear()}`, n: 0 }); }
+    const at = new Map(out.map((m) => [m.key, m]));
+    for (const a of r.apis) for (const t of a.versions?.length ? a.versions.map((v) => v.created) : [a.published]) { if (!t) continue; const d = new Date(t), m = at.get(`${d.getFullYear()}-${d.getMonth()}`); if (m) m.n++; }
+    return out;
+  })();
+  const monthMax = Math.max(1, ...months.map((m) => m.n));
+  const envRows = r.environments.filter((e) => e.type !== 'design').map((e) => {
+    const apps = r.apps.filter((a) => a.env === e.name);
+    return { e, apps: apps.length, up: apps.filter((a) => a.health === 'up').length, down: apps.filter((a) => a.health === 'down').length, inst: r.instances.filter((i) => i.env === e.name).length };
+  });
+  const envMax = Math.max(1, ...envRows.map((x) => (rt ? x.apps : x.inst)));
+  const peopleMax = Math.max(1, ...people.map((p) => p.apis));
+  const box = `${card} p-5`;
+  const title = 'text-[13px] font-semibold';
+  const sub = 'text-[11.5px] text-content-faint';
+  // A legend row that is also the way into the table: a mark, a name, a count and its share.
+  const legend = (p: { label: string; n: number; color: string }, of: number, go?: () => void) => (
+    <button key={p.label} onClick={go} disabled={!go} className={`w-full flex items-center gap-2.5 h-7 px-2 -mx-2 rounded-md text-left text-[12.5px] ${go ? 'hover:bg-[var(--hover-overlay)] cursor-pointer' : 'cursor-default'}`}>
+      <span className="w-2.5 h-2.5 rounded-[3px] shrink-0" style={{ background: p.color }} />
+      <span className="flex-1 min-w-0 truncate text-content-secondary">{p.label}</span>
+      <span className="tabular-nums font-medium">{p.n}</span>
+      <span className="w-9 text-right tabular-nums text-content-faint">{pct(p.n, of)}</span>
+    </button>
+  );
   return (
     <div className="flex-1 min-h-0 overflow-auto">
-      <div className="max-w-[1180px] mx-auto px-6 py-5 flex flex-col gap-4">
+      <div className="max-w-[1240px] mx-auto px-8 py-7 flex flex-col gap-5">
         {/* Governance in words first: the numbers under it mean nothing without knowing which of these it is. */}
-        <div className={`${card} px-4 py-3 flex items-center gap-3 text-[12.5px]`}>
-          {dot(govOn ? 'ok' : r.access.governance === 'ok' || r.access.governance === 'off' ? 'faint' : 'warn')}
+        <div className="flex items-start gap-3 text-[13px]">
+          <span className="mt-[7px]">{dot(govOn ? 'ok' : r.access.governance === 'ok' || r.access.governance === 'off' ? 'faint' : 'warn')}</span>
           <span className="text-content-secondary leading-relaxed">
-            {govOn && <><b className="text-content">API Governance is on.</b> {r.profiles.filter((p) => p.live).length === 1 ? 'One active profile checks' : `${r.profiles.filter((p) => p.live).length} active profiles check`} {s.governed}{ex ? ` of ${s.apis}` : ''} APIs{ex ? ` (${pct(s.governed, s.apis)})` : ''}{s.governed ? <>, and {s.conformant} of those conform ({pct(s.conformant, s.governed)}).</> : '.'}{r.limit != null && s.governed >= r.limit && <> The subscription covers {r.limit} governed APIs, so it's at its limit.</>}</>}
+            {govOn && <><b className="text-content">API Governance is on.</b> {r.profiles.filter((p) => p.live).length === 1 ? 'One active profile checks' : `${r.profiles.filter((p) => p.live).length} active profiles check`} {s.governed}{ex ? ` of ${s.apis}` : ''} APIs{s.governed ? <>, and {s.conformant} of those conform.</> : '.'}{r.limit != null && s.governed >= r.limit && <> The subscription's allowance is {r.limit} governed APIs.</>}</>}
             {r.governance === 'empty' && <><b className="text-content">API Governance is available, but nothing is checked yet.</b> The organization has it{r.profiles.length ? ', with draft profiles only' : ' and no profile'}. An active profile in API Governance starts checking APIs against its rulesets.</>}
             {r.governance === 'off' && <><b className="text-content">API Governance isn't part of this organization's subscription.</b></>}
             {r.access.governance === 'denied' && <><b className="text-content">This account can't see API Governance.</b> Whether the APIs conform is left out; an administrator can grant the Governance Viewer permission.</>}
@@ -405,97 +501,187 @@ function Overview({ r, s, show, onOpen, onTab }: { r: D.Reading; s: ReturnType<t
           </span>
         </div>
 
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
-          {ex && tile('APIs in Exchange', s.apis, s.kinds.map(([k, n]) => `${n} ${k}`).join(' · ') || (s.fragments + s.others ? 'Only fragments and other assets' : "None this account can see. Exchange doesn't say whether that's a missing permission."), '', s.apis ? () => show('all') : undefined)}
-          {govOn && ex && tile('Governed', <>{s.governed}<span className="text-[13px] font-normal text-content-faint"> of {s.apis}</span></>, `${pct(s.governed, s.apis)} of the APIs`, '', () => show('all'))}
-          {govOn && tile('Conformant', s.conformant, s.governed ? `${pct(s.conformant, s.governed)} of what's governed${s.validating ? ` · ${s.validating} in validation` : ''}` : 'Nothing governed yet', 'text-ok', () => show('conformant'))}
-          {govOn && tile('Not conformant', s.failing, s.failing ? [['high', r.severity.high], ['medium', r.severity.medium], ['low', r.severity.low]].filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(' · ') + ' severity' : 'Nothing fails its rulesets', s.failing ? 'text-err' : '', () => show('failing'))}
-          {govOn && ex && tile('Not governed', s.apis - s.governed, 'APIs no profile covers', '', () => show('none'))}
-          {rt && tile('Apps running', <>{s.appsUp}<span className="text-[13px] font-normal text-content-faint"> of {s.apps}</span></>, s.apps ? (s.appsDown.length ? `${s.appsDown.length} stopped or failed` : 'Nothing stopped or failed') : 'No apps deployed', s.appsDown.length ? 'text-err' : '', () => onTab('deployments'))}
-          {rt && s.prodApps > 0 && tile('In production', s.prodApps, s.prodDown ? `${s.prodDown} stopped or failed` : 'All running', s.prodDown ? 'text-err' : '', () => onTab('deployments'))}
-          {mgr && ex && tile('Managed in API Manager', <>{s.managed}<span className="text-[13px] font-normal text-content-faint"> of {s.apis}</span></>, s.apis - s.managed ? `${s.apis - s.managed} with no instance in any environment` : 'Every API has an instance', '', () => onTab('deployments'))}
-          {/* An Exchange that shows nothing (often: no permission to see it) says that once, in the first tile, not as a row of zeros. */}
-          {ex && s.apis > 0 && tile('Published in 30 days', s.recent, s.development ? `${s.development} still in Development` : 'All Stable')}
-          {ex && s.apis > 0 && tile('Not published in a year', s.stale, s.stale ? 'Worth a look: retired, or forgotten?' : 'Nothing has gone quiet', s.stale ? 'text-warn' : '')}
-          {ex && s.fragments + s.others > 0 && tile('Fragments', s.fragments, s.others ? `and ${s.others} other assets` : 'Libraries, types, traits and the like', '', () => show('all', 'fragment'))}
+        {/* The three wholes: what conforms, what runs, what's published. */}
+        <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
+          {govOn && <div className={box}>
+            <div className={title}>Governance</div>
+            <div className={sub}>{ex ? `Of the ${s.apis} APIs in Exchange` : `Of the ${s.governed} APIs it checks`}</div>
+            <div className="mt-4 flex items-center gap-6">
+              <Ring parts={govParts}>
+                {s.governed ? <>
+                  <div className="text-[24px] leading-none font-semibold tabular-nums">{pct(s.conformant, s.governed)}</div>
+                  <div className="mt-1 text-[11px] text-content-faint">of governed<br />conform</div>
+                </> : <div className="text-[11.5px] text-content-faint">Nothing<br />governed yet</div>}
+              </Ring>
+              <div className="flex-1 min-w-0">{govParts.map((p) => legend(p, govParts.reduce((a, x) => a + x.n, 0), () => show(p.id)))}</div>
+            </div>
+            {s.failing > 0 && <div className="mt-4 pt-3 border-t border-line-subtle text-[12px] text-content-muted">Failing rules by severity: {[['high', r.severity.high], ['medium', r.severity.medium], ['low', r.severity.low]].filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'none recorded'}.</div>}
+          </div>}
+
+          {rt && <div className={box}>
+            <div className={title}>Running</div>
+            <div className={sub}>Apps in Runtime Manager, every environment</div>
+            {s.apps ? <>
+              <div className="mt-4 flex items-center gap-6">
+                <Ring parts={runParts}>
+                  <div className="text-[24px] leading-none font-semibold tabular-nums">{s.appsUp}</div>
+                  <div className="mt-1 text-[11px] text-content-faint">of {s.apps}<br />running</div>
+                </Ring>
+                <div className="flex-1 min-w-0">{runParts.filter((p) => p.n > 0 || p.label !== 'Starting or unknown').map((p) => legend(p, s.apps, () => onTab('deployments')))}</div>
+              </div>
+              {s.prodApps > 0 && <div className="mt-4 pt-3 border-t border-line-subtle text-[12px] text-content-muted">In production: {s.prodApps} {s.prodApps === 1 ? 'app' : 'apps'}, {s.prodDown ? <span className="text-err font-medium">{s.prodDown} stopped or failed</span> : 'all running'}.</div>}
+            </> : <div className="mt-6 text-[12.5px] text-content-faint">No apps are deployed in any environment yet.</div>}
+          </div>}
+
+          {ex && <div className={box}>
+            <div className={title}>In Exchange</div>
+            <div className={sub}>APIs this organization has published</div>
+            {s.apis ? <>
+              <div className="mt-4 flex items-baseline gap-2"><span className="text-[34px] leading-none font-semibold tabular-nums">{s.apis}</span><span className="text-[12.5px] text-content-muted">APIs{s.fragments + s.others > 0 ? `, and ${s.fragments} ${s.fragments === 1 ? 'fragment' : 'fragments'}${s.others ? ` and ${s.others} other assets` : ''}` : ''}</span></div>
+              {/* One kind needs no bar: the legend says it. */}
+              <div className={`mt-4 h-2.5 gap-[2px] ${kindParts.length > 1 ? 'flex' : 'hidden'}`} role="img" aria-label={kindParts.map((p) => `${p.n} ${p.label}`).join(', ')}>
+                {kindParts.map((p, i) => <span key={p.label} title={`${p.label}: ${p.n} (${pct(p.n, s.apis)})`} className={`${i === 0 ? 'rounded-l-[4px]' : ''} ${i === kindParts.length - 1 ? 'rounded-r-[4px]' : ''}`} style={{ background: p.color, flexGrow: p.n, flexBasis: 0, minWidth: 4 }} />)}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">{kindParts.map((p) => <span key={p.label} className="inline-flex items-center gap-1.5 text-[12px] text-content-secondary"><span className="w-2 h-2 rounded-[2px]" style={{ background: p.color }} />{p.label}<span className="tabular-nums text-content-faint">{p.n}</span></span>)}</div>
+              <div className="mt-4 pt-3 border-t border-line-subtle grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
+                <button onClick={() => onTab('activity')} className="text-left text-content-muted hover:text-content"><b className="font-semibold text-content tabular-nums">{s.recent}</b> published in 30 days</button>
+                <span className="text-content-muted"><b className={`font-semibold tabular-nums ${s.stale ? 'text-warn' : 'text-content'}`}>{s.stale}</b> quiet for a year</span>
+                <span className="text-content-muted"><b className="font-semibold text-content tabular-nums">{s.development}</b> still in Development</span>
+                {mgr && <button onClick={() => onTab('deployments')} className="text-left text-content-muted hover:text-content"><b className="font-semibold text-content tabular-nums">{s.managed}</b> managed in API Manager</button>}
+              </div>
+            </> : <div className="mt-6 text-[12.5px] text-content-faint leading-relaxed">{s.fragments + s.others ? 'Only fragments and other assets so far.' : "None this account can see. Exchange doesn't say whether that's a missing permission."}</div>}
+          </div>}
         </div>
 
-        <div className="grid gap-4 items-start" style={{ gridTemplateColumns: govOn || rt ? 'minmax(0, 3fr) minmax(0, 2fr)' : 'minmax(0, 1fr)' }}>
-          <div className={govOn || rt ? card : 'hidden'}>
-            <div className={head}>Needs attention<span className="ml-2 text-[11.5px] font-normal text-content-faint">{prodDown.length + failing.length ? `${prodDown.length + failing.length} ${prodDown.length + failing.length === 1 ? 'item' : 'items'}` : ''}</span></div>
-            {prodDown.map((a) => (
-              <button key={`${a.env}/${a.name}`} onClick={() => onTab('deployments')} className="w-full flex items-center gap-3 h-9 px-3.5 border-b border-line-subtle text-left text-[12.5px] hover:bg-[var(--hover-overlay)]">
-                {dot('err')}<span className="font-medium truncate">{a.name}</span><span className="text-content-faint">{a.env}</span>
-                <span className="ml-auto text-err whitespace-nowrap">{a.status || 'not running'} in production</span>
+        <div className="grid gap-5 items-start" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))' }}>
+          {(govOn || rt) && <div className={card}>
+            <div className="px-5 pt-4 pb-3 flex items-baseline gap-2"><span className={title}>Needs attention</span><span className={sub}>{prodDown.length + failing.length ? `${prodDown.length + failing.length} ${prodDown.length + failing.length === 1 ? 'item' : 'items'}, worst first` : ''}</span></div>
+            {prodDown.slice(0, 8).map((a) => (
+              <button key={`${a.env}/${a.name}`} onClick={() => onTab('deployments')} className="w-full flex items-center gap-3 h-10 px-5 border-t border-line-subtle text-left text-[12.5px] hover:bg-[var(--hover-overlay)]">
+                {dot('err')}<span className="font-medium truncate">{a.name}</span><span className="text-content-faint whitespace-nowrap">{a.env}</span>
+                <span className="ml-auto text-err whitespace-nowrap">{a.status || 'not running'}</span>
               </button>
             ))}
-            {failing.slice(0, 12).map((a) => (
-              <button key={a.assetId} onClick={() => onOpen(a)} className="w-full flex items-center gap-3 h-9 px-3.5 border-b border-line-subtle last:border-b-0 text-left text-[12.5px] hover:bg-[var(--hover-overlay)]">
+            {prodDown.length > 8 && <button onClick={() => onTab('deployments')} className="w-full h-9 border-t border-line-subtle text-[12px] text-accent hover:underline">All {prodDown.length} down in production</button>}
+            {failing.slice(0, 8).map((a) => (
+              <button key={`${a.groupId}/${a.assetId}`} onClick={() => onOpen(a)} className="w-full flex items-center gap-3 h-10 px-5 border-t border-line-subtle text-left text-[12.5px] hover:bg-[var(--hover-overlay)]">
                 {dot('err')}
                 <span className="font-medium truncate">{a.name}</span><span className="font-mono text-[11.5px] text-content-faint">{a.version}</span>
                 <span className="ml-auto text-err whitespace-nowrap">{a.fail} of {a.rulesets} rulesets fail</span>
-                <span className="w-[130px] text-right text-content-muted truncate">{a.by}</span>
+                <span className="w-[120px] text-right text-content-muted truncate">{a.by}</span>
               </button>
             ))}
-            {failing.length > 12 && <button onClick={() => show('failing')} className="w-full h-8 text-[12px] text-accent hover:underline">All {failing.length} in the table</button>}
-            {govOn && ex && uncovered.length > 0 && <button onClick={() => show('none')} className="w-full flex items-center gap-3 h-9 px-3.5 border-t border-line-subtle text-left text-[12.5px] hover:bg-[var(--hover-overlay)]">
+            {failing.length > 8 && <button onClick={() => show('failing')} className="w-full h-9 border-t border-line-subtle text-[12px] text-accent hover:underline">All {failing.length} not conformant</button>}
+            {govOn && ex && uncovered.length > 0 && <button onClick={() => show('none')} className="w-full flex items-center gap-3 h-10 px-5 border-t border-line-subtle text-left text-[12.5px] hover:bg-[var(--hover-overlay)]">
               {dot('faint')}
-              <span><b className="font-medium">{uncovered.length} {uncovered.length === 1 ? 'API is' : 'APIs are'} not governed</b><span className="text-content-muted">: no active profile's filter matches {uncovered.length === 1 ? 'it' : 'them'}.</span></span>
-              <span className="ml-auto text-content-faint truncate max-w-[260px]">{uncovered.slice(0, 3).map((a) => a.name).join(', ')}{uncovered.length > 3 ? '…' : ''}</span>
+              <span className="truncate"><b className="font-medium">{uncovered.length} {uncovered.length === 1 ? 'API is' : 'APIs are'} not governed</b><span className="text-content-muted">: no active profile's filter matches {uncovered.length === 1 ? 'it' : 'them'}.</span></span>
             </button>}
-            {!failing.length && !prodDown.length && !(govOn && ex && uncovered.length) && <div className="px-3.5 py-4 text-[12.5px] text-content-faint">{govOn || rt ? 'Nothing needs attention: every governed API conforms and nothing in production is down.' : 'With API Governance or Runtime Manager readable, what fails is listed here, worst first.'}</div>}
-          </div>
+            {!failing.length && !prodDown.length && !(govOn && ex && uncovered.length) && <div className="px-5 pb-5 text-[12.5px] text-content-faint">Nothing needs attention: every governed API conforms and nothing in production is down.</div>}
+          </div>}
 
-          <div className="flex flex-col gap-4">
-            {r.profiles.length > 0 && <div className={card}>
-              <div className={head}>Governance profiles</div>
+          {(rt || mgr) && envRows.length > 0 && <div className={box}>
+            <div className={title}>Environments</div>
+            <div className={sub}>{rt ? 'Apps in each, running and not' : 'API instances in each'}</div>
+            <div className="mt-3 flex flex-col">
+              {envRows.map((x) => (
+                <button key={x.e.id} onClick={() => onTab('deployments')} className="flex items-center gap-3 h-9 px-2 -mx-2 rounded-md text-left text-[12.5px] hover:bg-[var(--hover-overlay)]" title={rt ? `${x.e.name}: ${x.up} running, ${x.down} stopped or failed, ${x.apps - x.up - x.down} other` : `${x.e.name}: ${x.inst} API instances`}>
+                  <span className="w-[120px] shrink-0 truncate font-medium">{x.e.name}</span>
+                  <span className="flex-1 min-w-0 flex items-center">
+                    <span className="flex h-2 gap-[2px]" style={{ width: `${((rt ? x.apps : x.inst) / envMax) * 100}%`, minWidth: (rt ? x.apps : x.inst) ? 6 : 0 }}>
+                      {rt ? <>
+                        {x.up > 0 && <span className="rounded-[3px] bg-ok" style={{ flexGrow: x.up, flexBasis: 0 }} />}
+                        {x.down > 0 && <span className="rounded-[3px] bg-err" style={{ flexGrow: x.down, flexBasis: 0, minWidth: 4 }} />}
+                        {x.apps - x.up - x.down > 0 && <span className="rounded-[3px] bg-content-ghost" style={{ flexGrow: x.apps - x.up - x.down, flexBasis: 0 }} />}
+                      </> : <span className="flex-1 rounded-[3px] bg-accent" />}
+                    </span>
+                  </span>
+                  <span className="w-[150px] shrink-0 text-right text-content-muted whitespace-nowrap tabular-nums">{rt ? `${x.apps} ${x.apps === 1 ? 'app' : 'apps'}` : `${x.inst} ${x.inst === 1 ? 'instance' : 'instances'}`}{rt && x.down > 0 && <span className="text-err"> · {x.down} down</span>}</span>
+                  {x.e.production ? <span className="w-[70px] shrink-0 text-[10.5px] text-content-faint">Production</span> : <span className="w-[70px] shrink-0" />}
+                </button>
+              ))}
+            </div>
+            {rt && <div className="mt-3 flex gap-4 text-[11.5px] text-content-faint"><span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-[2px] bg-ok" />Running</span><span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-[2px] bg-err" />Stopped or failed</span></div>}
+          </div>}
+        </div>
+
+        <div className="grid gap-5 items-start" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
+          {ex && apis.length > 0 && <div className={box}>
+            <div className={title}>Publishing</div>
+            <div className={sub}>Versions published each month, the last twelve</div>
+            <div className="mt-4 flex items-end gap-[3px] h-[92px]" role="img" aria-label={months.map((m) => `${m.label}: ${m.n}`).join(', ')}>
+              {months.map((m) => (
+                <div key={m.key} className="group/m relative flex-1 h-full flex items-end" title={`${m.label}: ${m.n} ${m.n === 1 ? 'version' : 'versions'}`}>
+                  <div className="w-full rounded-t-[4px] bg-accent opacity-80 group-hover/m:opacity-100" style={{ height: m.n ? `${Math.max((m.n / monthMax) * 100, 4)}%` : 2, background: m.n ? undefined : 'var(--surface-3)' }} />
+                </div>
+              ))}
+            </div>
+            <div className="mt-1.5 flex gap-[3px] text-[10.5px] text-content-faint">{months.map((m, i) => <span key={m.key} className="flex-1 text-center">{i % 3 === 2 || i === 0 ? m.label.slice(0, 3) : ''}</span>)}</div>
+            <div className="mt-3 pt-3 border-t border-line-subtle text-[12px] text-content-muted">Busiest: {months.reduce((a, b) => (b.n > a.n ? b : a)).label}, with {monthMax === 1 && !months.some((m) => m.n) ? 0 : monthMax} versions.</div>
+          </div>}
+
+          {ex && apis.length > 0 && <div className={box}>
+            <div className={title}>By publisher</div>
+            <div className={sub}>Who published each API's latest version</div>
+            <div className="mt-3 flex flex-col gap-2.5">
+              {people.slice(0, 7).map((p) => (
+                <div key={p.name} className="text-[12.5px]" title={`${p.name}: ${p.apis} ${p.apis === 1 ? 'API' : 'APIs'}${govOn ? `, ${p.failing} not conformant` : ''}, last published ${when(p.last, r.at).toLowerCase()}`}>
+                  <div className="flex items-baseline gap-2"><span className="truncate">{p.name}</span><span className="ml-auto tabular-nums text-content-muted whitespace-nowrap">{p.apis}{govOn && p.failing > 0 && <span className="text-err"> · {p.failing} failing</span>}</span></div>
+                  <div className="mt-1 flex h-1.5 gap-[2px]" style={{ width: `${(p.apis / peopleMax) * 100}%`, minWidth: 6 }}>
+                    <span className="rounded-[3px] bg-accent" style={{ flexGrow: Math.max(p.apis - (govOn ? p.failing : 0), 0), flexBasis: 0 }} />
+                    {govOn && p.failing > 0 && <span className="rounded-[3px] bg-err" style={{ flexGrow: p.failing, flexBasis: 0, minWidth: 4 }} />}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {people.length > 7 && <div className="mt-3 text-[11.5px] text-content-faint">and {people.length - 7} more</div>}
+          </div>}
+
+          {r.profiles.length > 0 && <div className={box}>
+            <div className={title}>Governance profiles</div>
+            <div className={sub}>What each checks, and how much passes</div>
+            <div className="mt-3 flex flex-col gap-3.5">
               {r.profiles.map((p) => (
-                <div key={p.id} className="px-3.5 py-2.5 border-b border-line-subtle last:border-b-0 text-[12.5px]">
+                <div key={p.id} className="text-[12.5px]">
                   <div className="flex items-center gap-2"><span className="font-medium truncate">{p.name}</span>
                     <span className={`text-[10.5px] px-1.5 py-px rounded border ${p.live ? 'border-[color-mix(in_oklch,var(--ok)_40%,transparent)] text-ok' : 'border-line text-content-muted'}`}>{p.live ? 'Active' : 'Draft'}</span>
-                    <span className="ml-auto text-content-muted whitespace-nowrap">{p.total} APIs{p.live && p.total > 0 && <> · <span className="text-ok">{p.pass} conform</span>{p.fail > 0 && <> · <span className="text-err">{p.fail} don't</span></>}</>}</span></div>
-                  <div className="mt-1 text-[11.5px] text-content-faint truncate" title={p.rulesets.join(', ')}>{p.rulesets.join(', ') || 'No rulesets'}</div>
-                  {p.live && p.total > 0 && <div className="mt-2 h-1 rounded-full bg-surface-3 overflow-hidden flex"><span className="bg-ok" style={{ width: pct(p.pass, p.total) }} /><span className="bg-err" style={{ width: pct(p.fail, p.total) }} /></div>}
+                    <span className="ml-auto text-content-muted whitespace-nowrap tabular-nums">{p.live && p.total > 0 ? `${p.pass} of ${p.total} conform` : `${p.total} APIs`}</span></div>
+                  {p.live && p.total > 0 && <div className="mt-1.5 h-1.5 flex gap-[2px]"><span className="rounded-[3px] bg-ok" style={{ flexGrow: p.pass, flexBasis: 0 }} />{p.fail > 0 && <span className="rounded-[3px] bg-err" style={{ flexGrow: p.fail, flexBasis: 0 }} />}{p.total - p.pass - p.fail > 0 && <span className="rounded-[3px] bg-surface-3" style={{ flexGrow: p.total - p.pass - p.fail, flexBasis: 0 }} />}</div>}
+                  <div className="mt-1.5 text-[11.5px] text-content-faint truncate" title={p.rulesets.join(', ')}>{p.rulesets.join(', ') || 'No rulesets'}</div>
                 </div>
               ))}
-            </div>}
-            {trend.length >= 2 && <div className={card}>
-              <div className={head}>Conformance over time<span className="ml-2 text-[11.5px] font-normal text-content-faint">kept on this computer, one reading a day</span></div>
-              <div className="px-3.5 py-3">
-                <svg viewBox="0 0 300 60" className="w-full h-[60px]" preserveAspectRatio="none" role="img" aria-label="Share of governed APIs that conform, by day">
-                  <polyline fill="none" stroke="var(--ok)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" points={trend.map((p, i) => `${(i / (trend.length - 1)) * 300},${56 - (p.conformant / p.governed) * 52}`).join(' ')} />
-                </svg>
-                <div className="flex justify-between text-[11px] text-content-faint"><span>{trend[0].d}: {pct(trend[0].conformant, trend[0].governed)}</span><span>{trend[trend.length - 1].d}: {pct(trend[trend.length - 1].conformant, trend[trend.length - 1].governed)}</span></div>
-              </div>
-            </div>}
-            {(rt || mgr) && r.environments.filter((e) => e.type !== 'design').length > 0 && <div className={card}>
-              <div className={head}>Environments</div>
-              {r.environments.filter((e) => e.type !== 'design').map((e) => {
-                const apps = r.apps.filter((a) => a.env === e.name), inst = r.instances.filter((i) => i.env === e.name), down = apps.filter((a) => a.health === 'down').length;
-                return (
-                  <button key={e.id} onClick={() => onTab('deployments')} className="w-full flex items-center gap-3 h-8 px-3.5 border-b border-line-subtle last:border-b-0 text-left text-[12.5px] hover:bg-[var(--hover-overlay)]">
-                    <span className="font-medium">{e.name}</span>{e.production && <span className="text-[10.5px] px-1.5 py-px rounded border border-line text-content-muted">Production</span>}
-                    <span className="ml-auto text-content-muted whitespace-nowrap">{rt ? `${apps.length} ${apps.length === 1 ? 'app' : 'apps'}` : ''}{rt && mgr ? ' · ' : ''}{mgr ? `${inst.length} API ${inst.length === 1 ? 'instance' : 'instances'}` : ''}</span>
-                    {down > 0 && <span className="text-err whitespace-nowrap">{down} down</span>}
-                  </button>
-                );
-              })}
-            </div>}
-            {ex && apis.length > 0 && <div className={card}>
-              <div className={head}>By publisher</div>
-              {people.slice(0, 10).map((p) => (
-                <div key={p.name} className="flex items-center gap-3 h-8 px-3.5 border-b border-line-subtle last:border-b-0 text-[12.5px]">
-                  <span className="truncate">{p.name}</span>
-                  <span className="ml-auto text-content-muted whitespace-nowrap">{p.apis} {p.apis === 1 ? 'API' : 'APIs'}</span>
-                  {govOn && <span className={`w-[110px] text-right whitespace-nowrap ${p.failing ? 'text-err' : 'text-content-faint'}`}>{p.failing ? `${p.failing} not conformant` : 'none failing'}</span>}
-                  <span className="w-[86px] text-right text-content-faint whitespace-nowrap">{when(p.last, r.at)}</span>
-                </div>
-              ))}
-              {!people.length && <div className="px-3.5 py-3 text-[12.5px] text-content-faint">No APIs yet.</div>}
-            </div>}
-          </div>
+            </div>
+          </div>}
+
+          {trend.length >= 2 && <div className={box}>
+            <div className={title}>Conformance over time</div>
+            <div className={sub}>Kept on this computer, one reading a day</div>
+            <svg viewBox="0 0 300 70" className="mt-4 w-full h-[70px]" preserveAspectRatio="none" role="img" aria-label="Share of governed APIs that conform, by day">
+              <polyline fill="none" stroke="var(--ok)" strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" points={trend.map((p, i) => `${(i / (trend.length - 1)) * 300},${64 - (p.conformant / p.governed) * 58}`).join(' ')} />
+            </svg>
+            <div className="mt-1 flex justify-between text-[11px] text-content-faint"><span>{trend[0].d}: {pct(trend[0].conformant, trend[0].governed)}</span><span>{trend[trend.length - 1].d}: {pct(trend[trend.length - 1].conformant, trend[trend.length - 1].governed)}</span></div>
+          </div>}
         </div>
       </div>
+    </div>
+  );
+}
+
+// A whole split into a few parts: a ring, with the figure that matters in the middle. A 2 px gap of the surface
+// keeps neighbouring parts apart; each part names itself on hover, and the legend beside it carries the numbers.
+function Ring({ parts, size = 136, children }: { parts: { label: string; n: number; color: string }[]; size?: number; children: ReactNode }) {
+  const live = parts.filter((p) => p.n > 0), total = live.reduce((a, p) => a + p.n, 0);
+  const R = 42, C = 2 * Math.PI * R, gap = live.length > 1 ? 2 : 0;
+  let at = 0;
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90" role="img" aria-label={parts.map((p) => `${p.label}: ${p.n}`).join(', ')}>
+        <circle cx="50" cy="50" r={R} fill="none" stroke="var(--surface-3)" strokeWidth="10" />
+        {live.map((p) => {
+          const len = (p.n / total) * C, start = at; at += len;
+          return <circle key={p.label} cx="50" cy="50" r={R} fill="none" stroke={p.color} strokeWidth="10" strokeDasharray={`${Math.max(len - gap, 0.6)} ${C}`} strokeDashoffset={-start} className="hover:[stroke-width:12] transition-[stroke-width]"><title>{`${p.label}: ${p.n} (${Math.round((p.n / total) * 100)}%)`}</title></circle>;
+        })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">{children}</div>
     </div>
   );
 }
@@ -671,7 +857,7 @@ function Deployments({ r, onOpen }: { r: D.Reading; onOpen: (a: D.Api) => void }
                 <tbody>{matrix.map((x) => {
                   const api = r.apis.find((a) => a.assetId === x.assetId && a.groupId === x.groupId);
                   return (
-                    <tr key={x.assetId} onClick={() => api && onOpen(api)} className={api ? 'cursor-pointer hover:bg-[var(--hover-overlay)]' : ''}>
+                    <tr key={`${x.groupId}/${x.assetId}`} onClick={() => api && onOpen(api)} className={api ? 'cursor-pointer hover:bg-[var(--hover-overlay)]' : ''}>
                       <td className={`${td} font-medium`}>{x.name}</td>
                       {envs.map((e) => <td key={e.id} className={td}>{(x.cells.get(e.name) ?? []).map((i) => (
                         <span key={i.id} className="inline-flex items-center gap-1.5 mr-3 whitespace-nowrap" title={`${i.label || 'Instance'} ${i.id}${i.endpoint ? ' · ' + i.endpoint : ''}${api && cmpVersion(i.version, api.version) < 0 ? ` · linked to Exchange ${i.version}, latest is ${api.version}` : ''}`}>
@@ -719,10 +905,23 @@ function Health({ r }: { r: D.Reading }) {
   const [q, setQ] = useState('');
   const [down, setDown] = useState(false);
   const [sort, setSort] = useState<{ col: string; asc: boolean }>({ col: 'state', asc: true });
+  // The rows and their order hold still until the sort, a filter or the reading changes: a check's result or a new
+  // address never moves a row out from under the pointer, nor out of a filter, while someone works down the list.
+  const shown = useRef<{ view: string; keys: string[] }>({ view: '', keys: [] });
   // Apps (Runtime Manager: is it running) and APIs (API Manager: is an app claiming the instance) are shown apart:
   // mixed in one list, "started" beside "active" for the same name read as the same thing.
   const [from, setFrom] = useState<'apps' | 'apis'>(r.access.runtime === 'ok' ? 'apps' : 'apis');
+  const [bulk, setBulk] = useState(false);
+  // How a row is checked: its own settings, else its environment's, else the ones for every environment.
+  const [orgReq, setOrgReq] = useState<D.Req>(() => D.savedReq(r.org.id));
+  const [envReqs, setEnvReqs] = useState<Record<string, D.Req>>(() => D.savedEnvReqs(r.org.id));
+  // scope: 'all', 'env:<name>' or a row's key.
+  const [editing, setEditing] = useState<{ scope: string; name: string } | null>(null);
   const put = (s: D.Saved) => { setSaved(s); D.saveHealth(r.org.id, s); };
+  const envOfKey = (k: string) => k.replace(/^(app|api):/, '').split('/')[0];
+  const reqOf = (k: string) => saved[k]?.req ?? envReqs[envOfKey(k)] ?? orgReq;
+  // The keychain scope a row's secrets are under: the level its settings come from.
+  const scopeOf = (k: string) => (saved[k]?.req ? k : envReqs[envOfKey(k)] ? `env:${envOfKey(k)}` : 'all');
   if (r.access.runtime !== 'ok' && r.access.apimanager !== 'ok') return <NoAccess r={r} s="runtime" what="Runtime Manager's apps or API Manager's APIs" />;
   const urlOf = (k: string, d: string) => saved[k]?.url ?? d;
   // What can be checked, with the address Anypoint knows (if any).
@@ -745,9 +944,13 @@ function Health({ r }: { r: D.Reading }) {
     name: x.name.toLowerCase(), env: `${x.production ? 0 : 1}${x.env.toLowerCase()}`,
     state: isDown(x) ? 0 : x.health === 'up' ? 2 : 1, check: saved[x.key]?.last ? (saved[x.key].last!.ok ? 1 : 0) : 2,
   } as Record<string, string | number>)[sort.col];
-  const items = all.filter((x) => (env === 'all' || (env === ':prod' ? x.production : env === ':nonprod' ? !x.production : x.env === env))
+  const fresh = all.filter((x) => (env === 'all' || (env === ':prod' ? x.production : env === ':nonprod' ? !x.production : x.env === env))
     && (!down || isDown(x)) && words.every((w) => `${x.name} ${x.what} ${x.status} ${x.env}`.toLowerCase().includes(w)))
     .sort((a, b) => { const p = val(a), s = val(b); return (p < s ? -1 : p > s ? 1 : a.name.localeCompare(b.name)) * (sort.asc ? 1 : -1); });
+  const view = JSON.stringify([from, env, down, q, sort, r.at]);
+  if (shown.current.view !== view) shown.current = { view, keys: fresh.map((x) => x.key) };
+  const byKey = new Map(all.map((x) => [x.key, x]));
+  const items = shown.current.keys.map((k) => byKey.get(k)).filter((x): x is (typeof all)[number] => !!x);
   const filtered = items.length !== all.length;
   const head = (label: string, col?: string) => (
     <th key={label} className={th} aria-sort={col && sort.col === col ? (sort.asc ? 'ascending' : 'descending') : undefined}>
@@ -757,9 +960,16 @@ function Health({ r }: { r: D.Reading }) {
   const go = async (list: typeof items) => {
     const todo = list.filter((x) => /^https?:\/\//.test(urlOf(x.key, x.url)));
     if (!todo.length) return;
+    // Many requests that aren't reads: one more look first.
+    const writes = todo.filter((x) => !/^(GET|HEAD)$/.test(reqOf(x.key).method));
+    if (todo.length > 1 && writes.length && !(await ask(`This sends ${writes.length} ${[...new Set(writes.map((x) => reqOf(x.key).method))].join(' and ')} ${writes.length === 1 ? 'request' : 'requests'}, maybe to production. Check them?`, 'Check'))) return;
     setBusy(new Set(todo.map((x) => x.key)));
     const next = { ...saved };
-    await Promise.all(todo.map(async (x) => { const u = urlOf(x.key, x.url); next[x.key] = { url: u, last: await D.check(u) }; setBusy((b) => { const n = new Set(b); n.delete(x.key); return n; }); }));
+    // Six at a time, each result shown as it lands.
+    await D.checkMany(todo, (x) => D.check(urlOf(x.key, x.url), reqOf(x.key), r.org.id, scopeOf(x.key)), (x, c) => {
+      next[x.key] = { ...next[x.key], url: urlOf(x.key, x.url), last: c }; setSaved({ ...next });
+      setBusy((b) => { const n = new Set(b); n.delete(x.key); return n; });
+    });
     put(next);
   };
   const th = 'sticky top-0 h-8 px-3 text-left font-medium text-[11.5px] text-content-faint bg-surface border-b border-line whitespace-nowrap';
@@ -768,7 +978,12 @@ function Health({ r }: { r: D.Reading }) {
     <div className="flex-1 min-h-0 overflow-auto">
       <div className="max-w-[1180px] mx-auto px-6 py-5 flex flex-col gap-3">
         <div className="flex items-center gap-3">
-          <p className="m-0 flex-1 text-[12.5px] text-content-muted leading-relaxed">Anypoint's own status for each app and API, and a check of the address you give each one (a health endpoint works best). A check is one GET from this computer, only when you press Check: nothing runs on a timer. The addresses are kept on this computer.</p>
+          <p className="m-0 flex-1 text-[12.5px] text-content-muted leading-relaxed">Anypoint's own status for each app and API, and a check of the address you give each one (a health endpoint works best). A check is one request from this computer, only when you press Check: nothing runs on a timer. Addresses and settings are kept on this computer, and secret header values in the system keychain.</p>
+          <button className={btn} onClick={() => setEditing(env !== 'all' && !env.startsWith(':') ? { scope: `env:${env}`, name: env } : { scope: 'all', name: '' })}
+            title={`Every environment: ${D.describe(orgReq)}${Object.keys(envReqs).length ? `. Own settings: ${Object.keys(envReqs).join(', ')}` : ''}`}>
+            <span className="inline-flex items-center gap-1.5"><Icons.Settings size={13} />How checks are sent
+              <span className="font-mono text-[11px] text-content-faint">{Object.keys(envReqs).length ? `${Object.keys(envReqs).length + 1} settings` : `${orgReq.method} · ${orgReq.success}`}</span></span>
+          </button>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {r.access.runtime === 'ok' && r.access.apimanager === 'ok' && (
@@ -792,6 +1007,7 @@ function Health({ r }: { r: D.Reading }) {
           <button onClick={() => setDown((d) => !d)} aria-pressed={down} className={`h-7 px-2.5 rounded-md border text-[12px] ${down ? 'border-err-border bg-err-tint text-err font-medium' : 'border-line text-content-muted hover:text-content'}`}>Down only</button>
           {filtered && <span className="text-[12px] text-content-faint">{items.length} of {all.length}</span>}
           <span className="flex-1" />
+          <button className={btn} disabled={busy.size > 0 || !items.length} onClick={() => setBulk(true)} title="Every address in one place: fill them from a pattern, or paste them from a spreadsheet">Edit addresses…</button>
           <button className={btnPrimary} disabled={busy.size > 0 || !items.some((x) => /^https?:\/\//.test(urlOf(x.key, x.url)))} onClick={() => go(items)}
             title={filtered ? 'Checks only the rows shown' : undefined}>{busy.size ? 'Checking…' : filtered ? `Check these ${items.length}` : 'Check all'}</button>
         </div>
@@ -802,25 +1018,198 @@ function Health({ r }: { r: D.Reading }) {
               const last = saved[x.key]?.last;
               return (
                 <tr key={x.key}>
-                  <td className={td}><div className="font-medium">{x.name}</div><div className="text-[11px] text-content-faint" title={x.tip || undefined}>{x.what}</div></td>
+                  <td className={`${td} min-w-[220px] max-w-[320px]`}><div className="font-medium truncate" title={x.name}>{x.name}</div><div className="text-[11px] text-content-faint truncate" title={x.tip || undefined}>{x.what}</div></td>
                   <td className={`${td} text-content-muted whitespace-nowrap`}>{x.env}{x.production && <span className="ml-1.5 text-[10.5px] px-1.5 py-px rounded border border-line">Production</span>}</td>
                   <td className={td}><span className={`inline-flex items-center gap-1.5 whitespace-nowrap ${x.health === 'up' ? 'text-ok' : x.health === 'down' ? 'text-err' : 'text-content-muted'}`}>{dot(x.health === 'up' ? 'ok' : x.health === 'down' ? 'err' : 'faint')}{x.status || 'unknown'}</span></td>
-                  <td className={`${td} w-[38%]`}>
-                    <input defaultValue={urlOf(x.key, x.url)} placeholder="https://…/health" spellCheck={false} aria-label={`Address to check for ${x.name}`}
-                      onBlur={(e) => { const v = e.target.value.trim(); if (v !== urlOf(x.key, x.url)) put({ ...saved, [x.key]: { url: v } }); }}
+                  <td className={`${td} w-[34%] min-w-[220px]`}>
+                    <input key={urlOf(x.key, x.url)} defaultValue={urlOf(x.key, x.url)} placeholder="https://…/health" spellCheck={false} aria-label={`Address to check for ${x.name}`}
+                      onBlur={(e) => { const v = e.target.value.trim(); if (v !== urlOf(x.key, x.url)) put({ ...saved, [x.key]: { url: v, req: saved[x.key]?.req } }); }}
                       className="w-full h-7 px-2 rounded-md border border-line bg-surface-input font-mono text-[11.5px] text-content outline-none focus:border-accent" />
                   </td>
                   <td className={`${td} whitespace-nowrap`}>{busy.has(x.key) ? <span className="flex items-center gap-2 text-content-faint"><Spinner />Checking</span>
-                    : last ? <span className={last.ok ? 'text-ok' : 'text-err'} title={`${new Date(last.at).toLocaleString()}${last.note ? ' · ' + last.note : ''}`}>{last.ok ? 'Up' : 'Down'} · {last.code ?? 'no answer'} · {last.ms} ms<span className="ml-1.5 text-content-faint">{when(last.at)}</span></span>
+                    : last ? <span className={last.ok ? 'text-ok' : 'text-err'} title={`${last.method ?? 'GET'} at ${new Date(last.at).toLocaleString()}${last.code ? `: ${last.code} counts as ${last.ok ? 'up' : 'down'}` : ''}${last.note ? ' · ' + last.note : ''}`}>{last.ok ? 'Up' : 'Down'} · {last.code ?? 'no answer'} · {last.ms} ms<span className="ml-1.5 text-content-faint">{when(last.at)}</span></span>
                     : <span className="text-content-ghost">Not checked</span>}</td>
-                  <td className={`${td} text-right`}><button className={btn} disabled={busy.has(x.key) || !/^https?:\/\//.test(urlOf(x.key, x.url))} onClick={() => go([x])}>Check</button></td>
+                  <td className={`${td} text-right whitespace-nowrap`}>
+                    {/* The row's own request: marked, so a row that differs from the rest is seen. */}
+                    <button onClick={() => setEditing({ scope: x.key, name: `${x.name} in ${x.env}` })} aria-label={`How ${x.name} is checked`}
+                      title={saved[x.key]?.req ? `Its own settings: ${D.describe(saved[x.key].req!)}` : `Uses the settings for ${envReqs[x.env] ? x.env : 'every environment'}: ${D.describe(reqOf(x.key))}. Click to give it its own.`}
+                      className={`mr-1.5 h-[26px] px-1.5 rounded-md inline-flex items-center gap-1 align-middle text-[11px] font-mono ${saved[x.key]?.req ? 'text-accent border border-accent-border bg-accent-dim' : 'text-content-faint hover:text-content hover:bg-surface-3'}`}>
+                      <Icons.Settings size={12} />{saved[x.key]?.req ? saved[x.key].req!.method : ''}
+                    </button>
+                    <button className={btn} disabled={busy.has(x.key) || !/^https?:\/\//.test(urlOf(x.key, x.url))} onClick={() => go([x])}>Check</button>
+                  </td>
                 </tr>
               );
             })}</tbody>
           </table> : <div className="px-3.5 py-6 text-center text-[12.5px] text-content-faint">{all.length ? 'Nothing matches.' : "Nothing is deployed or managed yet, so there's nothing to check."}</div>}
         </div>
+        {editing && (() => {
+          const sc = editing.scope, isEnv = sc.startsWith('env:'), envName = isEnv ? sc.slice(4) : '', isRow = sc !== 'all' && !isEnv;
+          const rowEnv = isRow ? envOfKey(sc) : '';
+          // Every environment the organization has, so one with no rows yet can be set up too.
+          const envList = [...new Set([...r.environments.filter((e) => e.type !== 'design').map((e) => e.name), ...Object.keys(envReqs)])];
+          return <RequestSettings key={sc} org={r.org.id} scope={sc}
+            title={isRow ? `How ${editing.name} is checked` : 'How checks are sent'}
+            sub={isRow ? 'This row only' : isEnv ? `Rows in ${envName}, unless a row has its own` : "Every environment that doesn't have its own, and the rows in it"}
+            start={isRow ? saved[sc]?.req ?? null : isEnv ? envReqs[envName] ?? null : orgReq}
+            fallback={isRow ? envReqs[rowEnv] ?? orgReq : orgReq}
+            fallbackLabel={isRow ? (envReqs[rowEnv] ? `the settings for ${rowEnv}` : 'the settings for every environment') : 'the settings for every environment'}
+            places={isRow ? undefined : [{ value: 'all', label: 'Every environment' }, ...envList.map((n) => ({ value: `env:${n}`, label: `${n}${envReqs[n] ? ' (own settings)' : ''}` }))]}
+            onPlace={(p) => setEditing({ scope: p, name: p.slice(4) })}
+            onClose={() => setEditing(null)}
+            onSave={(q) => {
+              if (sc === 'all') { setOrgReq(q!); D.saveReq(r.org.id, q!); }
+              else if (isEnv) { const m = { ...envReqs }; if (q) m[envName] = q; else delete m[envName]; setEnvReqs(m); D.saveEnvReqs(r.org.id, m); }
+              else put({ ...saved, [sc]: { ...saved[sc], url: urlOf(sc, all.find((x) => x.key === sc)?.url ?? ''), req: q ?? undefined } });
+              setEditing(null);
+            }} />;
+        })()}
+        {bulk && <Addresses rows={items.map((x) => ({ key: x.key, name: x.name, env: x.env, url: urlOf(x.key, x.url) }))} filtered={filtered} onClose={() => setBulk(false)}
+          onApply={(urls) => { const next = { ...saved }; for (const [k, u] of urls) if (u !== urlOf(k, all.find((x) => x.key === k)?.url ?? '')) next[k] = { url: u, req: saved[k]?.req }; put(next); setBulk(false); }} />}
       </div>
     </div>
+  );
+}
+
+// How a check is sent: method, headers, body, and which status codes mean up. For the organization's rows (start is
+// its settings) or one row (start is the row's own, or null when it uses the organization's). Secret header values go
+// to the system keychain when saved and are never shown again: a saved one says so, and typing replaces it.
+const METHODS_HTTP = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+function RequestSettings({ org, scope, title, sub, start, fallback, fallbackLabel, places, onPlace, onClose, onSave }: {
+  org: string; scope: string; title: string; sub: string; start: D.Req | null; fallback: D.Req; fallbackLabel: string;
+  places?: { value: string; label: string }[]; onPlace: (scope: string) => void; onClose: () => void; onSave: (q: D.Req | null) => void;
+}) {
+  const row = scope !== 'all'; // an environment or a row: it can use the level above instead
+  const [own, setOwn] = useState(!row || !!start);
+  const base = start ?? fallback;
+  // A secret copied from the organization's settings has no value under this row's key, so it must be typed again.
+  const [q, setQ] = useState<D.Req>(() => ({ ...base, headers: base.headers.map((h) => ({ ...h })) }));
+  const [typed, setTyped] = useState<Record<number, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const hasBody = !/^(GET|HEAD)$/.test(q.method);
+  const jsonBad = hasBody && q.body.trim() && /^[\[{]/.test(q.body.trim()) && (() => { try { JSON.parse(q.body); return false; } catch { return true; } })();
+  const set = (i: number, h: Partial<D.Header>) => setQ({ ...q, headers: q.headers.map((x, j) => (j === i ? { ...x, ...h } : x)) });
+  const savedSecret = (i: number) => !!start && q.headers[i].secret && base.headers.some((b) => b.secret && b.name.trim().toLowerCase() === q.headers[i].name.trim().toLowerCase());
+  const save = async () => {
+    setErr(null);
+    if (!own) { for (const h of (start?.headers ?? []).filter((h) => h.secret)) await invoke('health_secret', { key: D.secretKey(org, scope, h.name), value: null }).catch(() => {}); onSave(null); return; }
+    if (!D.successValid(q.success)) { setErr('Say which status codes mean up, like 2xx, or 200-399, or 2xx, 401.'); return; }
+    const missing = q.headers.find((h, i) => h.name.trim() && h.secret && !typed[i] && !savedSecret(i));
+    if (missing) { setErr(`Type the value of ${missing.name.trim()}: secret values are kept in the system keychain, one per place they're used.`); return; }
+    setBusy(true);
+    try {
+      for (const [i, v] of Object.entries(typed)) { const h = q.headers[Number(i)]; if (h?.secret && h.name.trim() && v) await invoke('health_secret', { key: D.secretKey(org, scope, h.name), value: v }); }
+      // Secrets that were removed, renamed or made plain leave the keychain.
+      const keep = new Set(q.headers.filter((h) => h.secret && h.name.trim()).map((h) => h.name.trim().toLowerCase()));
+      for (const h of (start?.headers ?? []).filter((h) => h.secret && !keep.has(h.name.trim().toLowerCase()))) await invoke('health_secret', { key: D.secretKey(org, scope, h.name), value: null }).catch(() => {});
+      onSave({ ...q, method: q.method.toUpperCase(), headers: q.headers.filter((h) => h.name.trim()).map((h, i) => ({ name: h.name.trim(), secret: h.secret, value: h.secret ? '' : (typed[i] ?? h.value) })) });
+    } catch (e) { setErr(String(e).replace(/^Error: /, '')); }
+    setBusy(false);
+  };
+  const input = 'h-7 px-2 rounded-md border border-line bg-surface-input text-[12px] text-content outline-none focus:border-accent';
+  const label = 'text-[12px] font-medium';
+  return (
+    <Modal title={title} width={640} onCancel={onClose} sub={sub}
+      footer={<><span className="mr-auto text-[12px] text-err">{err}</span><button className={btn} onClick={onClose}>Cancel</button><button className={btnPrimary} disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button></>}>
+      <div className="flex flex-col gap-4">
+        {places && <label className="flex items-center gap-3"><span className={label}>For</span>
+          <Select value={scope} onChange={onPlace} className="flex-1 text-[12.5px]" options={places} title="Credentials usually differ between environments: each can have its own" /></label>}
+        {row && <Select value={own ? 'own' : 'all'} onChange={(v) => setOwn(v === 'own')} className="w-full text-[12.5px]"
+          options={[{ value: 'all', label: `Use ${fallbackLabel} (${fallback.method}, up on ${fallback.success})` }, { value: 'own', label: 'Its own settings' }]} />}
+        {own && <>
+          <div className="flex items-end gap-3">
+            <label className="flex flex-col gap-1"><span className={label}>Method</span>
+              <Select value={q.method} onChange={(m) => setQ({ ...q, method: m })} className="w-[120px] h-7 text-[12px]" mono options={METHODS_HTTP.map((m) => ({ value: m, label: m }))} /></label>
+            <label className="flex-1 flex flex-col gap-1"><span className={label}>Up when the status is</span>
+              <input value={q.success} onChange={(e) => setQ({ ...q, success: e.target.value })} spellCheck={false} placeholder="2xx" aria-label="Status codes that mean up"
+                className={`${input} font-mono ${D.successValid(q.success) ? '' : '!border-err'}`} /></label>
+          </div>
+          <div className="-mt-2 text-[11.5px] text-content-faint">Status codes that mean up, separated by commas: <span className="font-mono">2xx</span>, a range like <span className="font-mono">200-399</span>, or single codes like <span className="font-mono">401</span>. Anything else, and no answer at all, is down.</div>
+          <div>
+            <div className="flex items-center"><span className={label}>Headers</span>
+              <button className="ml-auto text-[12px] text-accent hover:underline" onClick={() => setQ({ ...q, headers: [...q.headers, { name: '', value: '', secret: false }] })}>Add a header</button></div>
+            {!q.headers.length && <div className="mt-1 text-[11.5px] text-content-faint">None. Add client_id and client_secret here if the APIs need them.</div>}
+            <div className="mt-1.5 flex flex-col gap-1.5">
+              {q.headers.map((h, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <input value={h.name} onChange={(e) => set(i, { name: e.target.value })} placeholder="client_id" spellCheck={false} aria-label="Header name" className={`${input} w-[170px] font-mono`} />
+                  {h.secret
+                    ? <input type="password" value={typed[i] ?? ''} onChange={(e) => setTyped({ ...typed, [i]: e.target.value })} autoComplete="off" aria-label={`Value of ${h.name || 'the header'}`}
+                        placeholder={savedSecret(i) ? 'Saved in the system keychain. Type to replace' : 'Value, kept in the system keychain'} className={`${input} flex-1 min-w-0 font-mono`} />
+                    : <input value={h.value} onChange={(e) => set(i, { value: e.target.value })} placeholder="Value" spellCheck={false} aria-label={`Value of ${h.name || 'the header'}`} className={`${input} flex-1 min-w-0 font-mono`} />}
+                  <label className="flex items-center gap-1 text-[11.5px] text-content-muted whitespace-nowrap" title="Kept in the system keychain, not with the other settings, and never shown again">
+                    <input type="checkbox" checked={h.secret} onChange={(e) => { set(i, { secret: e.target.checked, value: e.target.checked ? '' : h.value }); if (e.target.checked && h.value) setTyped({ ...typed, [i]: h.value }); }} className="accent-[var(--accent)]" />Secret</label>
+                  <button aria-label="Remove the header" onClick={() => { setQ({ ...q, headers: q.headers.filter((_, j) => j !== i) }); setTyped(Object.fromEntries(Object.entries(typed).filter(([k]) => Number(k) !== i).map(([k, v]) => [Number(k) > i ? Number(k) - 1 : k, v]))); }}
+                    className="w-6 h-6 rounded flex items-center justify-center text-content-faint hover:text-err hover:bg-surface-3"><Icons.X size={12} /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+          {hasBody && <div>
+            <div className="flex items-center"><span className={label}>Body</span>
+              {q.body.trim() && !jsonBad && /^[[{]/.test(q.body.trim()) && <button className="ml-auto text-[12px] text-accent hover:underline" onClick={() => setQ({ ...q, body: JSON.stringify(JSON.parse(q.body), null, 2) })}>Format</button>}</div>
+            <textarea value={q.body} onChange={(e) => setQ({ ...q, body: e.target.value })} rows={6} spellCheck={false} placeholder={'{ "ping": true }'} aria-label="Body"
+              className="mt-1.5 w-full px-2.5 py-2 rounded-md border border-line bg-surface-input font-mono text-[11.5px] leading-snug text-content outline-none focus:border-accent resize-y" />
+            <div className={`mt-1 text-[11.5px] ${jsonBad ? 'text-err' : 'text-content-faint'}`}>{jsonBad ? "This isn't valid JSON, so it goes as plain text." : 'Sent as it is. JSON goes with Content-Type: application/json unless a header says otherwise.'}</div>
+          </div>}
+          {q.method !== 'GET' && q.method !== 'HEAD' && <div className="px-3 py-2 rounded-md border border-warn-border bg-warn-tint text-[12px] text-content-secondary">A check sends exactly this request, maybe to production. Pick an endpoint where a {q.method} changes nothing.</div>}
+        </>}
+      </div>
+    </Modal>
+  );
+}
+
+// Every address at once. One line per row shown (name, environment, address, with tabs between, which is how a
+// spreadsheet copies and pastes): edit them here, paste a sheet's columns over them, or fill them from a pattern.
+// A pasted line finds its row by name and environment; with no environment it goes to every row of that name.
+function Addresses({ rows, filtered, onClose, onApply }: { rows: { key: string; name: string; env: string; url: string }[]; filtered: boolean; onClose: () => void; onApply: (urls: Map<string, string>) => void }) {
+  const T = String.fromCharCode(9);
+  const [text, setText] = useState(() => rows.map((x) => [x.name, x.env, x.url].join(T)).join('\n'));
+  const [pattern, setPattern] = useState('');
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+    const p = (l.includes(T) ? l.split(T) : l.includes(',') ? l.split(',') : l.split(/\s+/)).map((c) => c.trim());
+    const url = /^https?:\/\//i.test(p[p.length - 1]) ? p[p.length - 1] : '';
+    const rest = url ? p.slice(0, -1) : p;
+    return { name: rest[0] ?? '', env: rest[1] ?? '', url };
+  });
+  const urls = new Map<string, string>(); let unknown = 0;
+  for (const l of lines) {
+    const hit = rows.filter((x) => x.name.toLowerCase() === l.name.toLowerCase() && (!l.env || x.env.toLowerCase() === l.env.toLowerCase()));
+    if (!hit.length) unknown++;
+    for (const x of hit) urls.set(x.key, l.url);
+  }
+  const changed = [...urls].filter(([k, u]) => u !== rows.find((x) => x.key === k)!.url).length;
+  const fill = (every: boolean) => setText(lines.map((l) => {
+    const made = pattern.trim().replace(/\{name\}/gi, l.name).replace(/\{env\}/gi, l.env.toLowerCase());
+    return [l.name, l.env, every || !l.url ? made : l.url].join(T);
+  }).join('\n'));
+  const ok = /^https?:\/\/\S+$/i.test(pattern.trim());
+  return (
+    <Modal title="Addresses to check" width={820} onCancel={onClose}
+      sub={`${rows.length} ${rows.length === 1 ? 'row' : 'rows'}${filtered ? ', the ones the filters show' : ''}`}
+      footer={<><span className="mr-auto text-[12px] text-content-faint">{unknown > 0 ? `${unknown} ${unknown === 1 ? 'line matches' : 'lines match'} no row and will be skipped. ` : ''}{changed} {changed === 1 ? 'address changes' : 'addresses change'}.</span>
+        <button className={btn} onClick={onClose}>Cancel</button><button className={btnPrimary} disabled={!changed} onClick={() => onApply(urls)}>Apply</button></>}>
+      <div className="flex flex-col gap-3">
+        <div>
+          <div className="text-[12px] font-medium">Fill from a pattern</div>
+          <div className="mt-1 flex items-center gap-2">
+            <input value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="https://{env}.example.com/{name}/health" spellCheck={false} aria-label="Address pattern"
+              className="flex-1 min-w-0 h-7 px-2 rounded-md border border-line bg-surface-input font-mono text-[11.5px] text-content outline-none focus:border-accent" />
+            <button className={btn} disabled={!ok} onClick={() => fill(false)} title="Only the rows with no address yet">Fill the empty ones</button>
+            <button className={btn} disabled={!ok} onClick={() => fill(true)}>Fill all</button>
+          </div>
+          <div className="mt-1 text-[11.5px] text-content-faint"><span className="font-mono">{'{name}'}</span> is the row's name and <span className="font-mono">{'{env}'}</span> its environment in small letters. Filter the table first to fill one environment at a time.</div>
+        </div>
+        <div>
+          <div className="text-[12px] font-medium">Or edit and paste</div>
+          <div className="mt-0.5 text-[11.5px] text-content-faint">Name, environment and address on each line, with a tab between them. Copy it into a spreadsheet, fill the last column and paste it back; lines find their row by name and environment.</div>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} wrap="off" rows={16} aria-label="Addresses, one row per line"
+            onKeyDown={(e) => { if (e.key === 'Tab') { e.preventDefault(); const t = e.currentTarget, at = t.selectionStart; setText(text.slice(0, at) + T + text.slice(t.selectionEnd)); requestAnimationFrame(() => { t.selectionStart = t.selectionEnd = at + 1; }); } }}
+            className="mt-1.5 w-full px-2.5 py-2 rounded-md border border-line bg-surface-input font-mono text-[11.5px] leading-[1.7] text-content outline-none focus:border-accent resize-y" style={{ tabSize: 34 }} />
+        </div>
+      </div>
+    </Modal>
   );
 }
 

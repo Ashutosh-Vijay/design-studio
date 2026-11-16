@@ -11,7 +11,7 @@ Your spec projects, settings, recent projects, Academy progress and unsaved-work
 ## What goes over the network, and only for this
 
 - **Anypoint**, after you sign in: your specs and project changes go to and from your own Anypoint organization when you pull, push or publish, and the app reads Design Center and Exchange for you. The Dashboard also reads your organization's environments, API Governance, API Manager and Runtime Manager, and the published specs of your APIs; it only reads. A small daily summary of its counts (how many APIs, how many governed and conformant) and the addresses you check under Health are kept on your computer.
-- **Health checks** (Dashboard): one GET to each address you type in, only when you press Check.
+- **Health checks** (Dashboard): one request to each address you type in, with the method, headers and body you set, only when you press Check.
 - **Signing in**: the app reads the public list of its own Connected Apps from GitHub (or jsDelivr). For an Anypoint cloud not on that list, the sign-in goes through a small broker on `ashutosh-vijay.dev`, which turns the login code into tokens and keeps nothing.
 - **Updates** (desktop app only): a check for a newer version on GitHub Releases, which can be turned off in Settings. The VS Code extension is updated by the Marketplace.
 - **Addresses in your specs**: when a spec includes or refers to an `http` or `https` address, the checking engine reads it, as Design Center does.

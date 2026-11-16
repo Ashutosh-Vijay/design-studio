@@ -8,8 +8,17 @@ import { appCacheDir } from '@tauri-apps/api/path';
 import { assetVersions, cmpVersion, compareModels, type Change, type Version } from './sync';
 
 type Reply = { status: number; json: any; text: string };
-const get = (path: string, env?: { org: string; env: string }) => invoke<Reply>('anypoint_api', { method: 'GET', path, org: env?.org ?? null, env: env?.env ?? null });
-const graph = (query: string) => invoke<Reply>('anypoint_api', { method: 'POST', path: '/graph/api/v2/graphql', body: { query } });
+// A request that can't be sent at all (a dropped connection, among the dozens a reading makes) is tried once more;
+// if that fails too it comes back as status 599 (LOST), so only the part that asked for it says so, not the whole reading.
+const LOST = 599;
+const send = async (args: Record<string, unknown>): Promise<Reply> => {
+  for (let n = 0; ; n++) {
+    try { return await invoke<Reply>('anypoint_api', args); }
+    catch (e) { if (n) return { status: LOST, json: null, text: String(e).replace(/^Error: /, '') }; await new Promise((ok) => setTimeout(ok, 500)); }
+  }
+};
+const get = (path: string, env?: { org: string; env: string }) => send({ method: 'GET', path, org: env?.org ?? null, env: env?.env ?? null });
+const graph = (query: string) => send({ method: 'POST', path: '/graph/api/v2/graphql', body: { query } });
 
 export type Gov = 'failing' | 'validating' | 'conformant' | 'none';
 export type Api = {
@@ -47,7 +56,7 @@ export const kindLabel = (type: string) => KIND_LABEL[type] ?? type.replace(/-/g
 const err = (e: unknown) => String(e).replace(/^Error: /, '');
 const denied = (r: Reply) => r.status === 401 || r.status === 403;
 const message = (r: Reply) => String(r.json?.message ?? r.json?.errors?.[0]?.message ?? r.json?.error?.[0]?.message ?? '').slice(0, 160);
-const said = (what: string, r: Reply) => denied(r) ? `This account isn't allowed to read ${what}.` : `${what} answered ${r.status}${message(r) ? `: ${message(r)}` : ''}.`;
+const said = (what: string, r: Reply) => denied(r) ? `This account isn't allowed to read ${what}.` : r.status === LOST ? `${what} couldn't be reached. ${r.text}`.trim() : `${what} answered ${r.status}${message(r) ? `: ${message(r)}` : ''}.`;
 
 // Business groups the person is in (Design Center's org picker): the dashboard reads one at a time.
 export async function groups(): Promise<{ id: string; name: string }[]> {
@@ -106,12 +115,15 @@ export async function read(org: { id: string; name: string }, step: (text: strin
         const exchangeEmpty = access.exchange === 'ok' && !apis.length && (targets.json.targets ?? []).length > 0;
         if (exchangeEmpty) { access.exchange = 'denied'; why.exchange = "Exchange listed nothing, though API Governance checks APIs here: this account most likely lacks the Exchange Viewer permission."; }
         for (const t of targets.json.targets ?? []) {
-          const m = /^urn:ms:([^:]+):[^:]*::(.+)\/([^/]+)$/.exec(t.id?.id ?? ''); if (!m) continue;
+          // The id comes in two forms, both seen on real organizations: urn:ms:{org}:api-project::{assetId}/{versionGroup},
+          // and gav://{org}/{assetId}/{version} (the version that was checked).
+          const id = String(t.id?.id ?? ''), gav = id.startsWith('gav://');
+          const m = gav ? /^gav:\/\/([^/]+)\/(.+)\/([^/]+)$/.exec(id) : /^urn:ms:([^:]+):[^:]*::(.+)\/([^/]+)$/.exec(id); if (!m) continue;
           if (t.owner?.id && t.owner?.label) names.set(t.owner.id, t.owner.label);
-          let a = apis.find((y) => y.groupId === m[1] && y.assetId === m[2] && (y.versionGroup === m[3] || !y.versionGroup));
+          let a = apis.find((y) => y.groupId === m[1] && y.assetId === m[2] && (gav || y.versionGroup === m[3] || !y.versionGroup));
           // Without Exchange, governance is the only list of APIs this account can see: its rows come from here.
           if (!a && access.exchange !== 'ok') {
-            a = { groupId: m[1], assetId: m[2], name: t.id?.label || m[2], type: t.targetType ?? 'rest-api', kind: 'api', version: m[3], versionGroup: m[3], stable: true,
+            a = { groupId: m[1], assetId: m[2], name: t.id?.label || m[2], type: t.targetType ?? 'rest-api', kind: 'api', version: m[3], versionGroup: gav ? '' : m[3], stable: true,
               published: 0, byId: t.owner?.id ?? '', by: t.owner?.label ?? '', gov: 'none', pass: 0, fail: 0, rulesets: 0, urn: null, govAt: 0, managed: [], versions: [] };
             apis.push(a);
           }
@@ -141,13 +153,23 @@ export async function read(org: { id: string; name: string }, step: (text: strin
     environments = (envs.json?.data ?? []).map((e: { id: string; name: string; type: string; isProduction?: boolean }) => ({ id: e.id, name: e.name, type: e.type, production: !!e.isProduction || e.type === 'production' }));
     const run = environments.filter((e) => e.type !== 'design');
     const [mgr, rt] = await Promise.all([
-      Promise.all(run.map(async (e) => ({ e, r: await get(`/apimanager/api/v1/organizations/${org.id}/environments/${e.id}/apis?limit=500`) }))),
+      // API Manager answers a page at a time (total is the number of assets): every page is read.
+      Promise.all(run.map(async (e) => {
+        const page = (offset: number) => get(`/apimanager/api/v1/organizations/${org.id}/environments/${e.id}/apis?limit=100&offset=${offset}`);
+        const r = await page(0);
+        for (let n = 0; n < 40 && r.status < 300 && Array.isArray(r.json?.assets) && r.json.assets.length < (r.json.total ?? 0); n++) {
+          const more = await page(r.json.assets.length);
+          if (more.status >= 300 || !more.json?.assets?.length) { notes.push(`API Manager listed ${r.json.assets.length} of ${r.json.total} APIs in ${e.name}.`); break; }
+          r.json.assets.push(...more.json.assets);
+        }
+        return { e, r };
+      })),
       Promise.all(run.map(async (e) => ({ e, r: await get('/armui/api/v1/applications', { org: org.id, env: e.id }) }))),
     ]);
     const deniedAll = (l: { r: Reply }[]) => l.length > 0 && l.every((x) => denied(x.r));
     if (deniedAll(mgr)) { access.apimanager = 'denied'; why.apimanager = said('API Manager', mgr[0].r); }
     for (const { e, r } of mgr) {
-      if (r.status >= 300) { if (access.apimanager === 'ok') notes.push(`API Manager's ${e.name} couldn't be read (${r.status}).`); continue; }
+      if (r.status >= 300) { if (access.apimanager === 'ok') notes.push(`API Manager's ${e.name} couldn't be read (${r.status === LOST ? 'no connection' : r.status}).`); continue; }
       for (const asset of r.json?.assets ?? []) for (const i of asset.apis ?? []) {
         instances.push({ env: e.name, production: e.production, groupId: asset.groupId ?? '', assetId: asset.assetId ?? '', name: asset.exchangeAssetName ?? asset.assetId ?? '',
           version: i.assetVersion ?? '', label: i.instanceLabel ?? '', status: i.status ?? '', endpoint: i.endpointUri ?? i.endpoint?.uri ?? '', id: String(i.id ?? ''), technology: i.technology ?? '' });
@@ -155,10 +177,11 @@ export async function read(org: { id: string; name: string }, step: (text: strin
     }
     if (deniedAll(rt)) { access.runtime = 'denied'; why.runtime = said('Runtime Manager', rt[0].r); }
     for (const { e, r } of rt) {
-      if (r.status >= 300) { if (access.runtime === 'ok') notes.push(`Runtime Manager's ${e.name} couldn't be read (${r.status}).`); continue; }
+      if (r.status >= 300) { if (access.runtime === 'ok') notes.push(`Runtime Manager's ${e.name} couldn't be read (${r.status === LOST ? 'no connection' : r.status}).`); continue; }
       // Each kind of runtime answers on its own: one the subscription lacks (CloudHub 1 on newer organizations) says so, quietly.
       for (const x of r.json?.error ?? []) if (!/entitlement/i.test(`${x.reason ?? ''} ${x.message ?? ''}`)) notes.push(x.status === 401 || x.status === 403 ? `This account can't read ${runtimeLabel(x.targetType)} apps in ${e.name}.` : `Runtime Manager couldn't list ${runtimeLabel(x.targetType)} apps in ${e.name} (${x.status ?? 'no answer'}).`);
       for (const x of r.json?.data ?? []) apps.push(appOf(x, e));
+      if (typeof r.json?.total === 'number' && (r.json?.data ?? []).length < r.json.total) notes.push(`Runtime Manager listed ${r.json.data.length} of ${r.json.total} apps in ${e.name}.`);
     }
   }
   for (const i of instances) { const a = apis.find((y) => y.assetId === i.assetId && y.groupId === i.groupId); if (a) a.managed.push({ env: i.env, version: i.version, status: i.status }); }
@@ -228,9 +251,13 @@ function appOf(x: any, e: Env): App {
   const t = x.target ?? {};
   const kind = t.provider === 'MC' ? (/fabric/i.test(t.type ?? t.subtype ?? '') ? 'RTF' : 'MC') : t.type ?? x.targetType ?? x.type;
   const status = String(x.application?.status ?? x.lastReportedStatus ?? x.applicationStatus ?? x.status ?? x.state ?? '');
+  // Hybrid: the app's status is its last report, which stays "started" after its server stops answering. The
+  // server's own status (target.status: RUNNING, DISCONNECTED) says whether that report can still be trusted.
+  const gone = /^(SERVER|SERVER_GROUP|CLUSTER)$/i.test(String(t.type ?? '')) && !!t.status && !/^(RUNNING|STARTED)$/i.test(String(t.status));
+  const words = status.replace(/_/g, ' ').toLowerCase();
   return {
-    env: e.name, production: e.production, name: x.name ?? x.artifact?.name ?? x.domain ?? '', runtime: runtimeLabel(kind), status: status.replace(/_/g, ' ').toLowerCase(),
-    health: /^(RUNNING|STARTED|DEPLOYED|APPLIED)$/i.test(status) ? 'up' : /FAIL|STOPPED|UNDEPLOY|NOT_RUNNING|ERROR|DISCONNECTED/i.test(status) ? 'down' : 'other',
+    env: e.name, production: e.production, name: x.name ?? x.artifact?.name ?? x.domain ?? '', runtime: runtimeLabel(kind), status: gone ? `${words || 'unknown'}, server ${String(t.status).replace(/_/g, ' ').toLowerCase()}` : words,
+    health: gone ? 'down' : /^(RUNNING|STARTED|DEPLOYED|APPLIED)$/i.test(status) ? 'up' : /FAIL|STOPPED|UNDEPLOY|NOT_RUNNING|ERROR|DISCONNECTED/i.test(status) ? 'down' : 'other',
     // Hybrid (seen on a real org): target.runtimeVersion and artifact.lastUpdateTime, in milliseconds.
     mule: String(x.currentRuntimeVersion ?? t.runtimeVersion ?? x.muleVersion?.version ?? x.muleVersion ?? x.runtimeVersion ?? ''),
     updated: ((v) => typeof v === 'number' ? v : Date.parse(v ?? '') || 0)(x.artifact?.lastUpdateTime ?? x.lastModifiedDate ?? x.lastUpdateTime ?? x.lastModified ?? x.updated),
@@ -292,8 +319,14 @@ export function counts(m: Model): Counts {
   return { endpoints: (m.endpoints ?? []).filter((e) => e.operations?.length).length, operations: Object.values(methods).reduce((a, b) => a + b, 0), methods, types: (m.types ?? []).filter((t) => t.name).length };
 }
 // The counts for the table, a couple of APIs at a time in the background (Stable versions are kept on this computer).
-export async function countAll(apis: Api[], tick: () => void, alive: () => boolean) {
-  const queue = apis.filter((a) => a.kind === 'api' && a.counts === undefined && a.version).sort((a, b) => b.published - a.published);
+// Counts already kept cost nothing; a count that isn't kept means downloading that version's spec, so only the
+// newest `max` are read by themselves and the rest wait until asked for (uncounted says how many).
+export const uncounted = (apis: Api[]) => apis.filter((a) => a.kind === 'api' && a.counts === undefined && a.version).length;
+export async function countAll(apis: Api[], tick: () => void, alive: () => boolean, max = Infinity) {
+  const waiting = apis.filter((a) => a.kind === 'api' && a.counts === undefined && a.version).sort((a, b) => b.published - a.published);
+  for (const a of waiting) if (a.stable) try { const c = JSON.parse(localStorage.getItem(`ads.dash.counts:${a.groupId}/${a.assetId}/${a.version}`) || 'null'); if (c) a.counts = c; } catch { /* none kept */ }
+  tick();
+  const queue = waiting.filter((a) => a.counts === undefined).slice(0, max);
   await Promise.all(Array.from({ length: 2 }, async () => {
     for (let a = queue.shift(); a && alive(); a = queue.shift()) {
       const key = `ads.dash.counts:${a.groupId}/${a.assetId}/${a.version}`;
@@ -319,20 +352,50 @@ export async function changes(a: Api, from: Version, to: Version) {
   return { changes: r.changes as Change[], needs: r.part, bump, flagged: r.part === 'major' && bump !== 'major' && x[0] >= 1 };
 }
 
-// ---------- Health: a GET to a URL the person saved, timed. Only when they press Check, never on a timer ----------
-export type Check = { ok: boolean; code: number | null; ms: number; at: number; note: string };
-export async function check(url: string): Promise<Check> {
-  const t0 = performance.now();
+// ---------- Health: the request the person set up, timed. Only when they press Check, never on a timer ----------
+// How a check is sent: one setting for the organization's rows, and any row can have its own. A header marked
+// secret keeps its value in the system keychain (health_secret), under the key secretKey gives it: never here.
+// success says which status codes mean up: "2xx", "200-399", "401", any mix with commas. Anything else is down.
+export type Header = { name: string; value: string; secret: boolean };
+export type Req = { method: string; headers: Header[]; body: string; success: string };
+export const DEFAULT_REQ: Req = { method: 'GET', headers: [], body: '', success: '2xx' };
+export const secretKey = (org: string, scope: string, header: string) => `${org}:${scope}:${header.trim().toLowerCase()}`;
+const token = (t: string) => /^[1-5]xx$/i.test(t) || /^\d{3}$/.test(t) || /^\d{3}-\d{3}$/.test(t);
+export const successValid = (spec: string) => spec.split(/[,\s]+/).filter(Boolean).length > 0 && spec.split(/[,\s]+/).filter(Boolean).every(token);
+export function isSuccess(spec: string, code: number) {
+  return spec.split(/[,\s]+/).filter(Boolean).some((t) => {
+    if (/^[1-5]xx$/i.test(t)) return Math.floor(code / 100) === Number(t[0]);
+    const m = /^(\d{3})-(\d{3})$/.exec(t); if (m) return code >= Number(m[1]) && code <= Number(m[2]);
+    return /^\d{3}$/.test(t) && code === Number(t);
+  });
+}
+// The request, in words, for a tooltip: "POST, 2 headers, a body; up on 2xx, 401".
+export const describe = (q: Req) => [q.method, q.headers.filter((h) => h.name.trim()).length ? `${q.headers.filter((h) => h.name.trim()).length} ${q.headers.filter((h) => h.name.trim()).length === 1 ? 'header' : 'headers'}` : '', q.body.trim() && !/^(GET|HEAD)$/.test(q.method) ? 'a body' : ''].filter(Boolean).join(', ') + `; up on ${q.success}`;
+export type Check = { ok: boolean; code: number | null; ms: number; at: number; note: string; method?: string };
+export async function check(url: string, q: Req, org: string, scope: string): Promise<Check> {
   try {
-    await invoke<string>('fetch_url', { url });
-    return { ok: true, code: 200, ms: Math.round(performance.now() - t0), at: Date.now(), note: '' };
-  } catch (e) {
-    const t = err(e), code = Number(/answered (\d{3})/.exec(t)?.[1]) || null;
-    return { ok: false, code, ms: Math.round(performance.now() - t0), at: Date.now(), note: code ? '' : t.replace(/^Couldn't fetch it: /, '') };
-  }
+    const r = await invoke<{ status: number | null; ms: number; note?: string }>('health_check', {
+      method: q.method, url, body: /^(GET|HEAD)$/.test(q.method) ? null : q.body,
+      headers: q.headers.filter((h) => h.name.trim()).map((h) => ({ name: h.name.trim(), value: h.secret ? '' : h.value, secret: h.secret ? secretKey(org, scope, h.name) : null })),
+    });
+    return { ok: r.status != null && isSuccess(q.success, r.status), code: r.status, ms: r.ms, at: Date.now(), note: r.note ?? '', method: q.method };
+  } catch (e) { return { ok: false, code: null, ms: 0, at: Date.now(), note: err(e), method: q.method }; }
 }
 const healthKey = (org: string) => `ads.dash.health:${org}`;
-export type Saved = Record<string, { url: string; last?: Check }>;
+// Per row: the address, the last result, and the row's own request when it has one (else the organization's).
+export type Saved = Record<string, { url: string; last?: Check; req?: Req }>;
+const reqKey = (org: string) => `ads.dash.healthreq:${org}`;
+export function savedReq(org: string): Req { try { return { ...DEFAULT_REQ, ...JSON.parse(localStorage.getItem(reqKey(org)) || '{}') }; } catch { return { ...DEFAULT_REQ }; } }
+export function saveReq(org: string, q: Req) { try { localStorage.setItem(reqKey(org), JSON.stringify(q)); } catch { /* not kept */ } }
+// Each environment can have its own (credentials usually differ between them): by environment name.
+const envReqKey = (org: string) => `ads.dash.healthreq.env:${org}`;
+export function savedEnvReqs(org: string): Record<string, Req> { try { return JSON.parse(localStorage.getItem(envReqKey(org)) || '{}'); } catch { return {}; } }
+export function saveEnvReqs(org: string, m: Record<string, Req>) { try { localStorage.setItem(envReqKey(org), JSON.stringify(m)); } catch { /* not kept */ } }
+// Many addresses, a few at a time: 250 requests at once would be a burst on production and on this computer.
+export async function checkMany<T>(items: T[], run: (x: T) => Promise<Check>, done: (x: T, c: Check) => void, at = 6) {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: Math.min(at, queue.length) }, async () => { for (let x = queue.shift(); x; x = queue.shift()) done(x, await run(x)); }));
+}
 export function savedHealth(org: string): Saved { try { return JSON.parse(localStorage.getItem(healthKey(org)) || '{}'); } catch { return {}; } }
 export function saveHealth(org: string, s: Saved) { try { localStorage.setItem(healthKey(org), JSON.stringify(s)); } catch { /* not kept */ } }
 
@@ -400,7 +463,7 @@ function remember(r: Reading) {
 
 // ---------- Export: the rows as they're shown, for a spreadsheet ----------
 export const GOV_LABEL: Record<Gov, string> = { conformant: 'Conformant', failing: 'Not conformant', validating: 'In validation', none: 'Not governed' };
-const cell = (s: string | number) => { const t = String(s); return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+const cell = (s: string | number) => { const t = typeof s === 'string' && /^[=+\-@\t]/.test(s) ? "'" + s : String(s); return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
 export function csv(apis: Api[]) {
   const head = ['Name', 'Asset ID', 'Kind', 'Latest version', 'Stage', 'Last published', 'Published by', 'Governance', 'Rulesets passing', 'Rulesets failing', 'Endpoints', 'Operations', 'Managed in'];
   const rows = apis.map((a) => [a.name, a.assetId, kindLabel(a.type), a.version, a.stable ? 'Stable' : 'Development', a.published ? new Date(a.published).toISOString().slice(0, 10) : '', a.by,

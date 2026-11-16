@@ -235,7 +235,8 @@ function propLines(o: Record<string, unknown>, req: boolean, c: Case, optional =
   if (!keys.length) return ['type: object'];
   for (const k of keys) {
     let name = recase(k, c) + (req && !optional.has(k) ? '' : '?');
-    if (!/^[\w.-]+\??$/.test(name)) name = JSON.stringify(name);
+    // Quoted when YAML would read it as something other than a name: odd characters, a number, true, null and the like.
+    if (!/^[\w.-]+\??$/.test(name) || /^(-?[\d.]+|true|false|yes|no|on|off|null|~)\??$/i.test(name)) name = JSON.stringify(name);
     const t = typeLines(o[k], req, c);
     if (typeof t === 'string') out.push(`  ${name}: ${t}`);
     else out.push(`  ${name}:`, ...t.map((l) => '    ' + l));
@@ -643,7 +644,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           {d && node.sect !== 'securitySchemes' && node.sect !== 'annotationTypes' && <button onClick={() => onDelete(d)} className={BTN + ' hover:!text-err'}>Delete…</button>}
           {isType && !included && !readOnly && <JsonToType key={node.name} name={node.name} onApply={(lines) => onEdit((x) => {
             let t = x;
-            for (const key of ['properties', 'items', 'type']) t = S.remove(t, [...node.path, key], false);
+            for (const key of ['properties', 'items', 'enum', 'type']) t = S.remove(t, [...node.path, key], false);
             return S.addChild(t, node.path, lines);
           })} />}
         </div>
