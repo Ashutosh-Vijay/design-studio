@@ -334,7 +334,8 @@ export default function App() {
       {about && <About version={version} whatsNew={aboutNotes} onClose={() => { setAbout(false); setAboutNotes(false); }} onRestart={restartToUpdate} />}
       {mcpOpen && <McpPanel onClose={() => setMcpOpen(false)} />}
       {academy && <AcademyScreen onClose={() => setAcademy(false)} onCreate={() => { setAcademy(false); if (project) setPendingNotice('Go back to all projects to create one.'); else setCreating('api'); }} />}
-      {dashboard && <DashboardScreen onClose={() => setDashboard(false)} onConnect={() => setConnectOpen(true)} />}
+      {dashboard && <DashboardScreen onClose={() => setDashboard(false)} onConnect={() => setConnectOpen(true)} openRoot={project?.root} openName={project?.name}
+        onOpenProject={(root) => { setDashboard(false); if (project?.root !== root) openFolder(root); }} />}
       <Splash />
       {settingsOpen && <SettingsScreen pref={theme.pref} accent={theme.accent} onTheme={(pref, accent) => setTheme({ pref, accent })} start={settingsStart} onClose={() => { setSettingsOpen(false); setSettingsStart(undefined); }}
         onConnect={() => { setSettingsOpen(false); setConnectOpen(true); }} onMcp={() => { setSettingsOpen(false); setMcpOpen(true); }} onAbout={() => { setSettingsOpen(false); setAbout(true); }} projectRoot={project?.root} />}

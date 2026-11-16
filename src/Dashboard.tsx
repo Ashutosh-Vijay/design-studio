@@ -14,6 +14,7 @@ import { pickRandomLoader } from './components/Loaders';
 import { Modal, Spinner, btn, btnPrimary } from './App';
 import type { Me } from './SyncUI';
 import { cmpVersion } from './sync';
+import * as S from './sync';
 import { ask } from './Brand';
 import * as D from './dashdata';
 
@@ -158,7 +159,11 @@ let readBy = '';
 // Specs downloaded by themselves to count endpoints: the newest few. The rest wait for "Count endpoints".
 const AUTO_COUNT = 40;
 
-export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; onConnect: () => void }) {
+export function DashboardScreen({ onClose, onConnect, openRoot, openName, onOpenProject }: {
+  onClose: () => void; onConnect: () => void;
+  openRoot?: string; openName?: string; // the project open in the window, for "Add to"
+  onOpenProject: (root: string) => void;
+}) {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
   const [org, setOrg] = useState<{ id: string; name: string } | null>(null);
@@ -394,7 +399,7 @@ export function DashboardScreen({ onClose, onConnect }: { onClose: () => void; o
                   {rows.length === 0 && <div className="p-6 text-center text-[12.5px] text-content-faint">{reading.apis.length ? 'Nothing matches these filters.' : "Exchange shows nothing for this account. If you expect APIs here, the account may lack the Exchange Viewer permission; Exchange doesn't say which."}</div>}
                 </div>
               </div>
-              {open && <Detail key={`${open.groupId}/${open.assetId}`} a={open} r={reading} host={me.host} onClose={() => setOpen(null)} />}
+              {open && <Detail key={`${open.groupId}/${open.assetId}`} a={open} r={reading} me={me} openRoot={openRoot} openName={openName} onOpenProject={onOpenProject} onClose={() => setOpen(null)} />}
             </div>
           ))}
 
@@ -687,7 +692,45 @@ function Ring({ parts, size = 136, children }: { parts: { label: string; n: numb
 }
 
 // ---------- One API, beside the table: endpoints, what changed, governance, where it's managed, every version ----------
-function Detail({ a, r, host, onClose }: { a: D.Api; r: D.Reading; host: string; onClose: () => void }) {
+function Detail({ a, r, me, openRoot, openName, onOpenProject, onClose }: { a: D.Api; r: D.Reading; me: Me; openRoot?: string; openName?: string; onOpenProject: (root: string) => void; onClose: () => void }) {
+  const host = me.host;
+  // Its Design Center project, as Exchange recorded it when the version was published. Design Center answers for
+  // the signed-in organization only, so another business group's assets aren't looked up.
+  const ours = a.groupId === me.org_id && r.access.exchange === 'ok';
+  const [dc, setDc] = useState<{ id: string; name: string; branch: string; here: string | null } | 'none' | 'hidden' | undefined>(undefined);
+  const [dcBusy, setDcBusy] = useState<string | null>(null);
+  const [dcNote, setDcNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ours) return;
+    let live = true;
+    (async () => {
+      try {
+        const p = await S.projectOfAsset(a.groupId, a.assetId);
+        if (typeof p === 'string') { if (live) setDc(p); return; }
+        const home = await S.projectHome(me.org_name || 'Anypoint', p.name, p.id);
+        if (live) setDc({ ...p, here: home.here ? home.root : null });
+      } catch (e) { if (live) { setDc('none'); setDcNote(String(e).replace(/^Error: /, '')); } }
+    })();
+    return () => { live = false; };
+  }, [a.assetId]);
+  const project = dc && typeof dc === 'object' ? dc : null;
+  const pullHere = async () => {
+    if (!project) return;
+    if (project.here) { onOpenProject(project.here); return; }
+    setDcBusy(`Pulling ${project.name} (${project.branch}) and its Exchange dependencies…`); setDcNote(null);
+    try {
+      const root = (await S.projectHome(me.org_name || 'Anypoint', project.name, project.id)).root;
+      await S.clone(root, project.id, project.name, project.branch);
+      onOpenProject(root);
+    } catch (e) { setDcNote(String(e).replace(/^Error: /, '')); setDcBusy(null); }
+  };
+  const addHere = async () => {
+    if (!openRoot) return;
+    setDcBusy(`Adding ${a.assetId} ${a.version} to ${openName}…`); setDcNote(null);
+    try { await S.addDependency(openRoot, { groupId: a.groupId, assetId: a.assetId, version: a.version }); setDcNote(`Added ${a.assetId} ${a.version} to ${openName}'s dependencies, with its files under exchange_modules.`); }
+    catch (e) { setDcNote(String(e).replace(/^Error: /, '')); }
+    setDcBusy(null);
+  };
   const [rep, setRep] = useState<D.Report | null | string>(null);
   const [spec, setSpec] = useState<{ counts: D.Counts; endpoints: { path: string; methods: string[] }[] } | null | string>(null);
   const vs = a.versions ?? [];
@@ -722,10 +765,20 @@ function Detail({ a, r, host, onClose }: { a: D.Api; r: D.Reading; host: string;
           <span>{D.kindLabel(a.type)}</span><span className="font-mono">{a.version}</span><span>{a.stable ? 'Stable' : 'Development'}</span>
           {a.published > 0 && <span>{when(a.published, r.at)}{a.by ? ` by ${a.by}` : ''}</span>}
         </div>
-        <div className="mt-2.5 flex gap-2">
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {project && <button className={btnPrimary} disabled={!!dcBusy} onClick={pullHere} title={project.here ? `Opens it from ${project.here}` : `Pulls ${project.name} (${project.branch}) from Design Center into your projects folder and opens it`}>{project.here ? 'Open here' : 'Pull here'}</button>}
+          {project && <button className={btn} onClick={() => openUrl(S.projectUrls(host, me.org_id, project.id).web)}>Open in Design Center</button>}
+          {a.kind === 'fragment' && openRoot && r.access.exchange === 'ok' && <button className={btn} disabled={!!dcBusy} onClick={addHere} title={`Adds ${a.assetId} ${a.version} to ${openName}'s exchange.json and downloads its files, as Add dependency does`}>Add to {openName}</button>}
           {r.access.exchange === 'ok' && <button className={btn} onClick={() => openUrl(`${host}/exchange/${a.groupId}/${a.assetId}/`)}>Open in Exchange</button>}
           {a.urn && govOn && <button className={btn} onClick={() => openUrl(`${host}/governance/#/report/${encodeURIComponent(a.urn!)}`)}>Report in API Governance</button>}
         </div>
+        {(dcBusy || dcNote || dc === 'none' || dc === 'hidden') && <div className="mt-2 text-[12px] text-content-muted select-text">
+          {dcBusy ? <span className="flex items-center gap-2 text-content-faint"><Spinner />{dcBusy}</span>
+            : dcNote ? dcNote
+            : dc === 'hidden' ? "Exchange says it was published from a Design Center project this account can't see."
+            : 'Not published from Design Center, so there is no project to open.'}
+        </div>}
+        {ours && dc === undefined && <div className="mt-2 flex items-center gap-2 text-[12px] text-content-faint"><Spinner />Finding its Design Center project…</div>}
       </div>
       <div className="flex-1 min-h-0 overflow-auto pb-4">
         {a.kind === 'api' && r.access.exchange === 'ok' && <>

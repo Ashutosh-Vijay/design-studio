@@ -342,7 +342,7 @@ export async function countAll(apis: Api[], tick: () => void, alive: () => boole
 }
 // What changed from one published version to another, with the version number's promise checked: a breaking
 // change published as a minor or patch version is flagged.
-export async function changes(a: Api, from: Version, to: Version) {
+export async function changes(a: Pick<Api, 'groupId' | 'assetId'>, from: Version, to: Version) {
   const [o, n] = await Promise.all([versionModel(a, from.version, from.status !== 'development'), versionModel(a, to.version, to.status !== 'development')]);
   // Types are matched by file and name: each version's files sit in their own folder, so the folder is taken off.
   const local = (m: Model, dir: string): Model => ({ ...m, types: (m.types ?? []).map((t) => ({ ...t, at: t.at && { ...t.at, file: (t.at.file ?? '').replace(/\\/g, '/').replace(new RegExp('^' + dir.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') + '/?', 'i'), '') } })) });

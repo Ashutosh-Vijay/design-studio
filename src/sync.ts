@@ -474,6 +474,21 @@ export async function removeDependency(root: string, paths: string[], dep: { gro
 
 // ---------- Project actions (Design Center's project list and gear menu) ----------
 // Calls read from Design Center's own web app (its api-designer provider) and probed on the trial org.
+// The Design Center project an Exchange asset was published from. Exchange records it on each version it was
+// published from Design Center (attributes project-id and branch-id, seen 2026-11-17 on a real organization); an
+// asset published another way (Anypoint Code Builder, the Maven plugin, the API) has none. Read only. The project
+// must be one the signed-in account can see in Design Center: the list is read once a session.
+type DcProject = { id: string; name: string; branch: string };
+let dcList: Promise<{ id: string; name: string }[]> | null = null;
+export async function projectOfAsset(groupId: string, assetId: string): Promise<DcProject | 'none' | 'hidden'> {
+  const r = must(await api('GET', `/exchange/api/v2/assets/${groupId}/${assetId}`), 'Reading the asset from Exchange');
+  const attr = (k: string) => (r.json?.attributes as { key: string | null; value: string }[] | undefined)?.find((x) => x.key === k)?.value;
+  const id = attr('project-id');
+  if (!id) return 'none';
+  dcList ??= api('GET', `${DC}/projects`).then((q) => { if (q.status >= 300) { dcList = null; must(q, 'Listing your Design Center projects'); } return q.json as { id: string; name: string }[]; });
+  const p = (await dcList).find((y) => y.id === id);
+  return p ? { id, name: p.name, branch: attr('branch-id') || 'master' } : 'hidden';
+}
 export const projectUrls = (host: string, org: string, id: string) => ({ git: `${host}/git/${org}/${id}`, web: `${host}/designcenter/designer/#/project/${id}` });
 export type Perms = { canModify?: boolean; canRename?: boolean; canDelete?: boolean; canShare?: boolean; canPublish?: boolean; canOwn?: boolean };
 export type Person = { id: string; type: 'user' | 'team'; name: string; username?: string; email?: string; role?: string; isOwner?: boolean };

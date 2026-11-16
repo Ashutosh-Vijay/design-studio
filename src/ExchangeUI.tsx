@@ -10,6 +10,7 @@ import { Badge, type AmfModel } from './Inspector';
 import type { Me } from './SyncUI';
 import * as S from './sync';
 import * as G from './governance';
+import * as D from './dashdata';
 
 const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60000); return !t ? '' : m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
 const status = () => invoke<Me | null>('anypoint_status').catch(() => null);
@@ -235,14 +236,44 @@ export function ExchangePanel({ root, model, modelOf, onPublish }: {
           </div>}
         </>}
         <H>Versions</H>
-        {a.versions.map((v) => (
-          <div key={v.version} className="flex items-center gap-2 py-1">
-            <span className="font-mono text-[12px]">{v.version}</span>{life(v.status)}
-            <span className="ml-auto text-[11.5px] text-content-faint whitespace-nowrap">{ago(v.created)}</span>
-          </div>
-        ))}
+        {a.versions.map((v, i) => <VersionRow key={v.version} ids={d} v={v} before={a.versions[i + 1]} />)}
       </>}
       {err && <div className="mt-3 text-[12px] text-err select-text">{err}</div>}
+    </div>
+  );
+}
+
+// One published version: who and when, and (opened) what changed from the version before it. Both versions are
+// downloaded once into the app's cache and compared by AMF, as the Dashboard does.
+function VersionRow({ ids, v, before }: { ids: { groupId: string; assetId: string }; v: S.Version; before?: S.Version }) {
+  const [open, setOpen] = useState(false);
+  const [diff, setDiff] = useState<Awaited<ReturnType<typeof D.changes>> | string | null>(null);
+  const toggle = () => {
+    setOpen(!open);
+    if (!open && before && diff === null) D.changes(ids, before, v).then(setDiff, (e) => setDiff(String(e).replace(/^Error: /, '')));
+  };
+  return (
+    <div className="py-0.5">
+      <button onClick={toggle} disabled={!before} title={before ? `What changed from ${before.version} to ${v.version}` : 'The first version'} className="w-full flex items-center gap-2 py-0.5 text-left enabled:hover:text-content disabled:cursor-default">
+        <span className={`flex text-content-faint transition-transform ${open ? 'rotate-90' : ''} ${before ? '' : 'invisible'}`}><Icons.ChevronRight size={11} /></span>
+        <span className="font-mono text-[12px]">{v.version}</span>{life(v.status)}
+        <span className="ml-auto text-[11.5px] text-content-faint whitespace-nowrap truncate">{v.by ? `${v.by}, ` : ''}{ago(v.created)}</span>
+      </button>
+      {open && before && <div className="ml-[19px] mt-1 mb-1.5 pl-2.5 border-l-2 border-line text-[12px]">
+        {diff === null ? <span className="flex items-center gap-2 text-content-faint"><Spinner />Comparing with {before.version}…</span>
+          : typeof diff === 'string' ? <span className="text-content-muted select-text">{diff}</span>
+          : <>
+            <div className="text-content-faint">From {before.version}{diff.flagged ? '' : `: ${diff.needs === 'major' ? 'breaking changes' : diff.needs === 'minor' ? 'additions only' : 'nothing that changes the API'}`}</div>
+            {diff.flagged && <div className="mt-1 px-2 py-1 rounded border border-err-border bg-err-tint text-err">Breaking changes, published as a {diff.bump} version.</div>}
+            {diff.changes.slice(0, 40).map((c, i) => (
+              <div key={i} className="flex items-start gap-1.5 py-0.5">
+                <span className={`w-3 shrink-0 font-mono font-bold ${c.kind === '+' ? 'text-ok' : c.kind === '-' ? 'text-err' : 'text-warn'}`}>{c.kind}</span>
+                <span className="min-w-0 font-mono text-[11.5px] break-all">{c.method ? `${c.method} ` : ''}{c.name}{c.detail && <span className={`block font-sans text-[11px] ${c.breaking ? 'text-warn' : 'text-content-faint'}`}>{c.detail}</span>}</span>
+              </div>
+            ))}
+            {diff.changes.length > 40 && <div className="text-content-faint">And {diff.changes.length - 40} more.</div>}
+          </>}
+      </div>}
     </div>
   );
 }
