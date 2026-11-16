@@ -2,7 +2,9 @@
 
 Everything API Designer (Design Center's spec editor) does today, so the mockups and milestones miss nothing. Written 2026-10-10 from MuleSoft's own docs source (`mulesoft/docs-design-center` on GitHub, branch `latest`, 46 pages), the API Designer release notes up to 2.83.200 (2026-08-21), the Code Builder docs, and the developer's screenshots.
 
-**Status column:** **Mock** = in a design mockup now. **Planned** = in PLAN.md with its milestone. **Gap** = not covered yet; the note says what to do.
+**Checked against the code on 2026-11-17:** rows marked **Built** were confirmed there; the other rows still read as they were written against the mockups, and many of them were built in M1 to M5 too.
+
+**Status column:** **Built** = in the app. **Mock** = in a design mockup now. **Planned** = in PLAN.md with its milestone. **Gap** = not covered yet; the note says what to do.
 
 ---
 
@@ -11,13 +13,13 @@ Everything API Designer (Design Center's spec editor) does today, so the mockups
 | Area | What it does there | Us |
 |---|---|---|
 | Left: **Files** | Files and folders, the root file marked with a "Root file" label, `exchange.json` shown read-only, a + button for new files, a filter | Mock (Files tab). Gap: the + button and the "root file" label wording |
-| Left: **Exchange dependencies** | A separate icon in the left navigation; fragments and rulesets with versions | Gap: no dependencies panel in the mockup (M4) |
+| Left: **Exchange dependencies** | A separate icon in the left navigation; fragments and rulesets with versions | **Built** (M4): the Dependencies panel |
 | Middle: **editor** | Text editor with tabs (the tab bar shows only when 2+ files are open) | Mock |
 | Right: **Documentation** | The API Console rendering of the spec: a Summary page (title, version, base URI, list of resources and types), a page per endpoint and per method, a server picker, and **Try it** against the mocking service | Planned (M5 docs preview and local mock). See section 6 |
 | Right: **Mocking Service Configuration** | A second icon on the right rail: make the mock public, expiry date, use the mock as the default server | Planned (M5, local mock instead) |
-| Bottom: **Project Errors** | Errors with a Location column (click to open); a **Governance** tab when rulesets are applied | Mock (Problems). Gap: the Governance tab |
+| Bottom: **Project Errors** | Errors with a Location column (click to open); a **Governance** tab when rulesets are applied | **Built**: Project errors with a Governance tab (10.16) |
 | Status bar | "Governance auto-validation: on", the language (RAML), the project type (API specification) | Mock has its own status bar. Gap: governance state |
-| Top right | Share, Publish, gear menu, branch picker | Gap: branch, Share, Publish are not in the main window mockup yet |
+| Top right | Share, Publish, gear menu, branch picker | **Built**: the branch picker, Share and Publish in the title bar (M3, M4) |
 
 **Answer to "is our left tree the same as Documentation?"** No. Their Documentation panel is a *reading* view: it renders the spec as API docs and lets you call the mock. Its Summary page lists resources and types, which looks like our tree, but clicking there opens a docs page, not the code. Our tree is a *navigator* (it jumps to the code and drives the Inspector), closer to their "Go to Symbol". Their rendered docs are our M5 docs preview; the mockup has no Docs view yet.
 
@@ -28,13 +30,13 @@ Design Center gets these from ALS (the AML Language Server, M0.5).
 | Feature | How it works there | Us |
 |---|---|---|
 | Rename Symbol | Right-click a declaration; renames every use in files linked from the root file, never plain mentions in descriptions | Planned (M1 step 6, rename type). Mock has a stub |
-| Highlight uses | Cursor on a declaration highlights where it's *used* (not where the word appears) | **Gap**: cheap with our `uses` list. Add to M1 step 5 |
+| Highlight uses | Cursor on a declaration highlights where it's *used* (not where the word appears) | **Built**: the uses of the declaration under the cursor are marked |
 | Go to References | Right-click, a list of uses, double-click to jump. Covers types, type expressions, traits, resource types, library aliases, JSON path refs, security schemes, annotation types | Mock (Inspector "Used by" for types). Gap: same for traits, resource types, security schemes, aliases |
 | Go to Definition | F12 | Planned (M1 step 5) |
-| Selection ranges | Ctrl Shift Right grows the selection by syntax node, Ctrl Shift Left shrinks it | **Gap**: CodeMirror has `selectParentSyntax`; bind the same keys |
-| Go to Symbol | A list of every symbol in the file | Mock (Ctrl K palette). Gap: also bind Ctrl Shift O for people used to it |
+| Selection ranges | Ctrl Shift Right grows the selection by syntax node, Ctrl Shift Left shrinks it | **Built**: Ctrl Shift Right and Left |
+| Go to Symbol | A list of every symbol in the file | **Built**: the palette, and Ctrl Shift O |
 | Extract to Declaration | Select an inline type, trait or resource type; an icon appears; it becomes a top-level declaration, named after the original, with a number if taken | Planned (M2 refactorings, from the ALS list) |
-| Command list | F1 shows every command with its shortcut | Gap: bind F1 to our palette |
+| Command list | F1 shows every command with its shortcut | **Built**: F1 opens the commands |
 | Autocomplete | Context-aware, including `!include` and `$ref` paths (added 2.62.0) | Mock and planned (M1 step 5) |
 | Ctrl click a file reference | Opens it in a new tab | Mock |
 
@@ -44,14 +46,14 @@ Design Center gets these from ALS (the AML Language Server, M0.5).
 |---|---|
 | A plain click on a file in the tree **replaces** the current tab; Ctrl click opens a new tab | Gap: decide. VS Code's "preview tab" (italic until edited) is the friendlier version of the same idea |
 | Tab bar appears only with 2+ files open | Ours always shows; keep (it carries the dirty dots) |
-| Alt Tab / Alt Shift Tab for next and previous tab | Gap: use Ctrl Tab / Ctrl Shift Tab (Alt Tab is taken by Windows) |
-| "Close All Other Tabs" in a tab menu | Gap: add a tab context menu (Close, Close others, Close saved, Copy path, Reveal in Files) |
+| Alt Tab / Alt Shift Tab for next and previous tab | **Built**: Ctrl Tab and Ctrl Shift Tab |
+| "Close All Other Tabs" in a tab menu | **Built**: a tab menu with Close, Close others, Close saved and Copy path |
 
 ## 4. Files and the root file
 
 | Feature | Us |
 |---|---|
-| **Root file**: one per project; publish and validation start from it; label in the Files pane; **Set as root file** in each spec's menu; asked when importing a spec | Mock shows "main". Gap: rename to "Root file" (their word), add "Set as root file" to the file menu |
+| **Root file**: one per project; publish and validation start from it; label in the Files pane; **Set as root file** in each spec's menu; asked when importing a spec | **Built**: "Root file" and Set as root file |
 | File menu (three dots): Rename, Download, **Download as** (RAML to OAS YAML or JSON, OAS to RAML 0.8 or 1.0, "not guaranteed valid"), **Duplicate** (opens a "Duplicate As" dialog that converts the format), Open in new tab, Delete | Gap: file context menu in Files. "Download as" maps to AMF's Compatibility pipeline (ARCHITECTURE 4.1, parking lot "Export as OAS") |
 | New file: format (RAML 1.0, OAS 2.0, OAS 3.0, RAML 0.8, JSON Schema, Other) and, for RAML, the fragment type (Trait, Resource Type, Library, Data Type, User Documentation, Example, Annotation Type, Security Scheme, Overlay, Extension) | Gap: New file dialog. Mock it |
 | `exchange.json` is read-only there | Decide: we can show it read-only too, with the fields that matter (main, dependencies) in a small form |
@@ -65,7 +67,7 @@ Design Center gets these from ALS (the AML Language Server, M0.5).
 |---|---|
 | Add dependency: filter by organization or keyword, "Include versions in Development", pick a version, "Show selected only", format badge (RAML, OAS, JSON Schema) | Planned (M4). Gap in mockups |
 | Change a dependency's version without removing it (2.62.0); remove; refresh before publishing | Planned (M4, "dependency updates") |
-| Show in Files (under `exchange_modules/<group>/<asset>/<version>/`), Open in Exchange | Mock shows `exchange_modules` in Files. Gap: the actions |
+| Show in Files (under `exchange_modules/<group>/<asset>/<version>/`), Open in Exchange | **Built**: Show in Files and Open in Exchange on each dependency |
 | Limits: 100 dependencies per project (2.76.0); 1,000 dependency files, 300 MB | Note for the import code |
 | **Rulesets** as dependencies; conformance messages in Project Errors under a Governance tab; auto-validation on or off; a "Validate for governance" button; a dot on the dependencies icon when the org requires rulesets | Parking lot ("rulesets and conformance"). Worth a slot after M4: AMF ships the custom validator, so it can run locally |
 
@@ -83,9 +85,9 @@ Design Center gets these from ALS (the AML Language Server, M0.5).
 | Feature | Us |
 |---|---|
 | Gear menu: Import, Import from Exchange, Download Project, Branch Settings, Rename, Duplicate project, Delete | Mock has a project menu. Gap: Rename, Duplicate, Delete, Download as zip |
-| **Branches** ("fork"): click the branch name, type a new name, Enter. A fork can't be merged back in API Designer (GitHub Sync can merge). Projects open on the main branch. Pick a branch before opening (2.67.0) | Planned (M3: list, switch, create). Gap in mockups: a branch chip in the header |
+| **Branches** ("fork"): click the branch name, type a new name, Enter. A fork can't be merged back in API Designer (GitHub Sync can merge). Projects open on the main branch. Pick a branch before opening (2.67.0) | **Built** (M3): the branch picker in the title bar: list, switch, create |
 | **Share**: Viewer, Editor, Admin, Transfer Ownership, Remove Access, for users or teams | Not planned. Offer "Share in Design Center…" that opens the browser |
-| Permissions: Design Center Viewer can only view and use the mock | Gap: a read-only mode for projects we can't edit (banner plus a locked editor) |
+| Permissions: Design Center Viewer can only view and use the mock | **Built**: a project shared as Viewer opens view only |
 | **Publish**: asset version and API version pre-filled by rules (from the spec's `version`, or the last published version plus one patch), lifecycle Development or Stable, business group, asset name, asset ID. Stable versions can't be reused. **Unreferenced files are excluded by default**, after a prompt | Planned (M4). Copy the pre-fill rules exactly, and the unreferenced-files prompt (our `files` list from the outline already knows what's referenced) |
 | View code from Exchange: read-only, then "Edit spec" if you can edit | Parking lot ("open an API straight from Exchange") |
 | **GitHub Synchronization**: a GitHub App that syncs API Designer projects with a repository both ways; GitHub becomes the source of truth | New fact. Our M0.3 finding (a `git push` to Design Center's own Git URL doesn't arrive) is about a different thing. Worth reading before M3, since teams using it want "push to GitHub", not "push to Design Center" |
