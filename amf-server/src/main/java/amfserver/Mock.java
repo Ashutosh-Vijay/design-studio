@@ -151,7 +151,15 @@ class Mock {
       // structure) is the JSON itself, not a string holding it: sent as that JSON, not quoted and escaped.
       if (body.isTextual() && media.contains("json")) try { body = Main.JSON.readTree(body.asText()); } catch (Exception notJson) { /* plain text: stays a JSON string */ }
       x.getResponseHeaders().add("Content-Type", media);
-      byte[] outBytes = (body.isTextual() && !media.contains("json") ? body.asText() : body.toPrettyString()).getBytes(StandardCharsets.UTF_8);
+      // Each media type gets its own form: an example written as text (XML, YAML, CSV, plain) goes out as written;
+      // a structured one, or one made from the type, is written as XML, YAML or a form for those types.
+      String text = media.contains("json") ? body.toPrettyString()
+        : body.isTextual() ? body.asText()
+        : media.contains("xml") ? xml(body, rootName(pl.schema()))
+        : media.contains("yaml") ? yaml(body, 0).stripTrailing() + "\n"
+        : media.contains("x-www-form-urlencoded") && body.isObject() ? form(body)
+        : body.toPrettyString();
+      byte[] outBytes = text.getBytes(StandardCharsets.UTF_8);
       x.sendResponseHeaders(code, outBytes.length);
       try (OutputStream o = x.getResponseBody()) { o.write(outBytes); }
     } catch (Exception e) {
@@ -174,6 +182,71 @@ class Mock {
     if (p.schema() == null) return;
     var report = config.elementClient().payloadValidatorFor(p.schema(), "application/yaml", ValidationMode.ScalarRelaxedValidationMode()).syncValidate(value);
     for (var r : report.results()) if (r.severityLevel().equals("Violation")) problems.add(where + " " + name(p) + ": " + r.message());
+  }
+
+  // ---------- Writing a structured value as XML, YAML or a form ----------
+  // The XML root: the type's name when it has one (Book, not "schema"), else "root". An example that is one
+  // object under one key ({"book": {...}}) uses that key as the root instead.
+  static String rootName(Shape s) {
+    if (s != null && s.isLink() && s.linkTarget().isPresent() && s.linkTarget().get() instanceof Shape t) s = t;
+    String n = s == null || s.name().isNullOrEmpty() ? "" : s.name().value();
+    return n.isEmpty() || n.equals("schema") || n.equals("application/xml") || n.contains("/") ? "root" : n;
+  }
+  static String xml(JsonNode v, String root) {
+    if (v.isObject() && v.size() == 1 && v.fields().next().getValue().isContainerNode()) { var e = v.fields().next(); return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlEl(e.getKey(), e.getValue(), 0); }
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + xmlEl(root, v, 0);
+  }
+  static String xmlEl(String name, JsonNode v, int depth) {
+    String n = name.replaceAll("[^A-Za-z0-9_.-]", "_").replaceAll("^([^A-Za-z_])", "_$1"), pad = "  ".repeat(depth);
+    if (v.isArray()) { StringBuilder b = new StringBuilder(pad + "<" + n + ">\n"); for (JsonNode x : v) b.append(xmlEl("item", x, depth + 1)); return b.append(pad).append("</").append(n).append(">\n").toString(); }
+    if (v.isObject()) {
+      StringBuilder b = new StringBuilder(pad + "<" + n + ">\n");
+      // A list under a key repeats the element ({"book": [a, b]} is <book>a</book><book>b</book>).
+      v.fields().forEachRemaining(e -> { if (e.getValue().isArray()) for (JsonNode x : e.getValue()) b.append(xmlEl(e.getKey(), x, depth + 1)); else b.append(xmlEl(e.getKey(), e.getValue(), depth + 1)); });
+      return b.append(pad).append("</").append(n).append(">\n").toString();
+    }
+    if (v.isNull()) return pad + "<" + n + "/>\n";
+    return pad + "<" + n + ">" + v.asText().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</" + n + ">\n";
+  }
+  static String yaml(JsonNode v, int depth) {
+    String pad = "  ".repeat(depth);
+    StringBuilder b = new StringBuilder();
+    if (v.isObject()) {
+      if (v.isEmpty()) return pad + "{}\n";
+      v.fields().forEachRemaining(e -> {
+        JsonNode c = e.getValue();
+        if (c.isContainerNode() && !c.isEmpty()) b.append(pad).append(yamlKey(e.getKey())).append(":\n").append(yaml(c, depth + 1));
+        else b.append(pad).append(yamlKey(e.getKey())).append(": ").append(c.isContainerNode() ? (c.isArray() ? "[]" : "{}") : yamlScalar(c)).append("\n");
+      });
+      return b.toString();
+    }
+    if (v.isArray()) {
+      if (v.isEmpty()) return pad + "[]\n";
+      for (JsonNode x : v) {
+        if (x.isContainerNode() && !x.isEmpty()) { String inner = yaml(x, depth + 1); b.append(pad).append("- ").append(inner.substring(pad.length() + 2)); }
+        else b.append(pad).append("- ").append(x.isContainerNode() ? (x.isArray() ? "[]" : "{}") : yamlScalar(x)).append("\n");
+      }
+      return b.toString();
+    }
+    return pad + yamlScalar(v) + "\n";
+  }
+  static String yamlKey(String k) { return k.matches("[A-Za-z_][A-Za-z0-9_-]*") ? k : Main.JSON.getNodeFactory().textNode(k).toString(); }
+  // Numbers, booleans and null as they are; a string plainly when YAML would read it back as the same string.
+  static String yamlScalar(JsonNode v) {
+    if (!v.isTextual()) return v.isNull() ? "null" : v.toString();
+    String s = v.asText();
+    boolean plain = s.matches("[A-Za-z_/][A-Za-z0-9 _./@()-]*") && !s.matches("(?i)true|false|yes|no|on|off|null|~") && !s.endsWith(" ");
+    return plain ? s : v.toString();
+  }
+  static String form(JsonNode v) {
+    StringBuilder b = new StringBuilder();
+    v.fields().forEachRemaining(e -> {
+      for (JsonNode x : e.getValue().isArray() ? e.getValue() : Main.JSON.createArrayNode().add(e.getValue())) {
+        if (b.length() > 0) b.append('&');
+        b.append(java.net.URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8)).append('=').append(java.net.URLEncoder.encode(x.isContainerNode() ? x.toString() : x.asText(), StandardCharsets.UTF_8));
+      }
+    });
+    return b.toString();
   }
 
   // The payload's example: the named one (MS2-Example), else the first.

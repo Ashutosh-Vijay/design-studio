@@ -326,7 +326,8 @@ export function setList(text: string, path: Path, items: string[]): string {
     L.splice(E[k].line + 1, end - E[k].line - 1, ...kept);
     return L.join('\n');
   }
-  const span = flowSpan(L, E[k].line, v);
+  // A single value (key: a) becomes a list on its own line; only a real [ list can run over several lines.
+  const span = v.startsWith('[') ? flowSpan(L, E[k].line, v) : { text: `[${v.replace(/\s+#.*$/, '')}]`, last: E[k].line };
   const spaced = /^\[\s/.test(v) || v === '[]';
   // Items that stay keep their text as written (quotes and all); new ones are quoted when YAML needs it.
   const was = new Map(flowItems(span.text).map((t) => [unquote(t), t]));

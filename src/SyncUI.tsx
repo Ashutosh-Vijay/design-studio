@@ -333,6 +333,7 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
 }) {
   const [link, setLink] = useState<S.Link | null>(null);
   const [toPush, setToPush] = useState(0);
+  const [review, setReview] = useState(false);
   const [behind, setBehind] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; branches: string[] } | null>(null);
@@ -455,18 +456,20 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
           : dirty ? null
           : conflicts ? <span title="Pick Keep mine, Keep theirs or Keep both on each one in the editor, then push">{conflicts} {conflicts === 1 ? 'conflict' : 'conflicts'} to sort out before pushing</span>
           : behind ? <><span>Design Center has changes</span><button onClick={() => pull()} className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Pull</button></>
-          : toPush && readOnly ? <><span title="Saved on this computer. The connection is read only, so nothing is sent to Design Center.">Saved on this computer · read only, {toPush} {toPush === 1 ? 'change' : 'changes'} not sent</span>
+          : toPush && readOnly ? <><span title="Saved on this computer. The connection is read only, so nothing is sent to Design Center.">Saved on this computer · read only, <button onClick={() => setReview(true)} title="See what would be sent to Design Center" className="underline decoration-dotted underline-offset-2 hover:text-content">{toPush} {toPush === 1 ? 'change' : 'changes'} not sent</button></span>
             <button onClick={async () => { if (await allowChanges()) refresh(); }} title="The connection is read only, so nothing is sent to Design Center. Allow changes to push, lock and publish."
               className="h-6 px-2.5 rounded-md text-[12px] font-semibold border border-accent-border text-accent hover:bg-accent-dim">Allow changes…</button></>
           : toPush && perms.canModify === false ? <span title="Design Center shares this project with you as a Viewer. Your changes stay on this computer.">Saved on this computer · view only in Design Center</span>
           : toPush && lockedBy ? <span title="Push when they're done. If they change the same lines, a Pull shows both versions.">Saved on this computer · {lockedBy} is editing in Design Center</span>
-          : toPush ? <><span>Saved on this computer</span><button onClick={push} title="Send your saved changes to Design Center" className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Push {toPush} {toPush === 1 ? 'change' : 'changes'}</button></>
+          : toPush ? <><span>Saved on this computer</span><button onClick={() => setReview(true)} title="See what will be sent to Design Center, then push" className="h-6 px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover">Push {toPush} {toPush === 1 ? 'change' : 'changes'}</button></>
           : <button onClick={() => run('Checking Design Center…', async () => {})} title="Check Design Center now" className="hover:text-content">Up to date with Design Center</button>}
       </span>
       <button onClick={onPublish} disabled={!!busy || perms.canPublish === false} title={perms.canPublish === false ? "Your Design Center permissions don't allow publishing this project." : readOnly ? 'This connection is read only. Turn it off in settings to publish.' : 'Publish this project to Exchange'}
         className="h-7 px-2.5 shrink-0 whitespace-nowrap rounded-md flex items-center gap-1.5 text-[12px] text-accent border border-accent-border hover:bg-accent-dim disabled:opacity-50">
         <Icons.Exchange size={14} />Publish
       </button>
+      {review && <ReviewPush root={root} link={link} listFiles={listFiles} readOnly={readOnly !== false} lockedBy={lockedBy} onClose={() => setReview(false)}
+        onPush={() => { setReview(false); push(); }} onAllow={async () => { if (await allowChanges()) refresh(); }} />}
       {menu && (
         <div className="fixed inset-0 z-40" onMouseDown={() => setMenu(null)}>
           <div className="fixed w-[260px] p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]" style={{ left: Math.max(8, menu.x), top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
@@ -731,6 +734,78 @@ export function ShareDialog({ projectId, name, org, onClose, onSaved }: { projec
         <div className="text-[11.5px] text-content-faint">Saved in Design Center, the same as sharing there. Transfer ownership is only in Design Center.</div>
         {err && <div className="text-[12px] text-err select-text">{err}</div>}
       </div>
+    </Modal>
+  );
+}
+
+// Review before pushing: every file the push sends to Design Center, with what changed in it against the copy
+// last pulled or pushed. Push is here, so nothing goes without being seen first.
+function ReviewPush({ root, link, listFiles, readOnly, lockedBy, onClose, onPush, onAllow }: {
+  root: string; link: S.Link; listFiles: () => Promise<string[]>; readOnly: boolean; lockedBy: string | null;
+  onClose: () => void; onPush: () => void; onAllow: () => void;
+}) {
+  const [files, setFiles] = useState<S.FileDiff[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    (async () => {
+      try {
+        const l = (await S.readLink(root)) ?? link;
+        const f = await S.pushPreview(root, l, await listFiles());
+        setFiles(f); setOpen(new Set(f.slice(0, 3).map((x) => x.path)));
+      } catch (e) { setErr(String(e).replace(/^Error: /, '')); }
+    })();
+  }, []);
+  const n = (k: S.FileDiff['status']) => files?.filter((f) => f.status === k).length ?? 0;
+  const summary = files && [n('modified') && `${n('modified')} changed`, n('added') && `${n('added')} added`, n('deleted') && `${n('deleted')} deleted`].filter(Boolean).join(', ');
+  const tag: Record<S.FileDiff['status'], string> = { modified: 'text-accent', added: 'text-ok', deleted: 'text-err' };
+  const binaries = files?.filter((f) => f.binary && f.status !== 'deleted') ?? [];
+  return (
+    <Modal title="Review changes" width={900} onCancel={onClose}
+      sub={<>What a push sends to <b>{link.projectName}</b> on <b>{link.branch}</b> in Design Center{files ? `: ${files.length} ${files.length === 1 ? 'file' : 'files'}${summary ? ` (${summary})` : ''}` : ''}.</>}
+      footer={<>
+        <span className="mr-auto text-[12px] text-content-muted">
+          {readOnly ? 'The connection is read only, so nothing is sent until you allow changes.' : lockedBy ? `${lockedBy} is editing in Design Center; push when they're done.` : 'Push holds the branch lock while it sends, as Design Center does.'}
+        </span>
+        <button className={btn} onClick={onClose}>Close</button>
+        {readOnly ? <button className={btnPrimary} onClick={onAllow}>Allow changes…</button>
+          : <button className={btnPrimary} disabled={!files?.length || !!lockedBy} onClick={onPush}>Push {files?.length ?? ''} {files?.length === 1 ? 'file' : 'files'}</button>}
+      </>}>
+      {err ? <div className="text-[12px] text-err select-text">{err}</div>
+        : !files ? <div className="flex items-center gap-2 text-[12px] text-content-faint"><Spinner />Comparing with the copy last synced…</div>
+        : !files.length ? <div className="text-[12.5px] text-content-muted">Nothing to push: every file matches Design Center's copy.</div>
+        : <div className="flex flex-col gap-2 max-h-[62vh] overflow-auto pr-1">
+          {binaries.length > 0 && <div className="text-[12px] text-warn">Not sent (Design Center's save takes text only): {binaries.map((b) => b.path).join(', ')}</div>}
+          {files.map((f) => {
+            const on = open.has(f.path);
+            const changed = f.hunks.flat().filter((d) => d.kind !== ' ').length;
+            return (
+              <div key={f.path} className="rounded-md border border-line overflow-hidden">
+                <button onClick={() => { const s = new Set(open); if (on) s.delete(f.path); else s.add(f.path); setOpen(s); }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12.5px] bg-surface-2 hover:bg-surface-3">
+                  <Icons.ChevronDown size={11} className={on ? '' : '-rotate-90'} />
+                  <span className={`text-[11px] font-semibold uppercase tracking-wide w-[64px] ${tag[f.status]}`}>{f.status === 'modified' ? 'changed' : f.status}</span>
+                  <span className="font-mono truncate min-w-0 flex-1">{f.path}</span>
+                  <span className="text-[11px] text-content-faint">{f.binary ? 'binary' : `${changed} ${changed === 1 ? 'line' : 'lines'}`}</span>
+                </button>
+                {on && !f.binary && <div className="font-mono text-[11.5px] leading-[1.6] overflow-x-auto select-text">
+                  {f.hunks.map((h, i) => (
+                    <div key={i} className={i ? 'border-t border-dashed border-line' : ''}>
+                      {h.map((d, k) => (
+                        <div key={k} className={`flex whitespace-pre ${d.kind === '+' ? 'bg-ok-tint' : d.kind === '-' ? 'bg-err-tint' : ''}`}>
+                          <span className="w-10 shrink-0 text-right pr-2 text-content-faint select-none">{d.old ?? ''}</span>
+                          <span className="w-10 shrink-0 text-right pr-2 text-content-faint select-none">{d.now ?? ''}</span>
+                          <span className={`w-4 shrink-0 select-none ${d.kind === '+' ? 'text-ok' : d.kind === '-' ? 'text-err' : 'text-content-faint'}`}>{d.kind}</span>
+                          <span className="pr-3">{d.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>}
+              </div>
+            );
+          })}
+        </div>}
     </Modal>
   );
 }

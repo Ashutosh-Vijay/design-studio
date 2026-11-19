@@ -122,6 +122,35 @@ export async function localChanges(root: string, l: Link, paths: string[]) {
   for (const p of Object.keys(l.files)) if (!p.startsWith('exchange_modules/') && !now.has(p) && !SKIPPED.test(p)) deleted.push(p);
   return { added, modified, deleted, binary, count: added.length + modified.length + deleted.length };
 }
+// What a push would send, file by file: each changed text file against the copy last pulled or pushed, as
+// hunks of changed lines with up to 3 unchanged lines around them. Line endings don't count as a change.
+export type DiffLine = { kind: ' ' | '+' | '-'; text: string; old?: number; now?: number };
+export type FileDiff = { path: string; status: 'added' | 'modified' | 'deleted'; hunks: DiffLine[][]; binary?: boolean };
+export async function pushPreview(root: string, l: Link, paths: string[]): Promise<FileDiff[]> {
+  const ch = await localChanges(root, l, paths);
+  const out: FileDiff[] = [];
+  const lines = (t: string | null) => (t ?? '').replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
+  for (const [status, list] of [['modified', ch.modified], ['added', ch.added], ['deleted', ch.deleted]] as const) for (const p of list) {
+    const before = status === 'added' ? null : await readLocal(root, BASE + p), after = status === 'deleted' ? null : await readLocal(root, p);
+    if (isBinary(before) || isBinary(after)) { out.push({ path: p, status, hunks: [], binary: true }); continue; }
+    const a = status === 'added' ? [] : lines(before), b = status === 'deleted' ? [] : lines(after);
+    // Every line in order, then only the changed ones and their neighbours.
+    const all: DiffLine[] = [];
+    let i = 0, j = 0;
+    for (const [x, y] of [...lcsPairs(a, b), [a.length, b.length] as [number, number]]) {
+      while (i < x) all.push({ kind: '-', text: a[i], old: ++i });
+      while (j < y) all.push({ kind: '+', text: b[j], now: ++j });
+      if (x < a.length) { all.push({ kind: ' ', text: a[x], old: ++i, now: ++j }); }
+    }
+    const keep = all.map(() => false);
+    all.forEach((d, k) => { if (d.kind !== ' ') for (let m = Math.max(0, k - 3); m <= Math.min(all.length - 1, k + 3); m++) keep[m] = true; });
+    const hunks: DiffLine[][] = []; let cur: DiffLine[] | null = null;
+    all.forEach((d, k) => { if (keep[k]) { if (!cur) hunks.push(cur = []); cur.push(d); } else cur = null; });
+    // Only the line endings differ: say so instead of showing nothing.
+    out.push({ path: p, status, hunks: hunks.length ? hunks : [[{ kind: ' ', text: '(only line endings or the final newline differ)' }]] });
+  }
+  return out;
+}
 // Design Center's side: has the branch moved since the last sync, and who holds its lock.
 export async function remoteState(l: Link) {
   const [h, s] = await Promise.all([head(l), api('POST', `${branchPath(l)}/status`, {})]);

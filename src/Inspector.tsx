@@ -777,7 +777,31 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           {field('title', 'Name of the API')}
           {field('version', 'v1', true)}
           {field('baseUri', 'https://api.example.com/{version}', true)}
-          {field('mediaType', 'Pick or type one', true, MEDIA)}
+          {(() => {
+            // One media type or several. The file keeps its own form: a single value stays a single value, a list
+            // (- items or [ ]) stays a list, and picking a second one turns a single value into a list.
+            const cur = S.list(text, ['mediaType']) ?? [];
+            // A block list (- items) is the file's chosen form and stays one; otherwise one value is written plainly.
+            const block = cur.length > 0 && !S.scalar(text, ['mediaType']);
+            const write = (next: string[]) => onEdit((x) => next.length === 1 && !block ? S.setScalar(x, [], 'mediaType', next[0]) : S.setList(x, ['mediaType'], next));
+            const chip = (m: string) => {
+              const on = cur.includes(m);
+              return (
+                <button key={m} onClick={() => write(on ? cur.filter((c) => c !== m) : [...cur, m])} aria-pressed={on} title={on ? `Remove ${m}` : `Add ${m}`}
+                  className={`h-[22px] px-2 rounded-full border font-mono text-[11px] ${on ? 'border-accent bg-accent-dim text-accent' : 'border-line text-content-muted hover:text-content hover:border-content-faint'}`}>{m}</button>
+              );
+            };
+            return (
+              <div className="flex items-start gap-2 py-[3px]">
+                <span className="w-[72px] shrink-0 pt-1 text-[11.5px] text-content-faint" title="mediaType">Media type</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap gap-1">{[...MEDIA, ...cur.filter((c) => !MEDIA.includes(c))].map(chip)}</div>
+                  <div className="mt-1"><Field mono value="" placeholder="Another, like application/vnd.api+json" onCommit={(v) => { const m = v.trim(); if (m && !cur.includes(m)) write([...cur, m]); }} /></div>
+                  {!cur.length && <div className="mt-0.5 text-[11px] text-content-faint">None picked: each body says its own.</div>}
+                </div>
+              </div>
+            );
+          })()}
         </Sec>
         <div className="mt-3"><Field label="Description" multiline value={S.scalar(text, ['description']) ?? ''} placeholder="Description" onCommit={(v) => onEdit((x) => S.setScalar(x, [], 'description', v || null))} /></div>
         {(() => {
