@@ -1,21 +1,38 @@
 # Design Studio for MuleSoft
 
-**Design Studio for MuleSoft is a free, open-source (MIT) API designer for MuleSoft Anypoint Platform: a desktop app for Windows, macOS and Linux, and a VS Code extension.** It edits RAML 1.0, OAS 3.0 and 3.1 (OpenAPI) and AsyncAPI 2.x specs, works offline, and syncs with Anypoint Design Center and Exchange. The visual editor and the code stay in step both ways, big specs open in seconds, and every edit is checked as you type by AMF, the engine Design Center itself uses.
+**Design Center, minus the waiting.** A fast, free, open-source API designer for MuleSoft Anypoint: RAML, OpenAPI and AsyncAPI, on your desktop or inside VS Code.
 
-> **On a big spec, Design Center's suggestions crawl, so most of us end up copying an endpoint, pasting it and editing by hand. Design Studio makes that fast again: same layout, same words (Root file, Project errors, Exchange dependencies, Publish), the same pull, push and publish, on your own computer.**
+> **TL;DR:** Design Studio for MuleSoft is a free, open-source (MIT) API designer for MuleSoft Anypoint Platform, as a VS Code extension and a desktop app for Windows, macOS and Linux. It edits RAML 1.0, OpenAPI (OAS 2.0, 3.0, 3.1) and AsyncAPI 2.x specs with live validation by AMF, the engine Anypoint Design Center uses, keeps visual forms and code in step both ways, and pulls, pushes and publishes with Design Center and Exchange. It adds what Design Center doesn't have: instant checks on big specs, offline work, refactorings, a review of every change before you push, a local mock, governance in the editor, an organization dashboard with an Excel export of every endpoint, 37 AI tools over MCP, and a 46-lesson course for the MuleSoft Developer I and II certifications. No account, no telemetry.
 
-Built with Tauri 2 (Rust), React, TypeScript and CodeMirror. It ships with AMF 5.15 and a small Java 17 runtime, so there's nothing else to install.
+**[Website](https://ashutosh-vijay.dev/design-studio/)** | **[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ashutosh-vijay.design-studio-mulesoft)** | **[Releases](https://github.com/Ashutosh-Vijay/design-studio/releases)** | **[Questions](#questions-people-ask)**
 
-**[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ashutosh-vijay.design-studio-mulesoft)** | **[Download](https://ashutosh-vijay.dev/design-studio/)** | **[Releases](https://github.com/Ashutosh-Vijay/design-studio/releases)**
+`0.1 s checks after every edit` · `RAML · OAS 3.1 · AsyncAPI` · `7 Anypoint clouds` · `37 AI tools` · `46 lessons` · `MIT`
 
-> **Beta.** It does real work today; tell us what you hit.
+![Design Studio: the editor, the API tree and the Inspector's forms](docs/screenshots/02-editor-dark.png)
+
+> **Beta.** It does real work today. Tell us what you hit.
+
+---
+
+## Why it exists
+
+If you design APIs in Anypoint Design Center, you know the moment: the spec passes a couple of thousand lines, suggestions start to crawl, and everyone falls back to copying an endpoint, pasting it and editing by hand. Every check is a wait, every big project a crawl, and a train with no wifi means no work at all.
+
+Design Studio is Design Center on your own computer, with the waiting taken out. Same layout, same words (Root file, Project errors, Exchange dependencies, Publish), same projects, branches and locks, so switching costs nothing. Then it goes further: forms that never rewrite your file, refactorings across files, a review of every line before you push, governance and a mock right in the editor, and a dashboard of your whole organization.
+
+## Highlights
+
+- **Checks as fast as you type.** A 2,000-line RAML spec with 40 files opens in seconds. After each edit a quick read takes about a tenth of a second, and AMF's full check runs in the background, with the same messages as Design Center.
+- **Forms and code, both ways.** Build a whole API from forms, as with Design Center's Guide me through it, or edit any spec with them. A form changes only the lines it must, so it never reformats your file.
+- **See what you push.** Review changes shows every line a push will send to Design Center before it goes. The push holds the branch lock, and a merge shows both sides when you and Design Center changed the same lines.
+- **Your organization at a glance.** The Dashboard shows every API in Exchange with its versions, endpoints and what changed between them, API Governance conformance, what's deployed where, health checks, and an Excel export of every endpoint. It only reads.
+- **Works offline.** Pull once, then work anywhere. You only need a connection to pull, push and publish.
+- **Built for AI agents.** 37 tools over MCP let Copilot, Claude Code and Cursor open projects, edit specs, run AMF's checks and try the mock while you watch. Changes in Design Center and Exchange stay off until you allow them.
+- **Learn it properly.** The API Design Academy goes from how computers talk to all of RAML, Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications. AMF checks every answer.
 
 ---
 
 ## Preview
-
-![The editor, the API tree and the Inspector](docs/screenshots/02-editor-dark.png)
-*The editor with the API tree and the Inspector: forms for the resource under the cursor, written back as the smallest change to the text*
 
 ![The Dashboard: your organization's APIs at a glance](docs/screenshots/09-dashboard-dark.png)
 *The Dashboard: every API in Exchange, governance, what runs where, and who published what*
@@ -41,47 +58,42 @@ Built with Tauri 2 (Rust), React, TypeScript and CodeMirror. It ships with AMF 5
 ![The API map](docs/screenshots/06-api-map-dark.png)
 *The API map: resources, traits, resource types, types and files, with what uses what, and Show unused*
 
-![AI tools over MCP](docs/screenshots/07-ai-tools-dark.png)
-*AI tools: Claude, Copilot or Cursor can open projects, edit specs and run AMF's checks in the app while you watch*
-
-![API Design Academy](docs/screenshots/08-academy-dark.png)
-*API Design Academy: short lessons with a live editor, checked by AMF*
+![API Design Academy](docs/screenshots/13-academy-lessons-dark.png)
+*API Design Academy: 46 short lessons, from HTTP to the MuleSoft certifications*
 
 ![The editor in the Paper theme](docs/screenshots/02-editor-light.png)
 *The same in the Paper (light) theme*
 
 ---
 
-## What it does
+## Everything it does
 
-- **Fast on big specs.** A 2,000-line RAML spec with 40 files opens in seconds. Errors show as you type (a quick read after each edit, AMF's full check in the background), with the same messages as Design Center.
-- **Instant suggestions.** Types (library types under their `uses:` alias), traits, resource types and `!include` paths, plus Design Center's shelf under the editor: click and it's inserted at the right indentation.
-- **Forms and code in step.** The Inspector edits resources, methods, types, parameters, bodies and responses for RAML 1.0 and OAS 3.0 and 3.1 (YAML and JSON). It changes only the lines it must, so a form edit never rewrites your file. Like Design Center's "Guide me through it", you can build a whole API from the forms, with + in the API tree for resources, types and security schemes (RAML and OAS 3.0), and switch between forms and code any time. Or start from the secured starter: an API with HTTPS only, OAuth 2.0 on every call, error and rate-limit responses and correlation ids, clean on MuleSoft's best-practice and OWASP security rulesets. AsyncAPI 2.x works the same way: AMF checks it, the API tree shows channels, messages and schemas, the forms edit servers, channels with their publish and subscribe, messages and security schemes, and there's a secured starter for events and its own governance ruleset. Paste a real body into any type's "Check a sample" and AMF's payload validator says exactly what doesn't match.
-- **Refactorings.** Rename a type, trait or resource type everywhere, find references, extract to a library, move a type to a library, delete with cascade. Renaming a file updates every `!include` and `uses:`.
-- **Design Center sync.** Sign in, list your projects, pull one or all, see every line a push will send before it goes, push with the branch lock, Lock while I edit, branches, and a merge that puts both versions between markers when you and Design Center changed the same lines.
-- **Exchange.** Publish with a suggested version (from what changed since the last one), Development or Stable, dependencies added, updated and removed, and Import from Exchange.
-- **Governance.** Rulesets from Exchange, checked after every full check, with rules you can switch off per project.
-- **Documentation, mock and map.** The API as documentation, Try it on a local mock, and a map of what uses what.
+- **Editor.** Instant suggestions for types (library types under their `uses:` alias), traits, resource types and `!include` paths, plus Design Center's shelf under the editor: click and it's inserted at the right indentation. RAML, OAS and AsyncAPI in Design Center's colours, go to definition, find references, symbols, and a command palette.
+- **Forms.** Resources, methods, types, parameters, bodies, responses and security schemes for RAML 1.0, OAS 3.0 and 3.1 (YAML and JSON), and servers, channels, messages and schemas for AsyncAPI 2.x. Pick one media type or several. Create a missing example file from its type, or a type from pasted JSON. Paste a real body into any type's Check a sample and AMF's payload validator says exactly what doesn't match.
+- **Starters.** A secured starter for RAML, OAS 3.0 and 3.1 and AsyncAPI: HTTPS only, OAuth 2.0 on every call, error and rate-limit responses and correlation ids, clean on MuleSoft's best-practice and OWASP rulesets.
+- **Refactorings.** Rename a type, trait or resource type everywhere, extract to a library, move a type to a library, extract a trait or resource type, delete with cascade. Renaming a file updates every `!include` and `uses:`.
+- **Design Center sync.** Sign in, list your projects, pull one or all, put a project made on your computer into Design Center, review changes, push with the branch lock, Lock while I edit, branches, and merge with conflict help.
+- **Exchange.** Publish with a suggested version (from what changed since the last one), Development or Stable, manage dependencies, Import from Exchange, and see what changed in every version.
+- **Governance.** Rulesets from Exchange, checked after every full check, each finding linked to its line, with rules you can switch off per project.
+- **Documentation, mock and map.** The API as documentation, Try it on a local mock that answers JSON, XML, YAML and forms the way the spec says, and a map of what uses what.
+- **Dashboard.** Every asset in Exchange with every version and who published it, each API's endpoints and what changed between versions (a breaking change published as a minor version is flagged), API Governance conformance with each failing rule, what's managed and deployed in each environment, health checks of the addresses you choose with your own methods, headers and success codes, CSV exports, and an Excel export of every endpoint (a plain list, or a workbook with a dashboard, a linked index and a sheet per API). Each part shows only what your Anypoint permissions allow.
 - **Design Center's file actions.** Set as root file, Rename, Duplicate (a copy, or RAML to OAS through AMF), Delete to the trash, Download as zip, Import.
-- **Dashboard.** Your organization's APIs in one place: every asset in Exchange with every version and who published it, each API's endpoints and what changed between versions (a breaking change published as a minor version is flagged), whether API Governance is on and what conforms, with each failing rule and where it is in the spec, which version is managed in which environment, what's deployed and running, and a health check of the addresses you choose. Read only, with CSV exports and an Excel export of every endpoint (a plain list or a workbook with a sheet per API), and each part shows only what your Anypoint permissions allow.
-- **AI tools (MCP).** 37 tools for agents, from opening a project to publishing. Changes in Design Center and Exchange stay off until you allow them.
-- **API Design Academy.** 46 lessons, from how computers talk (HTTP, JSON, integration, MuleSoft) to all of RAML, Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications.
-- **Works offline.** Open a folder or a Design Center zip; you only sign in to pull, push and publish.
+- **Made to fit.** Dusk and Paper themes, accents, editor and interface fonts, text sizes, and in VS Code it can follow your VS Code theme.
 
 ## Install
 
-- **VS Code:** install **Design Studio for MuleSoft** from the Marketplace, then run **Design Studio: Open**, or right-click a project folder or a `.raml` file and pick **Open in Design Studio**. Everything is bundled, so it suits locked-down work machines.
+- **VS Code:** install **Design Studio for MuleSoft** from the Marketplace, then run **Design Studio: Open**, or right-click a project folder or a `.raml` file and pick **Open in Design Studio**. The AMF engine and a small Java runtime are included, so there's nothing else to install, which suits locked-down work machines.
 - **Windows, macOS, Linux:** the desktop app follows the VS Code beta, on the [Releases](https://github.com/Ashutosh-Vijay/design-studio/releases) page: an installer, a portable zip, and the installer zipped for proxies that block `.exe`. It updates itself quietly.
 
 ## Signing in to Anypoint
 
 - **Sign in with Anypoint** opens your browser and comes back to this computer. It works in the US, EU, Canada, UK, Japan, India and Australia clouds. In US Government, use your own Connected App.
-- **Your own Connected App** works in every Anypoint cloud (US, EU, Canada, UK, Japan, India, Australia and US Government), with a browser sign-in or client credentials; its secret goes to the system keychain.
+- **Your own Connected App** works in every Anypoint cloud, with a browser sign-in or client credentials; its secret goes to the system keychain.
 - **Connections start read only.** Nothing in Design Center or Exchange changes until you turn read only off in Settings.
 
 ## AI tools
 
-In the VS Code extension, Copilot's agent mode can use Design Studio's tools directly: pick them in its tools list, nothing to set up or start. For other agents (Claude Code, Cursor, Claude Desktop, or Copilot in the desktop app's case), open Settings, AI tools, and **Start**: the panel shows the one-line setup for each. That server listens on `127.0.0.1` only.
+In VS Code, Copilot's agent mode can use Design Studio's tools directly: pick them in its tools list, nothing to set up. For other agents (Claude Code, Cursor, Claude Desktop), open Settings, AI tools, and **Start**: the panel shows the one-line setup for each. That server listens on `127.0.0.1` only.
 
 ## Questions people ask
 
@@ -103,6 +115,9 @@ Yes: RAML 1.0, OAS 2.0, 3.0 and 3.1 in YAML or JSON, AsyncAPI 2.x, and RAML frag
 **Can I see every API in my Anypoint organization in one place?**
 Yes, the Dashboard: every Exchange asset with versions and endpoints, API Governance conformance, what's managed and deployed in each environment, a health check, and an Excel export of every endpoint. It only reads.
 
+**Can I see what a push will change before it goes to Design Center?**
+Yes. Push opens Review changes first: every file it will send, with each added and removed line, and the Push button inside.
+
 **Does it send my specs anywhere?**
 No. No telemetry, no analytics, no account of its own. Specs leave your computer only when you push or publish to your own Anypoint organization.
 
@@ -118,6 +133,10 @@ Yes, MIT licensed. It's independent and not made by MuleSoft or Salesforce.
 ## Privacy and security
 
 No telemetry, no analytics, no accounts of its own. Your specs stay on your computer unless you push or publish them to your own Anypoint organization. [PRIVACY.md](PRIVACY.md) is the short version; [SECURITY.md](SECURITY.md) lists every network connection and port, for reviewers.
+
+## Contributing
+
+Bug reports and ideas are welcome: [open an issue](https://github.com/Ashutosh-Vijay/design-studio/issues). Pull requests too; [CONTRIBUTING.md](CONTRIBUTING.md) says how to build it and what to check first.
 
 ## Build from source
 

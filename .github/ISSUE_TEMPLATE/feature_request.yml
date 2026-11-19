@@ -1,0 +1,11 @@
+name: Idea or feature request
+description: Something Design Studio could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like it to do?
+      description: The job you're trying to get done, and how you do it today (in Design Center or elsewhere).
+    validations:
+      required: true

@@ -1,0 +1,34 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for reporting. Please don't paste your company's specs, tokens or org names: a few made-up lines that still show the problem are perfect."
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it happen?
+      options: [VS Code extension, Desktop app (Windows), Desktop app (macOS), Desktop app (Linux)]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From Settings, About.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: A small spec that shows it (optional)
+      render: yaml
