@@ -27,11 +27,26 @@ const readConn = (): Connection | null => { try { return JSON.parse(fs.readFileS
 const writeConn = (c: Connection) => { fs.mkdirSync(store(), { recursive: true }); fs.writeFileSync(connFile(), JSON.stringify(c)); };
 const random = (n: number) => crypto.randomBytes(n).toString('base64url');
 const json = async (r: Response) => { try { return await r.json() as any; } catch { return {}; } };
-const post = (url: string, body: unknown, ms = 60000) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(ms) });
+// Node's fetch sometimes sends on a connection Anypoint has already closed, or meets a DNS hiccup: the request
+// fails without ever arriving, and the next one works ("fetch failed" once, seen 2026-11-20). Such a request is
+// sent once more. One that may have arrived (a timeout, a reset mid-way for anything but a read) never is, so a
+// save or a publish can't happen twice.
+// What went wrong, with the network's own code (ECONNRESET, ENOTFOUND...): "fetch failed" alone says nothing.
+const why = (e: unknown) => { const c = (e as { cause?: { code?: string; message?: string } })?.cause; return `${e instanceof Error ? e.message : e}${c?.code ? ` (${c.code})` : c?.message ? ` (${c.message})` : ''}`; };
+const NEVER_SENT = /UND_ERR_SOCKET|UND_ERR_CONNECT|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|EPIPE/;
+async function send(url: string, init: () => RequestInit, read: boolean): Promise<Response> {
+  try { return await fetch(url, init()); }
+  catch (e) {
+    const code = String((e as { cause?: { code?: string } })?.cause?.code ?? '');
+    if (!(NEVER_SENT.test(code) || (read && code === 'ECONNRESET'))) throw e;
+    return fetch(url, init());
+  }
+}
+const post = (url: string, body: unknown, ms = 60000) => send(url, () => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(ms) }), false);
 
 async function tokenRequest(host: string, body: Record<string, unknown>) {
   let r: Response;
-  try { r = await post(`${host}/accounts/api/v2/oauth2/token`, body); } catch (e) { throw new Error(`Couldn't reach Anypoint: ${e instanceof Error ? e.message : e}`); }
+  try { r = await post(`${host}/accounts/api/v2/oauth2/token`, body); } catch (e) { throw new Error(`Couldn't reach Anypoint: ${why(e)}`); }
   const v = await json(r);
   if (!r.ok) {
     const err = v.error ?? '', desc = v.error_description ?? '';
@@ -41,7 +56,7 @@ async function tokenRequest(host: string, body: Record<string, unknown>) {
   return v;
 }
 async function fetchMe(host: string, access: string, mode: string): Promise<Me> {
-  const r = await fetch(`${host}/accounts/api/me`, { headers: { authorization: `Bearer ${access}` }, signal: AbortSignal.timeout(60000) });
+  const r = await send(`${host}/accounts/api/me`, () => ({ headers: { authorization: `Bearer ${access}` }, signal: AbortSignal.timeout(60000) }), true);
   const v = await json(r);
   if (!r.ok) throw new Error(`Anypoint answered ${r.status} to who-am-I.`);
   if (v.user && typeof v.user === 'object') return { username: v.user.username ?? '', user_id: v.user.id ?? '', org_id: v.user.organizationId ?? v.user.organization?.id ?? '', org_name: v.user.organization?.name ?? '', host, mode, read_only: true };
@@ -208,9 +223,9 @@ async function call(method: string, p: string, body?: unknown, org?: string, env
     let r: Response;
     try {
       // org and env: Runtime Manager's calls name the business group and the environment in headers (anypoint.rs, call_in).
-      r = await fetch(host + p, { method, headers: { authorization: `Bearer ${token}`, 'x-organization-id': org ?? me.org_id, ...(me.mode === 'client' ? {} : { 'x-owner-id': me.user_id }), accept: 'application/json', ...(env ? { 'X-ANYPNT-ENV-ID': env, 'X-ANYPNT-ORG-ID': org ?? me.org_id } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
-        body: body !== undefined ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60000) });
-    } catch (e) { throw new Error(`Couldn't reach Anypoint: ${e instanceof Error ? e.message : e}`); }
+      r = await send(host + p, () => ({ method, headers: { authorization: `Bearer ${token}`, 'x-organization-id': org ?? me.org_id, ...(me.mode === 'client' ? {} : { 'x-owner-id': me.user_id }), accept: 'application/json', ...(env ? { 'X-ANYPNT-ENV-ID': env, 'X-ANYPNT-ORG-ID': org ?? me.org_id } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+        body: body !== undefined ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60000) }), method === 'GET');
+    } catch (e) { throw new Error(`Couldn't reach Anypoint: ${why(e)}`); }
     if (r.status === 401 && attempt === 0) { if (session) session.expires = 0; continue; }
     // A file that isn't text (an image in the project) comes back as the marker and base64, never decoded lossily (lib.rs).
     const bytes = Buffer.from(await r.arrayBuffer());
@@ -308,7 +323,7 @@ export async function anypointCommand(cmd: string, a: Record<string, any>, tab =
       if (!zip) throw new Error(`${asset} ${version} has no files to download in Exchange.`);
       if (!zip.externalLink) throw new Error('Exchange gave no download link.');
       let bytes: Buffer;
-      try { const d = await fetch(zip.externalLink, { signal: AbortSignal.timeout(120000) }); if (!d.ok) throw new Error(`${d.status}`); bytes = Buffer.from(await d.arrayBuffer()); }
+      try { const d = await send(zip.externalLink, () => ({ signal: AbortSignal.timeout(120000) }), true); if (!d.ok) throw new Error(`${d.status}`); bytes = Buffer.from(await d.arrayBuffer()); }
       catch (e) { throw new Error(`Couldn't download ${asset} ${version}: ${e instanceof Error ? e.message : e}`); }
       const into = a.into || null;
       if (into && (into.includes('..') || into.startsWith('/') || into.includes(':'))) throw new Error(`${into} isn't a folder name this app can use.`);

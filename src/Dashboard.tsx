@@ -1339,7 +1339,7 @@ function EndpointExport({ r, onClose }: { r: D.Reading; onClose: () => void }) {
   });
 
   async function run() {
-    const stamp = new Date().toISOString().slice(0, 10);
+    const now = new Date(), stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; // today where you are, not in UTC
     setResult(null);
     const dest = await saveDialog({ title: 'Export endpoints', defaultPath: `${(await downloadDir()).replace(/[\\/]+$/, '')}/${r.org.name.replace(/[^\w.-]+/g, '-')}-endpoints-${stamp}.xlsx`, filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }] });
     if (typeof dest !== 'string') return;

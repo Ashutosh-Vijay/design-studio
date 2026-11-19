@@ -596,8 +596,16 @@ export async function putInDesignCenter(root: string, name: string) {
   if ((await projects()).some((p) => p.name === name)) throw new Error(`Design Center already has a project called ${name}.`);
   const id = await createProject(name, classifier, subType);
   const l: Link = { projectId: id, projectName: name, branch: 'master', baseCommit: '', files: {} };
-  l.baseCommit = await head(l);
-  const theirs = await remoteFiles(l);
+  // Until this folder is linked, a failure would leave an empty project behind whose name blocks every retry
+  // ("Design Center already has a project called ..."): the project made a moment ago is removed again instead.
+  let theirs: Map<string, string>;
+  try {
+    l.baseCommit = await head(l);
+    theirs = await remoteFiles(l);
+  } catch (e) {
+    await deleteProject(id).catch(() => {});
+    throw new Error(`Couldn't finish putting ${name} in Design Center (${String(e).replace(/^Error: /, '')}). Nothing was left behind there, so you can try again.`);
+  }
   // Design Center's exchange.json (its group and asset ids) with this project's root file and dependencies.
   const created = theirs.get('exchange.json');
   if (created) await writeDescriptor(root, created, (d) => { d.main = main || d.main; d.dependencies = x?.d.dependencies ?? []; });
