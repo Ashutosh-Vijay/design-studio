@@ -115,11 +115,11 @@ export default function App() {
   const [mcpOpen, setMcpOpen] = useState(false);
   // API Design Academy: from the start screen, or the palette anywhere (a window event, since the project view has the palette).
   const [academy, setAcademy] = useState(false);
-  useEffect(() => { const f = () => setAcademy(true); window.addEventListener('ads-academy', f); return () => window.removeEventListener('ads-academy', f); }, []);
+  useEffect(() => { const f = () => { setDashboard(false); setAcademy(true); }; window.addEventListener('ads-academy', f); return () => window.removeEventListener('ads-academy', f); }, []);
   useEffect(() => { const f = () => setPaletteOpen('#'); window.addEventListener('ads-find-in-files', f); return () => window.removeEventListener('ads-find-in-files', f); }, []);
   // The Dashboard (PLAN 6.2): the organization's APIs and their governance, from the start screen or the palette.
   const [dashboard, setDashboard] = useState(false);
-  useEffect(() => { const f = () => setDashboard(true); window.addEventListener('ads-dashboard', f); return () => window.removeEventListener('ads-dashboard', f); }, []);
+  useEffect(() => { const f = () => { setAcademy(false); setDashboard(true); }; window.addEventListener('ads-dashboard', f); return () => window.removeEventListener('ads-dashboard', f); }, []);
   // Panels that need Anypoint (Dependencies' + when signed out) ask for the sign-in dialog.
   useEffect(() => { const f = () => setConnectOpen(true); window.addEventListener('ads-connect', f); return () => window.removeEventListener('ads-connect', f); }, []);
   const mcp = useMcpStatus();
@@ -167,7 +167,13 @@ export default function App() {
   const openRef = useRef(openFolder); openRef.current = openFolder;
   useEffect(() => {
     if (!isVsCode) return;
-    const go = (p: { root?: string; academy?: boolean; dashboard?: boolean } | null) => { if (p?.root) openRef.current(p.root); if (p?.academy) setAcademy(true); if (p?.dashboard) setDashboard(true); };
+    // The Academy and the Dashboard are full-screen layers: the one asked for replaces the other (the Academy sits on
+    // top, so a Dashboard opened under it went unseen), and a folder to open closes both so its project shows.
+    const go = (p: { root?: string; academy?: boolean; dashboard?: boolean } | null) => {
+      if (p?.root) { setAcademy(false); setDashboard(false); openRef.current(p.root); }
+      if (p?.academy) { setDashboard(false); setAcademy(true); }
+      if (p?.dashboard) { setAcademy(false); setDashboard(true); }
+    };
     invoke<{ root?: string; academy?: boolean; dashboard?: boolean } | null>('vscode_take_pending').then(go, () => {});
     const un = listen<{ root?: string; academy?: boolean; dashboard?: boolean }>('ds-open', (e) => go(e.payload));
     return () => { un.then((f) => f()); };
