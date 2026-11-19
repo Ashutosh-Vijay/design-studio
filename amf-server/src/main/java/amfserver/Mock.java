@@ -147,6 +147,9 @@ class Mock {
       boolean randomize = "true".equalsIgnoreCase(header(x, "MS2-Randomize"));
       JsonNode body = randomize ? null : example(pl.schema(), header(x, "MS2-Example"));
       if (body == null) body = make(pl.schema(), 0, new HashSet<>());
+      // An example AMF kept only as text (a JSON example written as a string, or one it didn't read into a
+      // structure) is the JSON itself, not a string holding it: sent as that JSON, not quoted and escaped.
+      if (body.isTextual() && media.contains("json")) try { body = Main.JSON.readTree(body.asText()); } catch (Exception notJson) { /* plain text: stays a JSON string */ }
       x.getResponseHeaders().add("Content-Type", media);
       byte[] outBytes = (body.isTextual() && !media.contains("json") ? body.asText() : body.toPrettyString()).getBytes(StandardCharsets.UTF_8);
       x.sendResponseHeaders(code, outBytes.length);
