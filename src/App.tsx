@@ -409,16 +409,16 @@ function StartView({ recent, opening, error, onOpen, onNewWindow, onOpenZip, onP
               <span className="flex-1"><span className="block font-semibold">Create</span><span className="block text-[11.5px] text-content-faint">A new API specification or fragment</span></span>
               <Icons.ChevronDown size={13} />
             </button>
-            {createMenu && <>
-              <div className="fixed inset-0 z-30" onClick={() => setCreateMenu(false)} />
-              <div className="absolute left-0 right-0 top-full mt-1 z-40 p-1 rounded-lg bg-surface-2 border border-line shadow-[var(--shadow)]">
-                {([['api', 'New API Specification', 'How the API behaves and what it exchanges: RAML or OAS'], ['fragment', 'New Fragment', 'Pieces to reuse across APIs: a library, data type, trait…']] as const).map(([id, t, d]) => (
-                  <button key={id} onClick={() => { setCreateMenu(false); onCreate(id); }} className="w-full px-2.5 py-2 rounded-md text-left hover:bg-surface-3">
+            {/* The choices open in place and push the cards below down, so nothing peeks out from under them. */}
+            {createMenu && (
+              <div className="mt-1 p-1 rounded-lg bg-surface-2 border border-line" onKeyDown={(e) => { if (e.key === 'Escape') setCreateMenu(false); }}>
+                {([['api', 'New API Specification', 'How the API behaves and what it exchanges: RAML or OAS'], ['fragment', 'New Fragment', 'Pieces to reuse across APIs: a library, data type, trait…']] as const).map(([id, t, d], i) => (
+                  <button key={id} autoFocus={i === 0} onClick={() => { setCreateMenu(false); onCreate(id); }} className="w-full px-2.5 py-2 rounded-md text-left hover:bg-surface-3 focus-visible:bg-surface-3 outline-none">
                     <span className="block font-semibold text-[12.5px]">{t}</span><span className="block text-[11.5px] text-content-faint">{d}</span>
                   </button>
                 ))}
               </div>
-            </>}
+            )}
           </div>
           <button
             disabled={!isTauri || !!opening}
