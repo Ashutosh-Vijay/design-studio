@@ -12,10 +12,17 @@
  * uses that browser session's token for Anypoint's own API. It never sees your password. Secrets are
  * never printed.
  *
+ * Each region keeps its own Chrome profile outside the repo (%LOCALAPPDATA%\design-studio-rotate\<region>,
+ * or ~/.cache/design-studio-rotate/<region>), so a later run goes straight through while Anypoint's session
+ * lasts, and Chrome can offer the saved password when it doesn't. --fresh starts that region signed out.
+ *
  * Regions: us, eu, ca, gb, jp, in, au.
  */
 import { chromium } from 'playwright';
 import { pathToFileURL } from 'node:url';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 export const HOSTS = {
   us: 'https://anypoint.mulesoft.com', eu: 'https://eu1.anypoint.mulesoft.com', ca: 'https://ca1.platform.mulesoft.com',
@@ -29,9 +36,10 @@ const ours = (a) => a.client_name === APP_NAME || a.client_name === 'API Designe
 const BROKER_SITES = ['https://ashutosh-vijay.dev', 'https://ashutosh-vijay.pages.dev'];
 const TEMPLATE = {
   client_name: APP_NAME,
-  client_uri: 'https://ashutosh-vijay.dev/design-center-studio',
+  client_uri: 'https://ashutosh-vijay.dev/design-studio/',
   // The broker's callbacks, and the app's own: four loopback ports, so one busy port doesn't stop a sign-in.
-  redirect_uris: [...BROKER_SITES.flatMap((h) => [`${h}/design-studio/auth/callback`, `${h}/api-designer-studio/auth/callback`]), ...[8765, 8766, 8767, 8768].map((p) => `http://localhost:${p}/callback`)],
+  // (The broker's old /api-designer-studio path was dropped on 2026-11-20, when every region got a new app.)
+  redirect_uris: [...BROKER_SITES.map((h) => `${h}/design-studio/auth/callback`), ...[8765, 8766, 8767, 8768].map((p) => `http://localhost:${p}/callback`)],
   grant_types: ['authorization_code', 'refresh_token'],
   scopes: ['full', 'read:organization', 'openid', 'profile', 'email', 'offline_access', 'edit:design_center', 'edit:exchange'],
   audience: 'everyone',
@@ -56,6 +64,8 @@ function publishClient(region, id, secret) {
   if (!cur.ok) throw new Error(`Reading clients.json failed: ${cur.out.slice(0, 300)}`);
   const meta = JSON.parse(cur.out);
   const file = JSON.parse(Buffer.from(meta.content, 'base64').toString('utf8'));
+  const had = file.regions[region];
+  if (had?.client_id === id && had?.client_secret === secret && had?.host === HOSTS[region]) { console.log(`clients.json already has this ${region} client.`); return; }
   file.regions[region] = { client_id: id, client_secret: secret, host: HOSTS[region], updated: new Date().toISOString().slice(0, 10) };
   const body = JSON.stringify({ message: `${region}: new client`, sha: meta.sha, content: Buffer.from(JSON.stringify(file, null, 2) + '\n').toString('base64') });
   const r = gh(`api -X PUT repos/${AUTH_REPO}/contents/clients.json --input -`, body);
@@ -70,17 +80,30 @@ function brokerSecret(name, value) {
   console.log(`Broker: ${name} set.`);
 }
 
-// Opens Edge on the region's login and waits until you're signed in. Then Anypoint's API is called from
+// Opens Chrome on the region's login (its kept profile) and waits until you're signed in. Then Anypoint's API is called from
 // inside that browser (page.evaluate), with whatever the web app itself uses: a bearer token seen on its
 // requests, or its session cookie. So it doesn't depend on how the page carries its sign-in.
 export async function signIn(host) {
-  const browser = await chromium.launch({ channel: 'chrome', headless: false });
-  const context = await browser.newContext();
-  const page = await context.newPage();
+  // One kept profile per cloud: the cloud's host names it, so every caller gets it.
+  const name = Object.entries(HOSTS).find(([, h]) => h === host)?.[0] ?? new URL(host).hostname;
+  const dir = join(process.env.LOCALAPPDATA || join(homedir(), '.cache'), 'design-studio-rotate', name);
+  if (process.argv.includes('--fresh')) rmSync(dir, { recursive: true, force: true });
+  const context = await chromium.launchPersistentContext(dir, { channel: 'chrome', headless: false, viewport: null });
+  const browser = context; // closing the persistent context closes its window; the profile stays on disk
+  const page = context.pages()[0] ?? await context.newPage();
+  // Anypoint keeps its sign-in in session cookies and session storage, which Chrome drops when the window
+  // closes. The last session is saved in the profile folder after a sign-in and put back here, so a run while
+  // Anypoint still honours it needs no sign-in at all.
+  const saved = join(dir, 'ds-session.json');
+  if (existsSync(saved)) try {
+    const s = JSON.parse(readFileSync(saved, 'utf8'));
+    await context.addCookies(s.cookies);
+    await context.addInitScript(([origin, items]) => { if (location.origin === origin) for (const [k, v] of Object.entries(items)) if (sessionStorage.getItem(k) === null) sessionStorage.setItem(k, v); }, [new URL(host).origin, s.session ?? {}]);
+  } catch { /* unreadable: sign in as usual */ }
   const tokens = new Set();
   context.on('request', (r) => { const a = r.headers().authorization; if (a?.startsWith('Bearer ') && /mulesoft\.com/.test(r.url())) tokens.add(a.slice(7)); });
-  await page.goto(`${host}/login/`);
-  console.log('Sign in in the browser window that just opened. Waiting (up to 10 minutes)...');
+  await page.goto(existsSync(saved) ? `${host}/home/` : `${host}/login/`);
+  console.log(existsSync(saved) ? 'Using the saved session (sign in in the window if it has expired; waiting up to 10 minutes)...' : 'Sign in in the browser window that just opened. Waiting (up to 10 minutes)...');
   for (let i = 0; i < 600; i++) {
     await page.waitForTimeout(1000);
     if (/\/login/.test(page.url()) && !tokens.size) continue;
@@ -98,8 +121,12 @@ export async function signIn(host) {
   await browser.close();
   throw new Error('No sign-in seen within 10 minutes.');
 
-  function done(token, me) {
+  async function done(token, me) {
     console.log(`Signed in (${token ? 'bearer token from the web app' : "the browser's session"}).`);
+    try {
+      const session = await page.evaluate(() => (location.origin.includes('mulesoft.com') ? Object.fromEntries(Object.entries(sessionStorage)) : {}));
+      writeFileSync(saved, JSON.stringify({ cookies: (await context.cookies()).filter((c) => c.domain.includes('mulesoft.com')), session }));
+    } catch { /* not saved: the next run asks for a sign-in */ }
     // One way to call the API either way: with the token from here, or from inside the signed-in page.
     const call = token ? (m, path, body) => api(host, token, m, path, body)
       : (m, path, body) => page.evaluate(async ([m, path, body]) => {
@@ -134,9 +161,9 @@ if (cmd === 'inspect') {
     const list = await s.call('GET', '/accounts/api/connectedApplications');
     console.log('List:', list.status);
     const apps = list.json?.data ?? list.json ?? [];
-    const ours = (Array.isArray(apps) ? apps : []).filter(ours);
+    const mine = (Array.isArray(apps) ? apps : []).filter(ours);
     console.log(`Connected Apps: ${(Array.isArray(apps) ? apps : []).map((a) => a.client_name).join(', ') || '(none)'}`);
-    for (const a of ours) {
+    for (const a of mine) {
       console.log('App:', JSON.stringify(hide(a), null, 1));
       const sc = await s.call('GET', `/accounts/api/connectedApplications/${a.client_id}/scopes`);
       console.log('Scopes:', sc.status, JSON.stringify(sc.json, null, 1));
@@ -157,24 +184,30 @@ if (cmd === 'app') {
       app = r.json;
       console.log(`Created the Connected App (${app.client_id}).`);
     } else {
-      const missing = (k) => TEMPLATE[k].filter((x) => !(app[k] ?? []).includes(x));
-      const add = { redirect_uris: missing('redirect_uris'), scopes: missing('scopes'), grant_types: missing('grant_types') };
-      const pkce = app.pkce_enforcement !== TEMPLATE.pkce_enforcement, renamed = app.client_name !== APP_NAME;
-      if (Object.values(add).some((x) => x.length) || pkce || renamed) {
-        const patch = Object.fromEntries(Object.entries(add).filter(([, v]) => v.length).map(([k]) => [k, [...app[k], ...add[k]]]));
-        if (pkce) patch.pkce_enforcement = TEMPLATE.pkce_enforcement;
-        if (renamed) patch.client_name = APP_NAME; // the name people see on Anypoint's consent page
+      // Every field the template owns is set to exactly the template's value: lists are compared as sets, so
+      // anything extra (an old redirect URI) goes too, and the name and website link people see are corrected.
+      const same = (k) => Array.isArray(TEMPLATE[k])
+        ? TEMPLATE[k].length === (app[k] ?? []).length && TEMPLATE[k].every((x) => app[k].includes(x))
+        : app[k] === TEMPLATE[k];
+      const keys = ['client_name', 'client_uri', 'redirect_uris', 'scopes', 'grant_types', 'pkce_enforcement'];
+      const patch = Object.fromEntries(keys.filter((k) => !same(k)).map((k) => [k, TEMPLATE[k]]));
+      if (Object.keys(patch).length) {
         const r = await s.call('PATCH', `/accounts/api/connectedApplications/${app.client_id}`, patch);
         if (r.status >= 300) throw new Error(`Updating the Connected App answered ${r.status}: ${r.text.slice(0, 300)}`);
-        console.log(`Updated the Connected App: ${[...Object.entries(add).filter(([, v]) => v.length).map(([k, v]) => `added ${k} ${v.join(', ')}`), ...(pkce ? [`PKCE ${TEMPLATE.pkce_enforcement}`] : []), ...(renamed ? [`renamed to ${APP_NAME}`] : [])].join('; ')}.`);
+        console.log(`Updated the Connected App: ${Object.keys(patch).map((k) => {
+          if (!Array.isArray(TEMPLATE[k])) return `${k} ${app[k] ?? '(none)'} -> ${TEMPLATE[k]}`;
+          const add = TEMPLATE[k].filter((x) => !(app[k] ?? []).includes(x)), drop = (app[k] ?? []).filter((x) => !TEMPLATE[k].includes(x));
+          return `${k}${add.length ? ` +${add.join(' +')}` : ''}${drop.length ? ` -${drop.join(' -')}` : ''}`;
+        }).join('; ')}.`);
       } else console.log('The Connected App already matches.');
     }
     // Read it back: what Anypoint now has, and the secret for the broker.
     const now = (await s.call('GET', '/accounts/api/connectedApplications')).json;
     app = (now?.data ?? now ?? []).find(ours);
-    const off = ['redirect_uris', 'scopes', 'grant_types'].filter((k) => TEMPLATE[k].some((x) => !app[k]?.includes(x)));
-    if (app.pkce_enforcement !== TEMPLATE.pkce_enforcement) off.push('pkce_enforcement');
-    console.log(off.length ? `Still different from the template: ${off.join(', ')}.` : 'Checked: redirect URIs, scopes, grants and PKCE match the template.');
+    const off = ['client_name', 'client_uri', 'redirect_uris', 'scopes', 'grant_types', 'pkce_enforcement'].filter((k) => Array.isArray(TEMPLATE[k])
+      ? TEMPLATE[k].length !== (app[k] ?? []).length || TEMPLATE[k].some((x) => !app[k]?.includes(x))
+      : app[k] !== TEMPLATE[k]);
+    console.log(off.length ? `Still different from the template: ${off.join(', ')}.` : 'Checked: name, website, redirect URIs, scopes, grants and PKCE are exactly the template.');
     if (process.argv.includes('--publish')) {
       if (!app.client_secret) throw new Error("Anypoint didn't return the secret, so clients.json wasn't changed.");
       publishClient(region, app.client_id, app.client_secret);
