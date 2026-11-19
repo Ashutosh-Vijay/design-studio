@@ -16,6 +16,7 @@
     "core:webview:allow-set-webview-zoom",
     "core:window:allow-start-dragging",
     "dialog:allow-open",
+    "dialog:allow-save",
     "updater:default",
     "process:allow-restart",
     "dialog:allow-confirm",

@@ -6,7 +6,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
+import { downloadDir } from '@tauri-apps/api/path';
 import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
 import { WindowControls } from './components/WindowControls';
@@ -178,6 +179,7 @@ export function DashboardScreen({ onClose, onConnect, openRoot, openName, onOpen
   const [sort, setSort] = useState<{ col: string; asc: boolean }>({ col: 'gov', asc: true });
   const [open, setOpen] = useState<D.Api | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [counting, setCounting] = useState(false);
   const run = useRef(0);
 
@@ -266,7 +268,7 @@ export function DashboardScreen({ onClose, onConnect, openRoot, openName, onOpen
 
   async function exportCsv(name: string, text: string, n: number) {
     if (!reading) return;
-    const dest = await saveDialog({ title: 'Export the list', defaultPath: `${reading.org.name.replace(/[^\w.-]+/g, '-')}-${name}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });
+    const dest = await saveDialog({ title: 'Export the list', defaultPath: `${(await downloadDir()).replace(/[\\/]+$/, '')}/${reading.org.name.replace(/[^\w.-]+/g, '-')}-${name}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });
     if (typeof dest !== 'string') return;
     const p = dest.replace(/\\/g, '/'), cut = p.lastIndexOf('/');
     try { await invoke('write_file_exact', { root: p.slice(0, cut), path: p.slice(cut + 1), text }); setNote(`Exported ${n} ${n === 1 ? 'row' : 'rows'} to ${p.slice(cut + 1)}.`); }
@@ -326,6 +328,8 @@ export function DashboardScreen({ onClose, onConnect, openRoot, openName, onOpen
             <span className="flex-1" />
             {note && <span className="text-[12px] text-content-muted select-text">{note}</span>}
             {tab === 'apis' && reading.apis.length > 0 && <button className={btn} onClick={() => exportCsv('apis', D.csv(rows), rows.length)} title="The rows as they're filtered and sorted now, as a CSV file">Export CSV…</button>}
+            {tab === 'apis' && reading.access.exchange === 'ok' && <button className={btn} onClick={() => setExporting(true)} title="Every endpoint of the APIs you choose, as an Excel file">Export endpoints…</button>}
+            {exporting && <EndpointExport r={reading} onClose={() => setExporting(false)} />}
             {tab === 'deployments' && reading.apps.length > 0 && <button className={btn} onClick={() => exportCsv('apps', D.csvApps(reading.apps), reading.apps.length)} title="Every app in every environment, as a CSV file">Export CSV…</button>}
           </div>
           {(missing.length > 0 || reading.notes.length > 0) && (
@@ -1297,5 +1301,148 @@ function Activity({ r, onOpen }: { r: D.Reading; onOpen: (a: D.Api) => void }) {
         {items.length === 300 && <div className="py-3 text-center text-[12px] text-content-faint">The latest 300 are shown.</div>}
       </div>
     </div>
+  );
+}
+
+// ---------- Export endpoints: the chosen APIs' endpoints as an Excel file ----------
+// A plain list for pasting into someone else's sheet, or a workbook (Dashboard, Index, All endpoints, a sheet per
+// API). Each API's latest version is read from Exchange (Stable ones are kept on this computer after the first time).
+const EXPORT_KEY = 'ads.dash.endpointExport';
+function EndpointExport({ r, onClose }: { r: D.Reading; onClose: () => void }) {
+  const apis = useMemo(() => r.apis.filter((a) => D.EXPORTABLE.has(a.type) && a.version).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })), [r]);
+  const key = (a: D.Api) => `${a.groupId}/${a.assetId}`;
+  const [picked, setPicked] = useState(() => new Set(apis.map(key)));
+  const [q, setQ] = useState('');
+  const [o, setO] = useState<D.EndpointOpts>(() => {
+    const def: D.EndpointOpts = { style: 'plain', title: 'MuleSoft APIs', apiColumn: true, endpoint: 'path', method: 'column', summary: false };
+    try { return { ...def, ...JSON.parse(localStorage.getItem(EXPORT_KEY) || '{}') }; } catch { return def; }
+  });
+  const set = (p: Partial<D.EndpointOpts>) => { const n = { ...o, ...p }; setO(n); try { localStorage.setItem(EXPORT_KEY, JSON.stringify(n)); } catch { /* no storage */ } };
+  const [busy, setBusy] = useState<{ done: number; total: number } | null>(null);
+  const [result, setResult] = useState<{ text: string; path?: string; error?: boolean } | null>(null);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = apis.filter((a) => words.every((w) => `${a.name} ${a.assetId}`.toLowerCase().includes(w)));
+  const chosen = apis.filter((a) => picked.has(key(a)));
+  const pick = (list: D.Api[], on: boolean) => setPicked((was) => { const n = new Set(was); for (const a of list) if (on) n.add(key(a)); else n.delete(key(a)); return n; });
+
+  // A sample of what a row looks like with these options, from the first chosen API.
+  const sample = chosen[0] ?? apis[0];
+  const sx = { a: sample ?? ({ assetId: 'orders-api', name: 'Orders API' } as D.Api), base: 'https://api.example.com/v1' };
+  const sampleOps = [['GET', '/orders/{orderId}', 'Get an order'], ['POST', '/orders', 'Create an order']];
+  const head = [o.style === 'plain' && o.apiColumn && 'API', o.method === 'column' && 'Method', 'Endpoint', o.summary && o.method !== 'none' && 'Summary'].filter(Boolean) as string[];
+  const sampleRows = sampleOps.map(([m, p, s]) => {
+    const where = D.endpointText(sx, p, o);
+    return [o.style === 'plain' && o.apiColumn && sx.a.name, o.method === 'column' && m, o.method === 'inline' ? `${m} ${where}` : where, o.summary && o.method !== 'none' && s].filter((x) => x !== false) as string[];
+  });
+
+  async function run() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    setResult(null);
+    const dest = await saveDialog({ title: 'Export endpoints', defaultPath: `${(await downloadDir()).replace(/[\\/]+$/, '')}/${r.org.name.replace(/[^\w.-]+/g, '-')}-endpoints-${stamp}.xlsx`, filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }] });
+    if (typeof dest !== 'string') return;
+    setResult(null); setBusy({ done: 0, total: chosen.length });
+    try {
+      const list = await D.readEndpoints(chosen, (done) => alive.current && setBusy({ done, total: chosen.length }), () => alive.current);
+      if (!alive.current) return;
+      const bytes = D.endpointWorkbook(list, o, r.org.name);
+      let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      const p = dest.replace(/\\/g, '/'), cut = p.lastIndexOf('/');
+      await invoke('write_file_exact', { root: p.slice(0, cut), path: p.slice(cut + 1), text: '\u0000b64:' + btoa(bin) });
+      const ok = list.filter((x) => !x.error), failed = list.length - ok.length;
+      const ops = ok.reduce((n, x) => n + x.ops.length, 0);
+      setResult({ path: dest, text: `Exported ${ops} ${ops === 1 ? 'operation' : 'operations'} from ${ok.length} ${ok.length === 1 ? 'API' : 'APIs'} to ${p.slice(cut + 1)}.`
+        + (failed ? ` ${failed} couldn't be read: ${list.filter((x) => x.error).slice(0, 3).map((x) => x.a.name).join(', ')}${failed > 3 ? ' and others' : ''}${o.style === 'workbook' ? ' (listed on the Dashboard sheet)' : ''}.` : '') });
+    } catch (e) { setResult({ text: String(e).replace(/^Error: /, ''), error: true }); }
+    setBusy(null);
+  }
+
+  const label = 'text-[12px] font-medium';
+  const check = (on: boolean, text: string, change: (v: boolean) => void, disabled = false, title?: string) => (
+    <label className={`flex items-center gap-2 text-[12.5px] ${disabled ? 'opacity-50' : ''}`} title={title}>
+      <input type="checkbox" checked={on && !disabled} disabled={disabled} onChange={(e) => change(e.target.checked)} className="accent-[var(--accent)]" />{text}</label>
+  );
+  const style = (id: D.EndpointOpts['style'], name: string, about: string) => (
+    <button onClick={() => set({ style: id })} aria-pressed={o.style === id}
+      className={`flex-1 text-left px-3 py-2.5 rounded-md border ${o.style === id ? 'border-accent bg-accent-dim' : 'border-line hover:bg-surface-2'}`}>
+      <div className="text-[12.5px] font-semibold">{name}</div>
+      <div className="mt-0.5 text-[11.5px] text-content-muted leading-snug">{about}</div>
+    </button>
+  );
+  return (
+    <Modal title="Export endpoints" width={760} onCancel={onClose}
+      sub="Every endpoint of the APIs you choose, from each one's latest version in Exchange, as an Excel file."
+      footer={<>
+        <span className={`mr-auto text-[12px] select-text ${result?.error ? 'text-err' : 'text-content-muted'}`}>
+          {busy ? <span className="flex items-center gap-2"><Spinner />Reading {busy.done} of {busy.total} specs…</span> : result?.text ?? `${chosen.length} of ${apis.length} APIs chosen.`}
+          {result?.path && !busy && <button className="ml-2 text-accent hover:underline" onClick={() => revealItemInDir(result.path!).catch(() => {})}>Show in folder</button>}
+        </span>
+        <button className={btn} onClick={onClose}>{result && !result.error ? 'Close' : 'Cancel'}</button>
+        <button className={btnPrimary} disabled={!!busy || !chosen.length || !o.title.trim()} onClick={run}>Export…</button>
+      </>}>
+      <div className="grid grid-cols-[1fr_300px] gap-5">
+        <div className="flex flex-col gap-4 min-w-0">
+          <div className="flex gap-2">
+            {style('plain', 'Plain list', 'One sheet: a title, then every endpoint ordered by API name. Easy to paste into a bigger list.')}
+            {style('workbook', 'Workbook', 'A Dashboard, an Index that links to each API, All endpoints, and a sheet per API.')}
+          </div>
+          <label className="flex items-center gap-3"><span className={`${label} w-[72px]`}>Title</span>
+            <input value={o.title} onChange={(e) => set({ title: e.target.value })} spellCheck={false} aria-label="Title"
+              className="flex-1 h-7 px-2 rounded-md border border-line bg-surface-input text-[12.5px] text-content outline-none focus:border-accent" /></label>
+          <label className="flex items-center gap-3"><span className={`${label} w-[72px]`}>Endpoint</span>
+            <Select value={o.endpoint} onChange={(v) => set({ endpoint: v as D.EndpointOpts['endpoint'] })} className="flex-1 h-7 text-[12.5px]" options={[
+              { value: 'path', label: 'The path only' },
+              { value: 'api', label: "The API's ID, then the path" },
+              { value: 'base', label: "The spec's base URI, then the path" },
+            ]} title="A spec with no base URI uses the API's ID in front instead" /></label>
+          <label className="flex items-center gap-3"><span className={`${label} w-[72px]`}>Methods</span>
+            <Select value={o.method} onChange={(v) => set({ method: v as D.EndpointOpts['method'] })} className="flex-1 h-7 text-[12.5px]" options={[
+              { value: 'column', label: 'In their own column' },
+              { value: 'inline', label: 'Before the endpoint, in the same cell' },
+              { value: 'none', label: 'Left out: one row per endpoint' },
+            ]} /></label>
+          <div className="flex flex-wrap gap-x-5 gap-y-2 pl-[84px]">
+            {check(o.apiColumn, 'API name column', (v) => set({ apiColumn: v }), o.style === 'workbook', o.style === 'workbook' ? 'The workbook gives each API its own sheet, and All endpoints always names the API' : undefined)}
+            {check(o.summary, 'Summary column', (v) => set({ summary: v }), o.method === 'none', 'The operation\'s summary, or the first line of its description')}
+          </div>
+          <div>
+            <div className={label}>Looks like</div>
+            <div className="mt-1.5 rounded-md border border-line overflow-hidden text-[11.5px]">
+              {o.style === 'plain' && <div className="px-2 py-1 font-semibold border-b border-line-subtle">{o.title || 'Title'}</div>}
+              <table className="w-full border-collapse">
+                <thead><tr>{head.map((h) => <th key={h} className="text-left font-semibold px-2 py-1 bg-[#24364B] text-white">{h}</th>)}</tr></thead>
+                <tbody>{sampleRows.map((row, i) => <tr key={i} className="border-t border-line-subtle">{row.map((c, j) => (
+                  <td key={j} className={`px-2 py-1 align-top ${head[j] === 'Endpoint' || head[j] === 'Method' ? 'font-mono' : ''} ${head[j] === 'Summary' ? 'text-content-muted' : ''} break-all`}>{c}</td>
+                ))}</tr>)}</tbody>
+              </table>
+            </div>
+            <div className="mt-1 text-[11.5px] text-content-faint">Rows are ordered by API name, then path, then method.</div>
+          </div>
+        </div>
+        <div className="flex flex-col min-h-0">
+          <div className="flex items-center gap-2">
+            <span className={label}>APIs</span><span className="text-[11.5px] text-content-faint">{chosen.length} of {apis.length}</span>
+            <span className="flex-1" />
+            <button className="text-[11.5px] text-accent hover:underline" onClick={() => pick(shown, true)}>All{q ? ' shown' : ''}</button>
+            <button className="text-[11.5px] text-accent hover:underline" onClick={() => pick(shown, false)}>None</button>
+          </div>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" aria-label="Filter the APIs" spellCheck={false}
+            className="mt-1.5 h-7 px-2 rounded-md border border-line bg-surface-input text-[12px] text-content outline-none focus:border-accent" />
+          <div className="mt-1.5 h-[300px] overflow-auto rounded-md border border-line">
+            {shown.map((a) => (
+              <label key={key(a)} className="flex items-center gap-2 px-2 py-1 text-[12px] hover:bg-surface-2 cursor-pointer" title={`${a.assetId} ${a.version}`}>
+                <input type="checkbox" checked={picked.has(key(a))} onChange={(e) => pick([a], e.target.checked)} className="accent-[var(--accent)]" />
+                <span className="flex-1 min-w-0 truncate">{a.name}</span>
+                {a.counts && <span className="text-[11px] text-content-faint tabular-nums">{a.counts.operations}</span>}
+              </label>
+            ))}
+            {!shown.length && <div className="px-2 py-3 text-[12px] text-content-faint">{apis.length ? 'No API matches.' : 'No REST or AsyncAPI specs in Exchange.'}</div>}
+          </div>
+          <div className="mt-1.5 text-[11.5px] text-content-faint leading-snug">REST and AsyncAPI specs only. The first export reads each spec, so a long list takes a minute.</div>
+        </div>
+      </div>
+    </Modal>
   );
 }

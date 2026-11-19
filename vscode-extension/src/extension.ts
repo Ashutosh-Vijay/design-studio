@@ -80,7 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
       case 'open_window': open(a.root ? { root: a.root } : undefined, true); return null;
       case 'vscode_take_pending': { const x = t.pending; t.pending = null; return x; }
       case 'vscode_version': return version;
-      case 'vscode_dir': return a.which === 'documents' ? path.join(os.homedir(), 'Documents') : a.which === 'cache' ? path.join(context.globalStorageUri.fsPath, 'cache') : os.homedir();
+      case 'vscode_dir': return a.which === 'documents' ? path.join(os.homedir(), 'Documents') : a.which === 'downloads' ? path.join(os.homedir(), 'Downloads') : a.which === 'cache' ? path.join(context.globalStorageUri.fsPath, 'cache') : os.homedir();
       case 'vscode_open_url': await vscode.env.openExternal(vscode.Uri.parse(a.url, true)); return null;
       case 'vscode_reveal': await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(a.path)); return null;
       case 'vscode_confirm': {

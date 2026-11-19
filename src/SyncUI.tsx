@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { windowLabel } from './components/WindowControls';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { downloadDir } from '@tauri-apps/api/path';
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Icons } from './components/Icons';
 import { Select } from './components/Popup';
@@ -551,7 +552,7 @@ export function ProjectMenu({ root, name, onNotice, onOpen, onGone, onChanged }:
       onCancel={() => setDlg(null)} onOk={(v) => { setDlg(null); run(async () => { onNotice(`Making ${v} in Design Center…`, false); const dest = await S.duplicateProject(root, v, me!.org_name || 'Anypoint'); onOpen(dest); }); }} />)],
     ['Share…', why(p.canShare), () => setDlg(<ShareDialog projectId={l!.projectId} name={l!.projectName} org={me!.org_id} onClose={() => setDlg(null)} onSaved={(t) => { setDlg(null); onNotice(t, false); }} />)],
     ['Download as zip…', null, () => run(async () => {
-      const dest = await saveDialog({ title: 'Download as zip', defaultPath: `${name}.zip`, filters: [{ name: 'Zip', extensions: ['zip'] }] });
+      const dest = await saveDialog({ title: 'Download as zip', defaultPath: `${(await downloadDir()).replace(/[\\/]+$/, '')}/${name}.zip`, filters: [{ name: 'Zip', extensions: ['zip'] }] });
       if (!dest) return;
       const n = await invoke<number>('export_zip', { root, dest });
       return `Saved ${n} files to ${dest}.`;

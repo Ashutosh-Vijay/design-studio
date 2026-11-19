@@ -25,6 +25,7 @@ export const getVersion = () => invoke<string>('vscode_version');
 // @tauri-apps/api/path
 export const homeDir = () => invoke<string>('vscode_dir', { which: 'home' });
 export const documentDir = () => invoke<string>('vscode_dir', { which: 'documents' });
+export const downloadDir = () => invoke<string>('vscode_dir', { which: 'downloads' });
 export const appCacheDir = () => invoke<string>('vscode_dir', { which: 'cache' });
 export const appConfigDir = () => invoke<string>('vscode_dir', { which: 'config' });
 

@@ -6,6 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appCacheDir } from '@tauri-apps/api/path';
 import { assetVersions, cmpVersion, compareModels, type Change, type Version } from './sync';
+import { S as X, col, linkTo, sheetName, workbook, type Cell, type Sheet } from './xlsx';
 
 type Reply = { status: number; json: any; text: string };
 // A request that can't be sent at all (a dropped connection, among the dozens a reading makes) is tried once more;
@@ -474,4 +475,156 @@ export function csvApps(apps: App[]) {
   const head = ['Name', 'Environment', 'Production', 'Runtime', 'Status', 'Mule version', 'Last changed', 'URL'];
   const rows = apps.map((a) => [a.name, a.env, a.production ? 'Yes' : 'No', a.runtime, a.status, a.mule, a.updated ? new Date(a.updated).toISOString().slice(0, 10) : '', a.url]);
   return [head, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+}
+
+// ---------- Export: every endpoint of the chosen APIs, as an Excel workbook ----------
+// From each API's latest version in Exchange (the same downloaded spec the counts read). Only kinds with a spec
+// AMF reads: REST (RAML, OAS) and AsyncAPI, whose channels and publish/subscribe stand in for paths and methods.
+export const EXPORTABLE = new Set(['rest-api', 'evented-api', 'async-api']);
+export type EndpointOpts = {
+  style: 'plain' | 'workbook'; title: string;
+  apiColumn: boolean; // the API's name in its own column (the plain list; All endpoints always has it)
+  endpoint: 'path' | 'api' | 'base'; // /orders/{id}, /{asset-id}/orders/{id}, or the spec's base URI and the path
+  method: 'column' | 'inline' | 'none'; // its own column, in the endpoint cell (GET /orders), or one row per path
+  summary: boolean;
+};
+export type ApiEndpoints = { a: Api; base: string; ops: { path: string; method: string; summary: string }[]; error?: string };
+const METHOD_ORDER = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+const byMethod = (x: string, y: string) => { const i = METHOD_ORDER.indexOf(x), j = METHOD_ORDER.indexOf(y); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j) || x.localeCompare(y); };
+
+export async function readEndpoints(apis: Api[], tick: (done: number) => void, alive: () => boolean): Promise<ApiEndpoints[]> {
+  const out: ApiEndpoints[] = apis.map((a) => ({ a, base: '', ops: [] }));
+  const queue = out.slice();
+  let done = 0;
+  await Promise.all(Array.from({ length: 3 }, async () => {
+    for (let x = queue.shift(); x && alive(); x = queue.shift()) {
+      try {
+        // The engine gives each text field as { v, at } (its value and where it is in the spec).
+        type F = { v?: string } | undefined;
+        const m = (await versionModel(x.a, x.a.version, x.a.stable)).model as unknown as { baseUri?: F; version?: F;
+          endpoints?: { path: string; operations?: { method: string; summary?: F; description?: F }[] }[] };
+        x.base = String(m.baseUri?.v ?? '').replace(/\{version\}/g, String(m.version?.v ?? '')).replace(/\/+$/, '');
+        for (const e of m.endpoints ?? []) for (const o of e.operations ?? []) {
+          const text = (String(o.summary?.v ?? '') || String(o.description?.v ?? '').split(/\r?\n/).find((l) => l.trim()) || '').trim();
+          x.ops.push({ path: e.path, method: o.method.toUpperCase(), summary: text.length > 300 ? text.slice(0, 299) + '…' : text });
+        }
+        x.ops.sort((p, q) => p.path.localeCompare(q.path) || byMethod(p.method, q.method));
+      } catch (e) { x.error = String(e).replace(/^Error: /, ''); }
+      tick(++done);
+    }
+  }));
+  return out.sort((p, q) => p.a.name.localeCompare(q.a.name, undefined, { sensitivity: 'base' }));
+}
+
+// How an endpoint reads with the chosen options. A spec without a base URI falls back to the API's ID in front.
+export function endpointText(x: Pick<ApiEndpoints, 'a' | 'base'>, path: string, o: Pick<EndpointOpts, 'endpoint'>) {
+  if (o.endpoint === 'path') return path;
+  if (o.endpoint === 'base' && x.base) return x.base + path;
+  return `/${x.a.assetId}${path}`;
+}
+const methodStyle = (m: string) => (X as Record<string, number>)[m] ?? X.method;
+// The rows of one API or several, as the options say: one per operation, or one per path when methods are left out.
+function rowsOf(list: ApiEndpoints[], o: EndpointOpts, withApi: boolean, linkFor?: (x: ApiEndpoints) => string): Cell[][] {
+  const rows: Cell[][] = [];
+  for (const x of list) {
+    const seen = new Set<string>();
+    for (const op of x.ops) {
+      if (o.method === 'none') { if (seen.has(op.path)) continue; seen.add(op.path); }
+      const where = endpointText(x, op.path, o);
+      const r: Cell[] = [];
+      if (withApi) r.push(linkFor ? { v: x.a.name, s: X.link, link: linkFor(x) } : { v: x.a.name, s: X.text });
+      if (o.method === 'column') r.push({ v: op.method, s: methodStyle(op.method) });
+      r.push({ v: o.method === 'inline' ? `${op.method} ${where}` : where, s: X.mono });
+      if (o.summary && o.method !== 'none') r.push({ v: op.summary, s: X.muted });
+      rows.push(r);
+    }
+  }
+  return rows;
+}
+function headOf(o: EndpointOpts, withApi: boolean) {
+  const h: string[] = [];
+  if (withApi) h.push('API');
+  if (o.method === 'column') h.push('Method');
+  h.push('Endpoint');
+  if (o.summary && o.method !== 'none') h.push('Summary');
+  const w: Record<string, number> = { API: 34, Method: 10, Endpoint: o.endpoint === 'base' ? 70 : 52, Summary: 60 };
+  return { cells: h.map((v) => ({ v, s: X.head })), widths: h.map((v) => w[v]) };
+}
+
+export function endpointWorkbook(list: ApiEndpoints[], o: EndpointOpts, org: string, at = new Date()) {
+  const ok = list.filter((x) => !x.error);
+  if (o.style === 'plain') {
+    const h = headOf(o, o.apiColumn), rows = rowsOf(ok, o, o.apiColumn);
+    return workbook([{ name: sheetName(o.title, new Set()), rows: [[{ v: o.title, s: X.section }], h.cells, ...rows], widths: h.widths, freeze: 2,
+      filter: `A2:${col(h.cells.length - 1)}${rows.length + 2}` }], o.title);
+  }
+
+  // The decorated workbook: Dashboard, Index (each API links to its sheet), All endpoints, then a sheet per API.
+  const date = `${at.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][at.getMonth()]} ${at.getFullYear()}`;
+  const taken = new Set(['dashboard', 'index', 'all endpoints']);
+  const names = new Map(ok.map((x) => [x, sheetName(x.a.name, taken)]));
+  const link = (x: ApiEndpoints) => linkTo(names.get(x)!);
+  const opsOf = (x: ApiEndpoints) => x.ops.length, pathsOf = (x: ApiEndpoints) => new Set(x.ops.map((p) => p.path)).size;
+  const totalOps = ok.reduce((n, x) => n + opsOf(x), 0), totalPaths = ok.reduce((n, x) => n + pathsOf(x), 0);
+  const methods = new Map<string, number>();
+  for (const x of ok) for (const p of x.ops) methods.set(p.method, (methods.get(p.method) ?? 0) + 1);
+
+  // Dashboard
+  const d: Cell[][] = [
+    [null, { v: o.title, s: X.title }],
+    [null, { v: `${org}. The latest version of each API in Exchange, read ${date}.`, s: X.sub }],
+    [],
+    [null, { v: 'APIs', s: X.label }, { v: 'Endpoints', s: X.label }, { v: 'Operations', s: X.label }, { v: 'Operations per API', s: X.label }],
+    [null, { v: ok.length, s: X.big }, { v: totalPaths, s: X.big }, { v: totalOps, s: X.big }, { v: ok.length ? Math.round((totalOps / ok.length) * 10) / 10 : 0, s: X.big }],
+    [],
+    [null, { v: 'By method', s: X.section }],
+    [null, { v: 'Method', s: X.head }, { v: 'Operations', s: X.head }, { v: 'Share', s: X.head }],
+  ];
+  const bars: { range: string; color: string }[] = [], merges: string[] = [];
+  let from = d.length + 1;
+  for (const [m, n] of [...methods].sort((p, q) => byMethod(p[0], q[0]))) d.push([null, { v: m, s: methodStyle(m) }, { v: n, s: X.num }, { v: totalOps ? n / totalOps : 0, s: X.pct }]);
+  if (d.length >= from) bars.push({ range: `C${from}:C${d.length}`, color: '638EC6' });
+  d.push([], [null, { v: 'Most operations', s: X.section }], [null, { v: 'API', s: X.head }, { v: 'Operations', s: X.head }, { v: 'Endpoints', s: X.head }]);
+  from = d.length + 1;
+  for (const x of [...ok].sort((p, q) => opsOf(q) - opsOf(p)).slice(0, 10)) d.push([null, { v: x.a.name, s: X.link, link: link(x) }, { v: opsOf(x), s: X.num }, { v: pathsOf(x), s: X.num }]);
+  if (d.length >= from) bars.push({ range: `C${from}:C${d.length}`, color: '63BE7B' });
+  const failed = list.filter((x) => x.error);
+  if (failed.length) {
+    d.push([], [null, { v: `Couldn't read (${failed.length})`, s: X.section }], [null, { v: 'API', s: X.head }, { v: 'Why', s: X.head }, { v: '', s: X.head }, { v: '', s: X.head }]);
+    merges.push(`C${d.length}:E${d.length}`);
+    for (const x of failed) { d.push([null, { v: x.a.name, s: X.text }, { v: x.error!, s: X.muted }, { v: '', s: X.muted }, { v: '', s: X.muted }]); merges.push(`C${d.length}:E${d.length}`); }
+  }
+  d.push([], [null, { v: 'Open the Index', s: X.back, link: linkTo('Index') }]);
+  const dash: Sheet = { name: 'Dashboard', rows: d, widths: [3, 50, 16, 16, 20], grid: false, tab: '24364B', bars, merges };
+
+  // Index
+  const cols = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+  const ih = ['#', 'API', 'Asset ID', 'Version', 'Endpoints', 'Operations', ...cols, 'Other', 'Base URI'];
+  const ir: Cell[][] = [
+    [{ v: 'Index', s: X.title }],
+    [{ v: `${list.length} ${list.length === 1 ? 'API' : 'APIs'}. Click a name to open its sheet.`, s: X.sub }],
+    [],
+    ih.map((v) => ({ v, s: X.head })),
+  ];
+  list.forEach((x, i) => {
+    const per = (m: string) => x.ops.filter((p) => p.method === m).length;
+    ir.push([{ v: i + 1, s: X.num }, x.error ? { v: x.a.name, s: X.text } : { v: x.a.name, s: X.link, link: link(x) }, { v: x.a.assetId, s: X.mono }, { v: x.a.version, s: X.text },
+      x.error ? null : { v: pathsOf(x), s: X.num }, x.error ? null : { v: opsOf(x), s: X.num }, ...cols.map((m): Cell => (x.error ? null : { v: per(m), s: X.num })),
+      x.error ? null : { v: x.ops.filter((p) => !cols.includes(p.method)).length, s: X.num }, { v: x.error ? `Couldn't read: ${x.error}` : x.base, s: x.error ? X.muted : X.mono }]);
+  });
+  const index: Sheet = { name: 'Index', rows: ir, widths: [5, 46, 32, 11, 11, 11, 7, 7, 7, 7, 8, 7, 56], freeze: 4, filter: `A4:${col(ih.length - 1)}${list.length + 4}`, tab: '0969DA',
+    bars: list.length ? [{ range: `F5:F${list.length + 4}`, color: '638EC6' }] : [] };
+
+  // All endpoints: every API's rows in one list, each name linking to its sheet.
+  const ah = headOf(o, true), arows = rowsOf(ok, o, true, link);
+  const all: Sheet = { name: 'All endpoints', rows: [[{ v: 'All endpoints', s: X.title }], [{ v: 'Back to Index', s: X.back, link: linkTo('Index') }], [], ah.cells, ...arows],
+    widths: ah.widths, freeze: 4, filter: `A4:${col(ah.cells.length - 1)}${arows.length + 4}`, tab: '1A7F37' };
+
+  // One sheet per API.
+  const per: Sheet[] = ok.map((x) => {
+    const h = headOf(o, false), rows = rowsOf([x], o, false);
+    return { name: names.get(x)!, widths: h.widths, freeze: 5, rows: [[{ v: 'Back to Index', s: X.back, link: linkTo('Index') }], [{ v: x.a.name, s: X.title }],
+      [{ v: [x.a.assetId, `version ${x.a.version}`, x.base].filter(Boolean).join('   |   '), s: X.sub }], [], h.cells, ...rows] };
+  });
+  return workbook([dash, index, all, ...per], o.title);
 }
