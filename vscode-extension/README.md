@@ -6,11 +6,11 @@ Big specs open in seconds, and every edit is checked as you type by AMF, the sam
 
 > **Beta.** Tell us what you hit.
 
-![The editor, the API tree and the Inspector](https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio/main/docs/screenshots/02-editor-dark.png)
+![The editor, the API tree and the Inspector](https://ashutosh-vijay.dev/assets/img/ds-editor.png)
 
-![The Dashboard: your organization's APIs](https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio/main/docs/screenshots/09-dashboard-dark.png)
+![The Dashboard: your organization's APIs](https://ashutosh-vijay.dev/assets/img/ds-dashboard.png)
 
-![Review changes before pushing](https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio/main/docs/screenshots/15-review-changes-dark.png)
+![Review changes before pushing](https://ashutosh-vijay.dev/assets/img/ds-review.png)
 
 
 ## What you get
@@ -28,13 +28,14 @@ Big specs open in seconds, and every edit is checked as you type by AMF, the sam
 
 - **Made to fit**: editor and interface fonts, text sizes, Design Center or Design Studio colours, and it can follow your VS Code theme.
 
-![Documentation and Try it on the local mock](https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio/main/docs/screenshots/04-docs-try-it-dark.png)
+![Documentation and Try it on the local mock](https://ashutosh-vijay.dev/assets/img/ds-docs.png)
 
-![API Design Academy](https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio/main/docs/screenshots/08-academy-dark.png)
+![API Design Academy](https://ashutosh-vijay.dev/assets/img/ds-academy.png)
 
 ## Getting started
 
-- Command Palette: **Design Studio: Open**.
+- Activity bar: click the **Design Studio** icon for Open, Dashboard and the Academy.
+- Command Palette: **Design Studio: Open**, **Design Studio: Dashboard**.
 - Explorer: right-click a project folder or a `.raml` file, then **Open in Design Studio**.
 - New to API design? **Design Studio: API Design Academy**.
 

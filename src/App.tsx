@@ -167,9 +167,9 @@ export default function App() {
   const openRef = useRef(openFolder); openRef.current = openFolder;
   useEffect(() => {
     if (!isVsCode) return;
-    const go = (p: { root?: string; academy?: boolean } | null) => { if (p?.root) openRef.current(p.root); if (p?.academy) setAcademy(true); };
-    invoke<{ root?: string; academy?: boolean } | null>('vscode_take_pending').then(go, () => {});
-    const un = listen<{ root?: string; academy?: boolean }>('ds-open', (e) => go(e.payload));
+    const go = (p: { root?: string; academy?: boolean; dashboard?: boolean } | null) => { if (p?.root) openRef.current(p.root); if (p?.academy) setAcademy(true); if (p?.dashboard) setDashboard(true); };
+    invoke<{ root?: string; academy?: boolean; dashboard?: boolean } | null>('vscode_take_pending').then(go, () => {});
+    const un = listen<{ root?: string; academy?: boolean; dashboard?: boolean }>('ds-open', (e) => go(e.payload));
     return () => { un.then((f) => f()); };
   }, []);
   mcpHost.app = { recent, open: (root) => openFolder(root), close: async () => { if (await okToLeave()) { setProject(null); setDirtyCount(0); } } };

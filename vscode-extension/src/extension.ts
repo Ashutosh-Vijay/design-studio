@@ -17,7 +17,7 @@ import { callTool, mcpCommand, stopMcp } from './mcp';
 
 type Tab = {
   id: string; panel: vscode.WebviewPanel; root: string | null; // root: the project it has open (null: the start screen)
-  pending: { root?: string; academy?: boolean } | null;
+  pending: { root?: string; academy?: boolean; dashboard?: boolean } | null;
   ready: Promise<void>; markReady: () => void; // the webview says when its tool dispatcher listens (mcp_ready)
 };
 const tabs = new Map<string, Tab>();
@@ -36,7 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // A project already open in a tab comes to the front; a tab on the start screen takes it; otherwise a new tab.
   // newTab: always a new tab (the palette's "in a new tab", Ctrl click on a recent project).
-  const open = (what?: { root?: string; academy?: boolean }, newTab = false) => {
+  const open = (what?: { root?: string; academy?: boolean; dashboard?: boolean }, newTab = false) => {
     const has = what?.root ? withRoot(what.root) : undefined;
     if (has) { has.panel.reveal(); return has; }
     const free = newTab ? undefined : what?.root ? [...tabs.values()].find((t) => !t.root) : lastTab ?? undefined;
@@ -109,6 +109,9 @@ export function activate(context: vscode.ExtensionContext) {
     // The first time, a workspace folder that is itself a spec project opens straight away.
     vscode.commands.registerCommand('designStudio.open', () => open(tabs.size ? undefined : workspaceProject())),
     vscode.commands.registerCommand('designStudio.academy', () => open({ academy: true })),
+    vscode.commands.registerCommand('designStudio.dashboard', () => open({ dashboard: true })),
+    // The activity bar's Design Studio panel: no items of its own, so VS Code shows its welcome buttons (package.json).
+    vscode.window.registerTreeDataProvider('designStudio.start', { getTreeItem: (x: vscode.TreeItem) => x, getChildren: () => [] }),
     // VS Code also acts on every key pressed in a webview. While Design Studio's tab is active, its own shortcuts
     // (Ctrl W closes a file tab there, Ctrl K is its palette, Ctrl Z its undo) are bound here to nothing, so they're left to it.
     vscode.commands.registerCommand('designStudio.inApp', () => {}),

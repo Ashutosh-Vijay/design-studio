@@ -67,6 +67,11 @@
         "category": "Design Studio"
       },
       {
+        "command": "designStudio.dashboard",
+        "title": "Dashboard",
+        "category": "Design Studio"
+      },
+      {
         "command": "designStudio.academy",
         "title": "API Design Academy",
         "category": "Design Studio"
@@ -75,6 +80,30 @@
         "command": "designStudio.inApp",
         "title": "Handled by Design Studio",
         "category": "Design Studio"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "designStudio",
+          "title": "Design Studio",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "designStudio": [
+        {
+          "id": "designStudio.start",
+          "name": "Start",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "designStudio.start",
+        "contents": "Design and edit MuleSoft Anypoint API specs: RAML, OpenAPI and AsyncAPI, checked by AMF as you type.\n[Open Design Studio](command:designStudio.open)\nOpen a spec project folder from this window's workspace, or right-click any folder or .raml file in the Explorer.\n[Open a folder in Design Studio](command:designStudio.openFolder)\nYour organization's APIs, versions, governance and deployments, after you sign in to Anypoint.\n[Dashboard](command:designStudio.dashboard)\nNew to API design? Short lessons, from HTTP to the MuleSoft certifications.\n[API Design Academy](command:designStudio.academy)"
       }
     ],
     "menus": {
