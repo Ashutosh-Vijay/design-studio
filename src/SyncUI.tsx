@@ -15,8 +15,8 @@ import * as S from './sync';
 import { AddDependency } from './ExchangeUI';
 
 export type Me = { username: string; user_id: string; org_id: string; org_name: string; host: string; mode: string; read_only: boolean };
-// Anypoint's control planes (docs.mulesoft.com/control-planes). Sign in with Anypoint uses our Connected App,
-// which lives in the US cloud; every other cloud signs in with the organization's own Connected App.
+// Anypoint's control planes (docs.mulesoft.com/control-planes). Sign in with Anypoint uses our Connected App in
+// each cloud listed in clients.json; a cloud without one (US Government) signs in with the organization's own.
 const REGIONS: [string, string][] = [['US', 'https://anypoint.mulesoft.com'], ['EU', 'https://eu1.anypoint.mulesoft.com'],
   ['Canada', 'https://ca1.platform.mulesoft.com'], ['United Kingdom', 'https://gb1.platform.mulesoft.com'], ['Japan', 'https://jp1.platform.mulesoft.com'],
   ['India', 'https://in1.platform.mulesoft.com'], ['Australia', 'https://au1.platform.mulesoft.com'], ['US Government', 'https://gov.anypoint.mulesoft.com']];

@@ -66,7 +66,7 @@ Built with Tauri 2 (Rust), React, TypeScript and CodeMirror. It ships with AMF 5
 
 ## Signing in to Anypoint
 
-- **Sign in with Anypoint** opens your browser and comes back to this computer. It works in the US and India clouds today; more are coming.
+- **Sign in with Anypoint** opens your browser and comes back to this computer. It works in the US, EU, Canada, UK, Japan, India and Australia clouds. In US Government, use your own Connected App.
 - **Your own Connected App** works in every Anypoint cloud (US, EU, Canada, UK, Japan, India, Australia and US Government), with a browser sign-in or client credentials; its secret goes to the system keychain.
 - **Connections start read only.** Nothing in Design Center or Exchange changes until you turn read only off in Settings.
 
@@ -98,7 +98,7 @@ Yes, the Dashboard: every Exchange asset with versions and endpoints, API Govern
 No. No telemetry, no analytics, no account of its own. Specs leave your computer only when you push or publish to your own Anypoint organization.
 
 **Which Anypoint regions does it work with?**
-Sign in with Anypoint works in the US and India clouds today. Your own Connected App works in every cloud: US, EU, Canada, UK, Japan, India, Australia and US Government.
+Sign in with Anypoint works in the US, EU, Canada, UK, Japan, India and Australia clouds. Your own Connected App works in every cloud, US Government included.
 
 **Can AI agents use it?**
 Yes. It has 37 tools over MCP, so Copilot, Claude Code, Cursor and others can open projects, edit specs, run AMF's checks and governance, and try the mock while you watch. Changes in Design Center and Exchange stay off until you allow them.
