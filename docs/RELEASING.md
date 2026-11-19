@@ -77,3 +77,4 @@ The build takes about 20 minutes. A platform that fails (Maven Central sometimes
 - An installed older version finds the update by itself (About shows it).
 - The Marketplace listing shows the version and the changelog.
 - The download page on the website points at the new version.
+- **First Marketplace release only:** the website's `/design-studio/` page says "coming soon" until then (portfolio-v2, `design-studio/index.html`; HTML comments mark each spot). Put back the hero's Marketplace link, the Install from Marketplace and Open in VS Code buttons, the FAQ's install line and the structured data's `downloadUrl`, and the Marketplace line in the site's `llms.txt`. Then add Design Studio to the homepage's projects, marked Beta.
