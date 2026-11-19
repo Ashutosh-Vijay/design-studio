@@ -17,6 +17,15 @@ Built with Tauri 2 (Rust), React, TypeScript and CodeMirror. It ships with AMF 5
 ![The editor, the API tree and the Inspector](docs/screenshots/02-editor-dark.png)
 *The editor with the API tree and the Inspector: forms for the resource under the cursor, written back as the smallest change to the text*
 
+![The Dashboard: your organization's APIs at a glance](docs/screenshots/09-dashboard-dark.png)
+*The Dashboard: every API in Exchange, governance, what runs where, and who published what*
+
+![An API in the Dashboard, with what changed between versions](docs/screenshots/11-dashboard-apis-dark.png)
+*An API's endpoints, its versions and what changed between them, with Pull here and Open in Design Center*
+
+![Review changes before pushing](docs/screenshots/15-review-changes-dark.png)
+*Review changes: every line a push sends to Design Center, before it goes*
+
 ![Building an API from the forms](docs/screenshots/10-forms-dark.png)
 *The forms in front, as with Design Center's Guide me through it, and the code beside them, changed one line at a time*
 
@@ -49,7 +58,7 @@ Built with Tauri 2 (Rust), React, TypeScript and CodeMirror. It ships with AMF 5
 - **Instant suggestions.** Types (library types under their `uses:` alias), traits, resource types and `!include` paths, plus Design Center's shelf under the editor: click and it's inserted at the right indentation.
 - **Forms and code in step.** The Inspector edits resources, methods, types, parameters, bodies and responses for RAML 1.0 and OAS 3.0 and 3.1 (YAML and JSON). It changes only the lines it must, so a form edit never rewrites your file. Like Design Center's "Guide me through it", you can build a whole API from the forms, with + in the API tree for resources, types and security schemes (RAML and OAS 3.0), and switch between forms and code any time. Or start from the secured starter: an API with HTTPS only, OAuth 2.0 on every call, error and rate-limit responses and correlation ids, clean on MuleSoft's best-practice and OWASP security rulesets. AsyncAPI 2.x works the same way: AMF checks it, the API tree shows channels, messages and schemas, the forms edit servers, channels with their publish and subscribe, messages and security schemes, and there's a secured starter for events and its own governance ruleset. Paste a real body into any type's "Check a sample" and AMF's payload validator says exactly what doesn't match.
 - **Refactorings.** Rename a type, trait or resource type everywhere, find references, extract to a library, move a type to a library, delete with cascade. Renaming a file updates every `!include` and `uses:`.
-- **Design Center sync.** Sign in, list your projects, pull one or all, push with the branch lock, Lock while I edit, branches, and a merge that puts both versions between markers when you and Design Center changed the same lines.
+- **Design Center sync.** Sign in, list your projects, pull one or all, see every line a push will send before it goes, push with the branch lock, Lock while I edit, branches, and a merge that puts both versions between markers when you and Design Center changed the same lines.
 - **Exchange.** Publish with a suggested version (from what changed since the last one), Development or Stable, dependencies added, updated and removed, and Import from Exchange.
 - **Governance.** Rulesets from Exchange, checked after every full check, with rules you can switch off per project.
 - **Documentation, mock and map.** The API as documentation, Try it on a local mock, and a map of what uses what.

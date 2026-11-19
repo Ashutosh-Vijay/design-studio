@@ -8,13 +8,17 @@ Big specs open in seconds, and every edit is checked as you type by AMF, the sam
 
 ![The editor, the API tree and the Inspector](https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio/main/docs/screenshots/02-editor-dark.png)
 
+![The Dashboard: your organization's APIs](https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio/main/docs/screenshots/09-dashboard-dark.png)
+
+![Review changes before pushing](https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio/main/docs/screenshots/15-review-changes-dark.png)
+
 
 ## What you get
 
 - **An editor that keeps up**: instant suggestions for types, traits and `!include` paths, the API tree, and Design Center's shelf under the editor.
 - **Forms and code in step**: build an API from forms (like Design Center's Guide me through it) or from code, and switch any time; a form changes only the lines it must.
 - **Refactorings**: rename a type everywhere, find references, extract to a library, delete with cascade.
-- **Design Center sync**: sign in, pull projects, push with the branch lock, branches, and merge with conflict help.
+- **Design Center sync**: sign in, pull projects, review every change before you push, push with the branch lock, branches, and merge with conflict help.
 - **Exchange**: publish with a suggested version, add and update dependencies, and see what changed since the last version.
 - **Governance**: check your API against the rulesets it depends on.
 - **A local mock**: try every method with Design Center's MS2 headers, unsaved edits included.

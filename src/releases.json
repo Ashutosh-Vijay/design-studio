@@ -17,7 +17,7 @@
       {
         "title": "Design Center and Exchange",
         "tag": "NEW",
-        "desc": "Sign in with Anypoint, pull your projects, put a project made on your computer into Design Center, push with the branch lock, work on branches and merge with conflict help. Publish to Exchange with a suggested version, manage Exchange dependencies, and see what changed since the last version. Connections start read only."
+        "desc": "Sign in with Anypoint, pull your projects, put a project made on your computer into Design Center, see every line a push will send, push with the branch lock, work on branches and merge with conflict help. Publish to Exchange with a suggested version, manage Exchange dependencies, and see what changed since the last version. Connections start read only."
       },
       {
         "title": "Governance, docs and a local mock",

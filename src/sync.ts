@@ -397,12 +397,24 @@ export async function searchAssets(q: string, types: string[]) {
 export async function publish(root: string, paths: string[], o: { name: string; assetId: string; groupId: string; version: string; apiVersion: string; main: string; classifier: string; development: boolean }, step: (n: number) => void = () => {}) {
   let l = (await readLink(root))!;
   step(0);
+  // Design Center moved since the last sync (it rewrites exchange.json just after a publish, so a second try
+  // right after a failed one meets this): Publish brings its side in first, as Pull would, and stops only on a
+  // real conflict. Asking for a Pull here would send people round in circles.
+  if ((await head(l)) !== l.baseCommit) {
+    const r = await pull(root, l);
+    if (r.conflicts.length) throw new Error(`Design Center changed the same lines as you in ${r.conflicts.map((c) => c.path).join(', ')}. Sort them out in the editor, then publish.`);
+    l = (await readLink(root))!;
+    paths = (await invoke<{ files: { path: string }[] }>('open_project', { root })).files.map((f) => f.path);
+  }
   const pushed = (await localChanges(root, l, paths)).count ? (await push(root, l, paths)).sent : 0;
   l = (await readLink(root))!;
   step(1);
   await invoke('anypoint_hold_lock', { project: l.projectId, branch: l.branch });
   try {
-    const r = await api('POST', `${branchPath(l)}/publish/exchange`, { name: o.name, apiVersion: o.apiVersion, version: o.version, main: o.main, assetId: o.assetId, groupId: o.groupId, classifier: o.classifier, ...(o.development ? { status: 'development' } : {}) });
+    // metadata becomes Exchange's project-id, branch-id and commit-id attributes, as on Design Center's own
+    // publishes (proven 2026-11-20): without it the Dashboard can't find the project an asset came from.
+    const r = await api('POST', `${branchPath(l)}/publish/exchange`, { name: o.name, apiVersion: o.apiVersion, version: o.version, main: o.main, assetId: o.assetId, groupId: o.groupId, classifier: o.classifier, ...(o.development ? { status: 'development' } : {}),
+      metadata: { projectId: l.projectId, branchId: l.branch, commitId: l.baseCommit } });
     if (r.status === 409) throw new Error(`Version ${o.version} is already in Exchange as Stable, and a Stable version can't be published again. Pick a new version.`);
     must(r, 'Publishing');
   } finally { await invoke('anypoint_release_lock'); }
@@ -539,7 +551,16 @@ export async function saveShare(id: string, shared: { id: string; role: string; 
 // What Design Center calls a project's kind, from its exchange.json and root file (Duplicate project, Put in Design Center).
 async function dcKind(root: string) {
   const x = await readDescriptor(root);
-  const main = x?.d.main ?? '';
+  // No exchange.json (a folder made on this computer): the root file the app itself opens, else a top-level
+  // RAML fragment (a library, a data type). Without this, Design Center's starter name stayed the root.
+  let main = x?.d.main?.replace(/^\//, '') ?? '';
+  if (!main) {
+    const p = await invoke<{ main: string | null; files: { path: string }[] }>('open_project', { root });
+    main = p.main ?? '';
+    if (!main) for (const f of p.files.filter((f) => !f.path.includes('/') && /\.raml$/i.test(f.path))) {
+      if (/^(﻿)?#%RAML 1\.0 \w+/.test((await readLocal(root, f.path)) ?? '')) { main = f.path; break; }
+    }
+  }
   const text = main ? await readLocal(root, main) : null;
   const sub = /^#%RAML 1\.0 (\w+)/.exec(text ?? '')?.[1];
   const SUB: Record<string, string> = { Library: 'library', DataType: 'type', Trait: 'trait', ResourceType: 'resource_type', NamedExample: 'example', DocumentationItem: 'user_documentation', AnnotationTypeDeclaration: 'annotation_type', SecurityScheme: 'security_scheme', Overlay: 'overlay', Extension: 'extension' };
