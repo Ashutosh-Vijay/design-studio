@@ -1,7 +1,7 @@
 [
   {
     "version": "0.1.0",
-    "date": "October 2026",
+    "date": "November 2026",
     "headline": "The first beta",
     "highlights": [
       {
@@ -12,7 +12,7 @@
       {
         "title": "Forms and code in step",
         "tag": "NEW",
-        "desc": "Build a new API from the forms, as with Design Center's Guide me through it, or edit any spec with them: resources, methods, types, parameters, security schemes and responses for RAML 1.0 and OAS 3.0 and 3.1, and servers, channels, messages and schemas for AsyncAPI. Switch between forms and code any time, and a form changes only the lines it must. Or start from a secured starter that passes MuleSoft's best-practice and OWASP security rulesets. Check a sample body against any type, and copy an OAS schema as a RAML type. Rename a type everywhere, find its uses, extract to a library, or delete with cascade."
+        "desc": "Build a new API from the forms, as with Design Center's Guide me through it, or edit any spec with them: resources, methods, types, parameters, security schemes and responses for RAML 1.0 and OAS 3.0 and 3.1, and servers, channels, messages and schemas for AsyncAPI. Switch between forms and code any time, and a form changes only the lines it must. Or start from a secured starter that passes MuleSoft's best-practice and OWASP security rulesets. Check a sample body against any type, and copy an OAS schema as a RAML type. Rename a type everywhere, find its uses, extract to a library, or delete with cascade. Create a missing example file from its type, or a type from pasted JSON."
       },
       {
         "title": "Design Center and Exchange",
@@ -25,6 +25,11 @@
         "desc": "Check your API against the rulesets it depends on. Read it as documentation, try any method on a local mock that answers like Design Center's, and see every type's uses on the API map."
       },
       {
+        "title": "Your organization at a glance",
+        "tag": "NEW",
+        "desc": "The Dashboard shows every API in Exchange with its versions, endpoints and what changed between them, whether API Governance covers it and what conforms, what is managed and deployed in each environment, and who published what. Health checks the addresses you choose, with the method, headers and status codes your APIs need. Open an API in Design Center or pull it here in one click, and export every endpoint to Excel. It only reads, and shows only what your Anypoint permissions allow."
+      },
+      {
         "title": "AI tools (MCP)",
         "tag": "NEW",
         "desc": "Let agents like Claude, Copilot and Cursor work in Design Studio: open projects, edit specs, run AMF's checks and governance, try the mock and work with Design Center, while you watch every change. Changes in Design Center and Exchange stay off until you allow them."
@@ -33,6 +38,11 @@
         "title": "API Design Academy",
         "tag": "NEW",
         "desc": "46 lessons, from how computers talk (HTTP, JSON, integration, MuleSoft) to all of RAML (types, resource types, traits, security schemes, fragments, libraries), Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications. Every lesson has something to try or answer, and AMF checks what you write."
+      },
+      {
+        "title": "Made to fit",
+        "tag": "NEW",
+        "desc": "Pick the editor and interface fonts, text sizes and line spacing, where new projects go, and Design Center or Design Studio colours. In VS Code it can follow your VS Code theme."
       },
       {
         "title": "Also in VS Code",

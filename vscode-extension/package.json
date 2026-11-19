@@ -1,7 +1,7 @@
 {
   "name": "design-studio-mulesoft",
   "displayName": "Design Studio for MuleSoft (BETA)",
-  "description": "A fast designer for Anypoint Design Center API specs, RAML and OAS, inside VS Code. Every edit is checked by AMF as you type, and it syncs with Design Center and Exchange.",
+  "description": "Design MuleSoft Anypoint API specs (RAML, OpenAPI, AsyncAPI) in VS Code with live AMF validation, forms, a local mock and governance. Syncs with Design Center and Exchange, works offline.",
   "version": "0.1.0",
   "preview": true,
   "publisher": "ashutosh-vijay",
@@ -13,23 +13,44 @@
   "categories": [
     "Programming Languages",
     "Linters",
+    "AI",
+    "Education",
     "Other"
   ],
   "keywords": [
     "mulesoft",
     "anypoint",
     "design center",
+    "api designer",
     "raml",
+    "raml 1.0",
     "oas",
     "openapi",
+    "openapi 3.1",
+    "asyncapi",
     "exchange",
-    "api design"
+    "api design",
+    "api specification",
+    "amf",
+    "api governance",
+    "mock server",
+    "mcp",
+    "mulesoft certification",
+    "api mock",
+    "api manager"
   ],
   "galleryBanner": {
     "color": "#0b0e14",
     "theme": "dark"
   },
   "homepage": "https://ashutosh-vijay.dev/design-studio/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ashutosh-Vijay/design-studio"
+  },
+  "bugs": {
+    "url": "https://github.com/Ashutosh-Vijay/design-studio/issues"
+  },
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {

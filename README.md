@@ -1,6 +1,6 @@
 # Design Studio for MuleSoft
 
-A fast designer for Anypoint Design Center API specs, RAML, OAS and AsyncAPI, as a **desktop app** or a **VS Code extension**. The visual editor and the code stay in step both ways, big specs open in seconds, and every edit is checked as you type by AMF, the engine Design Center itself uses.
+**Design Studio for MuleSoft is a free, open-source (MIT) API designer for MuleSoft Anypoint Platform: a desktop app for Windows, macOS and Linux, and a VS Code extension.** It edits RAML 1.0, OAS 3.0 and 3.1 (OpenAPI) and AsyncAPI 2.x specs, works offline, and syncs with Anypoint Design Center and Exchange. The visual editor and the code stay in step both ways, big specs open in seconds, and every edit is checked as you type by AMF, the engine Design Center itself uses.
 
 > **On a big spec, Design Center's suggestions crawl, so most of us end up copying an endpoint, pasting it and editing by hand. Design Studio makes that fast again: same layout, same words (Root file, Project errors, Exchange dependencies, Publish), the same pull, push and publish, on your own computer.**
 
@@ -16,6 +16,9 @@ Built with Tauri 2 (Rust), React, TypeScript and CodeMirror. It ships with AMF 5
 
 ![The editor, the API tree and the Inspector](docs/screenshots/02-editor-dark.png)
 *The editor with the API tree and the Inspector: forms for the resource under the cursor, written back as the smallest change to the text*
+
+![Building an API from the forms](docs/screenshots/10-forms-dark.png)
+*The forms in front, as with Design Center's Guide me through it, and the code beside them, changed one line at a time*
 
 ![A type in a library, edited as a form](docs/screenshots/03-type-form-dark.png)
 *A type from a library as a form: properties, types, required, and every place it's used, from AMF's own links*
@@ -59,9 +62,7 @@ Built with Tauri 2 (Rust), React, TypeScript and CodeMirror. It ships with AMF 5
 ## Install
 
 - **VS Code:** install **Design Studio for MuleSoft** from the Marketplace, then run **Design Studio: Open**, or right-click a project folder or a `.raml` file and pick **Open in Design Studio**. Everything is bundled, so it suits locked-down work machines.
-- **Windows, macOS, Linux:** download from the [Releases](https://github.com/Ashutosh-Vijay/design-studio/releases) page. Windows has an installer, a portable zip, and the installer zipped for proxies that block `.exe`. The desktop app updates itself quietly.
-
-The builds aren't code-signed yet: on Windows, SmartScreen needs **More info**, then **Run anyway**; on macOS, **System Settings > Privacy & Security > Open Anyway**.
+- **Windows, macOS, Linux:** the desktop app follows the VS Code beta, on the [Releases](https://github.com/Ashutosh-Vijay/design-studio/releases) page: an installer, a portable zip, and the installer zipped for proxies that block `.exe`. It updates itself quietly.
 
 ## Signing in to Anypoint
 
@@ -72,6 +73,38 @@ The builds aren't code-signed yet: on Windows, SmartScreen needs **More info**, 
 ## AI tools
 
 In the VS Code extension, Copilot's agent mode can use Design Studio's tools directly: pick them in its tools list, nothing to set up or start. For other agents (Claude Code, Cursor, Claude Desktop, or Copilot in the desktop app's case), open Settings, AI tools, and **Start**: the panel shows the one-line setup for each. That server listens on `127.0.0.1` only.
+
+## Questions people ask
+
+**Is there a RAML editor for VS Code?**
+Yes. Design Studio for MuleSoft runs inside VS Code with live AMF validation, autocomplete for types, traits and `!include` paths, forms for every part of the spec, and Design Center sync. Install it from the Marketplace and run **Design Studio: Open**.
+
+**Can I work on Anypoint Design Center projects offline or on my desktop?**
+Yes. Pull a Design Center project once (or open a folder or a Design Center zip) and edit it with no connection. Push and publish when you're back online; the push holds Design Center's branch lock, as Design Center does.
+
+**Why is Design Center slow on big specs, and what can I do?**
+Design Center's suggestions and checks slow down as a spec grows. Design Studio parses on your own computer with a warm AMF engine: a quick read after each edit in a fraction of a second and the full check in the background, even on a 2,000-line spec with 40 files.
+
+**How is it different from Anypoint Code Builder?**
+Anypoint Code Builder is MuleSoft's IDE for building Mule apps and designing specs. Design Studio does one job: designing API specs the way Design Center does, with the same layout and words, plus forms, refactorings, governance, a local mock, an organization Dashboard and an Academy. They work side by side.
+
+**Does it support OpenAPI and AsyncAPI, not just RAML?**
+Yes: RAML 1.0, OAS 2.0, 3.0 and 3.1 in YAML or JSON, AsyncAPI 2.x, and RAML fragments. Duplicate As converts between RAML and OAS through AMF.
+
+**Can I see every API in my Anypoint organization in one place?**
+Yes, the Dashboard: every Exchange asset with versions and endpoints, API Governance conformance, what's managed and deployed in each environment, a health check, and an Excel export of every endpoint. It only reads.
+
+**Does it send my specs anywhere?**
+No. No telemetry, no analytics, no account of its own. Specs leave your computer only when you push or publish to your own Anypoint organization.
+
+**Which Anypoint regions does it work with?**
+Sign in with Anypoint works in the US and India clouds today. Your own Connected App works in every cloud: US, EU, Canada, UK, Japan, India, Australia and US Government.
+
+**Can AI agents use it?**
+Yes. It has 37 tools over MCP, so Copilot, Claude Code, Cursor and others can open projects, edit specs, run AMF's checks and governance, and try the mock while you watch. Changes in Design Center and Exchange stay off until you allow them.
+
+**Is it free?**
+Yes, MIT licensed. It's independent and not made by MuleSoft or Salesforce.
 
 ## Privacy and security
 

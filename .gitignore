@@ -24,3 +24,8 @@ AGENTS.md
 
 # Limited-access test results (scripts/access-apps.mjs)
 spikes/access/
+
+# Local notes for coding tools, never in the repo
+CLAUDE.md
+AGENTS.md
+.claude/
