@@ -151,6 +151,8 @@ jobs:
         run: |
           MODULES=$(jdeps --print-module-deps --ignore-missing-deps --multi-release 17 src-tauri/resources/amf-server/amf-server.jar 2>/dev/null || echo "java.base,java.desktop,java.management,java.naming,java.sql,jdk.unsupported")
           # jdk.httpserver for the local mock, jdk.crypto.ec for HTTPS, jdk.zipfs for zip reads.
+          # jlink refuses a folder that exists, and git keeps this one (its .gitkeep): it goes first.
+          rm -rf src-tauri/resources/jre
           jlink --add-modules "$MODULES,jdk.httpserver,jdk.crypto.ec,jdk.zipfs" --strip-debug --no-man-pages --no-header-files --compress=2 --output src-tauri/resources/jre
           echo "Bundled JRE: $(du -sh src-tauri/resources/jre | cut -f1)"
 
