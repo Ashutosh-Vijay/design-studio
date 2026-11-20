@@ -25,12 +25,6 @@
         "desc": "Three new read-only tools: what runs in each environment, a published API's endpoints, and what changed between two versions, with the changes that break clients."
       },
       {
-        "title": "Mac windows and full screen",
-        "tag": "NEW",
-        "only": "desktop",
-        "desc": "On a Mac the window has the real red, yellow and green buttons, with full screen from the green one. On Windows and Linux, F11 turns full screen on and off."
-      },
-      {
         "title": "Fixes",
         "desc": "An example file made from the editor opens from its !include straight away, and F2 and Shift F12 see files created since the tab was opened. Review changes scrolls through every file's changes again."
       }
