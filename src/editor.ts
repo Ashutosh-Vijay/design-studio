@@ -20,7 +20,7 @@ const theme = EditorView.theme({
   '&': { height: '100%', color: 'var(--content)', backgroundColor: 'var(--surface)', fontSize: 'var(--editor-size, 12.5px)' },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: 'var(--editor-line, 1.6)' },
-  '.cm-content': { caretColor: 'var(--accent)', padding: '6px 0 40vh' },
+  '.cm-content': { caretColor: 'var(--accent)', padding: '6px 0 40vh', '--indent-guide': 'color-mix(in oklch, var(--content-faint) 32%, transparent)' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
   '.cm-gutters': { backgroundColor: 'var(--surface)', color: 'var(--content-ghost)', border: 'none' },
   '.cm-lineNumbers .cm-gutterElement': { padding: '0 10px 0 14px' },
@@ -225,6 +225,35 @@ const usesField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+// Indentation guides: a faint line at each indent level, through the line's leading spaces (a blank line takes
+// the smaller indent of the lines around it, so a block's guides don't break). One gradient per line, in ch.
+const guideCache = new Map<number, Decoration>();
+function guideDeco(view: EditorView) {
+  const out: Range<Decoration>[] = [], doc = view.state.doc;
+  const ind = (n: number) => { const t = doc.line(n).text; return /^\s*$/.test(t) ? -1 : t.match(/^ */)![0].length; };
+  for (const { from, to } of view.visibleRanges) {
+    for (let n = doc.lineAt(from).number, end = doc.lineAt(to).number; n <= end; n++) {
+      let w = ind(n);
+      if (w < 0) { // blank: the smaller of the nearest indents above and below
+        let a = -1, b = -1;
+        for (let k = n - 1; k >= 1 && k > n - 200 && a < 0; k--) a = ind(k);
+        for (let k = n + 1; k <= doc.lines && k < n + 200 && b < 0; k++) b = ind(k);
+        w = Math.max(0, Math.min(a < 0 ? 0 : a, b < 0 ? 0 : b));
+      }
+      if (w < 2) continue;
+      let d = guideCache.get(w);
+      if (!d) guideCache.set(w, d = Decoration.line({ attributes: { style: `background-image:repeating-linear-gradient(to right,var(--indent-guide) 0 1px,transparent 1px 2ch);background-size:${w}ch 100%;background-repeat:no-repeat;background-origin:content-box` } }));
+      out.push(d.range(doc.line(n).from));
+    }
+  }
+  return Decoration.set(out);
+}
+const indentGuides = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+  constructor(view: EditorView) { this.decorations = guideDeco(view); }
+  update(u: ViewUpdate) { if (u.docChanged || u.viewportChanged) this.decorations = guideDeco(u.view); }
+}, { decorations: (v) => v.decorations });
+
 export function languageFor(path: string): Extension {
   const dc = EditorView.editorAttributes.of({ class: 'ads-spec' });
   if (/\.json$/i.test(path)) return [json(), dcJsonPlugin, dc];
@@ -260,7 +289,7 @@ export function baseExtensions(): Extension[] {
     // With text selected, the current-line band goes, so the selection is the one thing shown.
     EditorView.editorAttributes.compute(['selection'], (st) => ({ class: st.selection.ranges.some((r) => !r.empty) ? 'cm-has-selection' : '' })),
     indentUnit.of('  '), EditorState.tabSize.of(2),
-    syntaxHighlighting(highlight), theme, findWidget, conflictPlugin, usesField,
+    syntaxHighlighting(highlight), theme, findWidget, conflictPlugin, usesField, indentGuides,
     keymap.of([{ key: 'Mod-h', run: openReplace }, { key: 'Mod-Shift-ArrowRight', run: growSelection }, { key: 'Mod-Shift-ArrowLeft', run: shrinkSelection }, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
   ];
 }

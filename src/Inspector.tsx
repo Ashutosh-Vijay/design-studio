@@ -26,7 +26,8 @@ export function nodeAt(text: string, line: number, isMain: boolean): Node {
     return { kind: 'res', path: res, url: res.join('') };
   }
   if (kp.length >= 2 && DECL_SECTS[kp[0].key]) return { kind: 'decl', sect: kp[0].key, path: [kp[0].key, kp[1].key], name: kp[1].key };
-  return isMain ? { kind: 'root' } : { kind: 'none' };
+  // A library outside any declaration shows the library itself (its usage, a new type from JSON).
+  return isMain || /^(﻿)?#%RAML 1\.0 Library/.test(text) ? { kind: 'root' } : { kind: 'none' };
 }
 
 export const CODES: Record<string, string> = { 200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No content', 400: 'Bad request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not found', 409: 'Conflict', 422: 'Unprocessable', 500: 'Server error', 502: 'Bad gateway', 503: 'Unavailable' };
@@ -243,26 +244,39 @@ function propLines(o: Record<string, unknown>, req: boolean, c: Case, optional =
   }
   return out;
 }
-export function JsonToType({ name, onApply }: { name: string; onApply: (lines: string[]) => void }) {
+// A type written from a pasted JSON body: into the type the cursor is in (name), or as a new type (taken, the
+// names already declared). Without a name it only makes new types.
+export function JsonToType({ name, taken, onApply }: { name?: string; taken: string[]; onApply: (lines: string[], newName: string | null) => void }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [req, setReq] = useState<'all' | 'none'>('all');
   const [c, setC] = useState<Case>('same');
+  const [into, setInto] = useState<'this' | 'new'>('new'); // replacing a type is the deliberate choice, never the default
+  const [newName, setNewName] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const go = () => {
     let v: unknown;
     try { v = JSON.parse(text); } catch (e) { setErr('Not valid JSON: ' + String(e).replace(/^SyntaxError: /, '')); return; }
     if (!v || typeof v !== 'object') { setErr('Paste a JSON object or list: a single value is just a type name.'); return; }
+    const nn = newName.trim();
+    if (into === 'new' && !/^[A-Za-z_][\w-]*$/.test(nn)) { setErr('Give the new type a name: letters, digits, _ or -, starting with a letter.'); return; }
+    if (into === 'new' && taken.includes(nn)) { setErr(`There's already a type called ${nn}.`); return; }
     const t = typeLines(v, req === 'all', c);
-    onApply(typeof t === 'string' ? ['type: ' + t] : t);
-    setOpen(false); setText(''); setErr(null);
+    onApply(typeof t === 'string' ? ['type: ' + t] : t, into === 'new' ? nn : null);
+    setOpen(false); setText(''); setNewName(''); setErr(null);
   };
-  if (!open) return <button onClick={() => setOpen(true)} className={BTN} title="Paste a JSON body and its properties are written as this type">From JSON…</button>;
+  if (!open) return <button onClick={() => setOpen(true)} className={BTN} title="Paste a JSON body and its properties are written as a type">{name ? 'From JSON…' : 'New type from JSON…'}</button>;
   return (
     <div className="basis-full mt-1">
       <Sec title="Type from JSON">
         <div className="flex flex-col gap-1.5">
-          <textarea value={text} autoFocus spellCheck={false} rows={8} placeholder={`A JSON ${name}, as an API would send it`}
+          {name && <div className="flex gap-1.5">{(['new', 'this'] as const).map((o) => (
+            <button key={o} onClick={() => setInto(o)} aria-pressed={into === o}
+              className={`h-[24px] px-2 rounded-md border text-[12px] ${into === o ? 'border-accent bg-accent-dim text-accent' : 'border-line text-content-muted hover:text-content'}`}>{o === 'new' ? 'A new type' : `Replace ${name}`}</button>
+          ))}</div>}
+          {into === 'new' && <input value={newName} autoFocus spellCheck={false} placeholder="Name of the new type, like Customer" onChange={(e) => { setNewName(e.target.value); setErr(null); }}
+            className="w-full h-[26px] px-2 rounded border border-line bg-surface-input text-content outline-none focus:border-accent font-mono text-[11.5px] placeholder:text-content-ghost" />}
+          <textarea value={text} autoFocus={into === 'this'} spellCheck={false} rows={8} placeholder={`A JSON ${into === 'new' ? newName.trim() || 'body' : name}, as an API would send it`}
             onChange={(e) => { setText(e.target.value); setErr(null); }} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) go(); }}
             className="w-full px-2 py-1 rounded border border-line bg-surface-input text-content outline-none focus:border-accent font-mono text-[11.5px] leading-snug resize-y placeholder:text-content-ghost" />
           <div className="flex gap-1.5">
@@ -274,7 +288,7 @@ export function JsonToType({ name, onApply }: { name: string; onApply: (lines: s
           <div className="flex items-center gap-1.5">
             <button disabled={!text.trim()} onClick={go} className="h-[26px] px-2.5 rounded-md text-[12px] font-semibold bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-40">Write the type</button>
             <button onClick={() => { setOpen(false); setErr(null); }} className={BTN}>Cancel</button>
-            <span className="text-[11px] text-content-faint">Replaces its properties. {K('Ctrl Z')} undoes it.</span>
+            <span className="text-[11px] text-content-faint">{into === 'new' ? 'Added under types:.' : 'Replaces its properties.'} {K('Ctrl Z')} undoes it.</span>
           </div>
           {err && <div className="text-[12px] text-err select-text">{err}</div>}
         </div>
@@ -306,6 +320,9 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
     <>
     </>
   ), [typeNames, outline, own]);
+  // Types declared in this file, and a new one added at the end of its types: (made when there's none).
+  const ownTypes = useMemo(() => [...new Set([...(outline?.types ?? []).filter((d) => d.file === file).map((d) => d.name), ...(S.find(E, ['types']) >= 0 ? kids(E, S.find(E, ['types'])).map((j) => E[j].key) : [])])], [outline, file, E]);
+  const newType = (x: string, nn: string, lines: string[]) => S.addChild(x, ['types'], [`${nn}:`, ...lines.map((l) => '  ' + l)]);
   const traitNames =(outline?.traits ?? []).map((d) => (d.alias && d.alias !== own ? `${d.alias}.${d.name}` : d.name));
   const findType = (t: string) => {
     const name = t.replace(/\[\]$/, '').replace(/\?$/, '');
@@ -376,45 +393,70 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
   };
 
   // Query parameters, headers, URI parameters and type properties share one editor: name, type, required.
-  const params = (parent: string[], key: string, title: string, addLabel: string, hint?: string) => {
+  // A property written out as an object (or a list of them, at any depth of lists) shows its own properties
+  // under it, as deep as they go, each with its own required box.
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  const nestedOf = (p: string[]) => {
+    let q = p;
+    for (let i = 0; i < 20 && at([...q, 'properties']) < 0 && at([...q, 'items']) >= 0; i++) q = [...q, 'items'];
+    return at([...q, 'properties']) >= 0 ? q : null;
+  };
+  const addBtn = (parent: string[], key: string, addLabel: string, names: string[]) => (
+    <button onClick={(e) => {
+      e.stopPropagation();
+      const n = unique(key === 'properties' ? 'property' : key === 'headers' ? 'X-Header' : 'param', names);
+      setJustAdded([...parent, key, n].join('\0'));
+      onEdit((x) => S.addChild(x, [...parent, key], [`${n}: string`]));
+    }}
+      className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />{addLabel}</button>
+  );
+  const params = (parent: string[], key: string, title: string, addLabel: string, hint?: string, depth = 0): ReactNode => {
     const k = at([...parent, key]);
     const rows = k < 0 ? [] : kids(E, k);
     const names = rows.map((j) => E[j].key);
+    const list = rows.map((j) => {
+      const p = [...parent, key, E[j].key];
+      const r = kid(E, j, 'required');
+      const optional = E[j].key.endsWith('?') || (r != null && E[r].val === 'false');
+      const name = E[j].key.replace(/\?$/, '');
+      const id = p.join('\0'), open = openRow === id;
+      const sub = key === 'properties' ? nestedOf(p) : null, shut = folded.has(id);
+      return (
+        <div key={E[j].key}>
+          <div className={rowCls(j) + ' py-[3px]'} onClick={() => onGoLine(E[j].line)}>
+            <div className="flex items-center gap-1">
+              <span className="w-[38%] shrink-0 flex items-center">
+                {sub && <button title={shut ? `Show ${name}'s properties` : `Hide ${name}'s properties`} onClick={(e) => { e.stopPropagation(); setFolded((f) => { const n = new Set(f); if (shut) n.delete(id); else n.add(id); return n; }); }}
+                  className="shrink-0 -ml-1 text-content-faint hover:text-content">{shut ? <Icons.ChevronRight size={11} /> : <Icons.ChevronDown size={11} />}</button>}
+                <Field ariaLabel="Name" value={name} mono focus={justAdded === id} onFocused={() => setJustAdded(null)} onCommit={(v) => v && onEdit((x) => S.renameKey(x, p, E[j].key.endsWith('?') ? v + '?' : v))} />
+              </span>
+              {typeCell(p)}
+              <label title="Required" className="shrink-0 flex items-center gap-1 text-[11.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" checked={!optional} onChange={(e) => onEdit((x) => S.setOptional(x, p, !e.target.checked))} className="accent-[var(--accent)]" />req
+              </label>
+              <IconBtn title={open ? 'Hide details' : `Edit details for ${name}`} onClick={() => setOpenRow(open ? null : id)}>{open ? <Icons.ChevronDown size={12} /> : <Icons.ChevronRight size={12} />}</IconBtn>
+              <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, p))}><Icons.X size={11} /></IconBtn></span>
+            </div>
+            {open && facets(p)}
+          </div>
+          {sub && !shut && params(sub, 'properties', '', 'Add property', undefined, depth + 1)}
+        </div>
+      );
+    });
+    if (depth > 0) return (
+      <div className="ml-1.5 pl-2 border-l border-line">
+        {list}
+        <div className="py-[3px]">{addBtn(parent, key, `Add to ${parent.filter((x) => x !== 'items').pop()?.replace(/\?$/, '')}`, names)}</div>
+      </div>
+    );
     return (
-      <Sec title={title} count={rows.length || undefined}
-        add={<button onClick={() => {
-          const n = unique(key === 'properties' ? 'property' : key === 'headers' ? 'X-Header' : 'param', names);
-          setJustAdded([...parent, key, n].join('\0'));
-          onEdit((x) => S.addChild(x, [...parent, key], [`${n}: string`]));
-        }}
-          className="normal-case tracking-normal font-medium text-[11px] text-accent hover:underline flex items-center gap-0.5"><Icons.Plus size={11} />{addLabel}</button>}>
+      <Sec title={title} count={rows.length || undefined} add={addBtn(parent, key, addLabel, names)}>
         {rows.length === 0 && <div className="text-[11.5px] text-content-faint">{hint ?? 'None.'}</div>}
         {rows.length > 0 && <PropertyHead />}
-        {rows.map((j) => {
-          const p = [...parent, key, E[j].key];
-          const r = kid(E, j, 'required');
-          const optional = E[j].key.endsWith('?') || (r != null && E[r].val === 'false');
-          const name = E[j].key.replace(/\?$/, '');
-          const id = p.join('\0'), open = openRow === id;
-          return (
-            <div key={E[j].key} className={rowCls(j) + ' py-[3px]'} onClick={() => onGoLine(E[j].line)}>
-              <div className="flex items-center gap-1">
-                <span className="w-[38%] shrink-0"><Field ariaLabel="Name" value={name} mono focus={justAdded === id} onFocused={() => setJustAdded(null)} onCommit={(v) => v && onEdit((x) => S.renameKey(x, p, E[j].key.endsWith('?') ? v + '?' : v))} /></span>
-                {typeCell(p)}
-                <label title="Required" className="shrink-0 flex items-center gap-1 text-[11.5px] text-content-faint cursor-pointer" onClick={(e) => e.stopPropagation()}>
-                  <input type="checkbox" checked={!optional} onChange={(e) => onEdit((x) => S.setOptional(x, p, !e.target.checked))} className="accent-[var(--accent)]" />req
-                </label>
-                <IconBtn title={open ? 'Hide details' : `Edit details for ${name}`} onClick={() => setOpenRow(open ? null : id)}>{open ? <Icons.ChevronDown size={12} /> : <Icons.ChevronRight size={12} />}</IconBtn>
-                <span className="opacity-0 group-hover/r:opacity-100 group-focus-within/r:opacity-100"><IconBtn title="Remove" onClick={() => onEdit((x) => S.remove(x, p))}><Icons.X size={11} /></IconBtn></span>
-              </div>
-              {open && facets(p)}
-            </div>
-          );
-        })}
+        {list}
       </Sec>
     );
   };
-
   const example = (path: string[]) => {
     const k = at(path); if (k < 0) return null;
     const inc = E[k].val.match(/^!include\s+(\S+)/);
@@ -642,7 +684,8 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
           {d && isType && isMain && <button onClick={() => onMove(d)} className={BTN}>Move to library…</button>}
           {isType && amfType && <button data-nav onClick={() => onCopyType(node.name, file, 'jsonSchema')} className={BTN} title="AMF renders this type as JSON Schema and puts it on the clipboard">Copy as JSON Schema</button>}
           {d && node.sect !== 'securitySchemes' && node.sect !== 'annotationTypes' && <button onClick={() => onDelete(d)} className={BTN + ' hover:!text-err'}>Delete…</button>}
-          {isType && !included && !readOnly && <JsonToType key={node.name} name={node.name} onApply={(lines) => onEdit((x) => {
+          {isType && !included && !readOnly && <JsonToType key={node.name} name={node.name} taken={ownTypes} onApply={(lines, nn) => onEdit((x) => {
+            if (nn) return newType(x, nn, lines);
             let t = x;
             for (const key of ['properties', 'items', 'enum', 'type']) t = S.remove(t, [...node.path, key], false);
             return S.addChild(t, node.path, lines);
@@ -743,7 +786,8 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
             <div className="mt-1 text-[11px] text-content-faint">Separated by commas.</div>
           </Sec>
         )}
-        {!included && isType && enumK < 0 && params(node.path, 'properties', 'Properties', 'Add property', 'No properties.')}
+        {/* A list type (items: written out, even lists of lists) shows its items' properties. */}
+        {!included && isType && enumK < 0 && params(nestedOf(node.path) ?? node.path, 'properties', nestedOf(node.path)?.includes('items') ? 'Properties of each item' : 'Properties', 'Add property', 'No properties.')}
         {isType && <SampleCheck key={node.name} name={node.name} run={(p) => onCheckSample(node.name, file, p)} />}
         {isType && <UsedBy uses={used} onOpenAt={onOpenAt} />}
       </>
@@ -765,6 +809,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
         <div className="mt-1 text-[12.5px] text-content-secondary">{frag === 'Library'
           ? [n(count('types'), 'type', 'types'), n(count('traits'), 'trait', 'traits'), n(count('resourceTypes'), 'resource type', 'resource types'), n(count('securitySchemes'), 'security scheme', 'security schemes')].join(', ')
           : `A RAML fragment, used with !include.`}</div>
+        {frag === 'Library' && !readOnly && <div className="mt-3 flex flex-wrap gap-1.5"><JsonToType taken={ownTypes} onApply={(lines, nn) => onEdit((x) => newType(x, nn!, lines))} /></div>}
         {frag === 'Library' && <div className="mt-3"><Field label="Usage" multiline value={S.scalar(text, ['usage']) ?? ''} placeholder="What this library is for" onCommit={(v) => onEdit((x) => S.setScalar(x, [], 'usage', v || null))} /></div>}
         <div className="mt-4 text-[11.5px] text-content-faint">{frag === 'Library' ? 'Put the cursor in a type, trait or resource type, or pick one in the API tree, to edit it here.' : 'Its contents are checked where the API includes it.'}</div>
       </>
@@ -773,6 +818,7 @@ export function Inspector({ file, text, line, isMain, readOnly, outline, model, 
       <>
         {title(<span className="text-[13.5px] font-bold">{S.scalar(text, ['title']) || 'Untitled API'}</span>)}
         <div className="mt-1 text-[12.5px] text-content-secondary">{all.length} resources, {nMethods} methods, {outline?.types.length ?? 0} types</div>
+        {!readOnly && <div className="mt-3 flex flex-wrap gap-1.5"><JsonToType taken={ownTypes} onApply={(lines, nn) => onEdit((x) => newType(x, nn!, lines))} /></div>}
         <Sec title="API">
           {field('title', 'Name of the API')}
           {field('version', 'v1', true)}

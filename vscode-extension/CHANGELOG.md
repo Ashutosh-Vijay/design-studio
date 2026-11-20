@@ -2,6 +2,14 @@
 
 New work collects under Unreleased and moves into a version when it ships. The same notes are in the app (About, What's new).
 
+## Unreleased
+
+- **Indentation guides** in the editor: a faint line at each indent level, so you can see what sits under what.
+- **Nested types in the Inspector**: a type's properties show as deep as they go, through objects and lists of lists, each with its own required box.
+- **A new type from JSON** in any file with types, including libraries: name it and paste the JSON. Replacing the type you're in is now a choice, not the default.
+- Fixed: an example file created from the editor couldn't be opened from its `!include` until the file was reopened.
+- Fixed: Review changes didn't scroll when several files were open; every file's changes now scroll in one list.
+
 ## 0.1.0 (November 2026): the first beta
 
 - **Design Center specs, fast**: open RAML, OAS and AsyncAPI projects of any size in seconds. Every edit is checked by AMF, the engine Design Center uses, so errors show as you type. Suggestions for types, traits and `!include` paths are instant, and Design Center's shelf sits under the editor. RAML and OAS are coloured as in Design Center, by resource, method, trait and schema. Work on several projects at once, each in its own window (in VS Code, its own tab).

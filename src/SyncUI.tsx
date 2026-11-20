@@ -780,7 +780,8 @@ function ReviewPush({ root, link, listFiles, readOnly, lockedBy, onClose, onPush
             const on = open.has(f.path);
             const changed = f.hunks.flat().filter((d) => d.kind !== ' ').length;
             return (
-              <div key={f.path} className="rounded-md border border-line overflow-hidden">
+              // shrink-0: in the scrolling column a file's box would otherwise be squeezed to fit, cutting off its lines.
+              <div key={f.path} className="shrink-0 rounded-md border border-line overflow-hidden">
                 <button onClick={() => { const s = new Set(open); if (on) s.delete(f.path); else s.add(f.path); setOpen(s); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12.5px] bg-surface-2 hover:bg-surface-3">
                   <Icons.ChevronDown size={11} className={on ? '' : '-rotate-90'} />

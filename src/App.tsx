@@ -1132,16 +1132,20 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       onOk={async (lib) => { setDialog(null); try { await moveToLibrary(d, lib); } catch (e) { fail(e); } }} />);
   }
 
+  // An editor's extensions are made once per file, so they call through this ref to this render's functions:
+  // a file created since (an example made from its type) must be found, not reported missing.
+  const latest = useRef({ completions, goToDefinition, renameSymbol, findReferences });
+  latest.current = { completions, goToDefinition, renameSymbol, findReferences };
   const assist = (path: string): Extension[] => [
-    autocompletion({ override: [completions(path)], icons: false }),
+    autocompletion({ override: [(ctx) => latest.current.completions(path)(ctx)], icons: false }),
     hover(path),
-    keymap.of([{ key: 'F12', run: (v) => { goToDefinition(path, v.state, v.state.selection.main.head); return true; } },
-      { key: 'F2', run: (v) => { renameSymbol(path, v.state, v.state.selection.main.head); return true; } },
-      { key: 'Shift-F12', run: (v) => { findReferences(path, v.state, v.state.selection.main.head); return true; } }]),
+    keymap.of([{ key: 'F12', run: (v) => { latest.current.goToDefinition(path, v.state, v.state.selection.main.head); return true; } },
+      { key: 'F2', run: (v) => { latest.current.renameSymbol(path, v.state, v.state.selection.main.head); return true; } },
+      { key: 'Shift-F12', run: (v) => { latest.current.findReferences(path, v.state, v.state.selection.main.head); return true; } }]),
     EditorView.domEventHandlers({ mousedown: (e, v) => {
       if (!(e.ctrlKey || e.metaKey)) return false;
       const pos = v.posAtCoords({ x: e.clientX, y: e.clientY }); if (pos == null) return false;
-      e.preventDefault(); goToDefinition(path, v.state, pos); return true;
+      e.preventDefault(); latest.current.goToDefinition(path, v.state, pos); return true;
     } }),
   ];
 
@@ -1561,6 +1565,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
       }
       await invoke('write_file_exact', { root: project.root, path: target, text });
       await onRefresh();
+      runCheck('validate'); // AMF still has it as missing until it checks again
       setNotice({ text: `Created ${target}${d ? ` from ${type}` : ''}. Fill in real values; AMF checks it against the type.`, err: false, actions: [['Open', () => { openFile(target); }]] });
     } catch (e) { fail(e); }
   }
