@@ -239,6 +239,12 @@ export default function App() {
       const mod = e.ctrlKey || e.metaKey;
       // The webview's browser keys: reload (drops unsaved work) and print.
       if (import.meta.env.PROD && (e.key === 'F5' || (mod && (e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'p')))) { e.preventDefault(); return; }
+      // F11 full screen, as in a browser. A Mac gets Ctrl Cmd F and the green button from its native title bar.
+      if (e.key === 'F11' && !mod && !e.altKey && !isVsCode && !/Mac/.test(navigator.userAgent) && '__TAURI_INTERNALS__' in window) {
+        e.preventDefault();
+        import('@tauri-apps/api/window').then(async ({ getCurrentWindow }) => { const w = getCurrentWindow(); await w.setFullscreen(!(await w.isFullscreen())); });
+        return;
+      }
       if (!isVsCode && mod && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0') && !e.altKey) {
         e.preventDefault();
         const i = ZOOMS.indexOf(savedZoom());

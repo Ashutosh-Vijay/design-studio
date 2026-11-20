@@ -5,6 +5,10 @@ import { applyTheme, savedTheme, K } from "./theme";
 import "./index.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { isMacWindow } from "./components/WindowControls";
+
+// The Mac build keeps the native title bar under our header, so the real traffic lights sit top-left.
+if (isMacWindow) document.documentElement.classList.add("mac-titlebar");
 
 const start = () => {
   const t = savedTheme();

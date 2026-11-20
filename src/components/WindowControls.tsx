@@ -13,8 +13,11 @@ export const windowLabel = isTauri && !isVsCode ? getCurrentWindow().label : 'ma
 export const multiWindow = isTauri;
 export const WINDOW = isVsCode ? 'tab' : 'window';
 
+// A Mac keeps its native title bar under our header (tauri.macos.conf.json, and new_window in lib.rs), so the
+// real traffic lights are there and these buttons aren't drawn.
+export const isMacWindow = isTauri && !isVsCode && typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
 export function WindowControls() {
-  if (!isTauri || isVsCode) return null;
+  if (!isTauri || isVsCode || isMacWindow) return null;
   return <TauriWindowControls />;
 }
 

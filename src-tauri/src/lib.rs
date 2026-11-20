@@ -386,11 +386,17 @@ fn new_window(app: &tauri::AppHandle, root: Option<String>) -> Result<(), String
     None => "index.html".to_string(),
   };
   let light = light_theme(app);
-  tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App(url.into()))
+  let b = tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App(url.into()))
     .title("Design Studio for MuleSoft").inner_size(1280.0, 840.0).min_inner_size(1000.0, 600.0)
-    .decorations(false).visible(false)
-    .background_color(if light { tauri::window::Color(249, 248, 246, 255) } else { tauri::window::Color(10, 9, 7, 255) })
-    .build().map_err(|e| format!("Couldn't open a new window: {e}"))?;
+    .visible(false)
+    .background_color(if light { tauri::window::Color(249, 248, 246, 255) } else { tauri::window::Color(10, 9, 7, 255) });
+  // A Mac keeps its native title bar under our header, with the real traffic lights (as tauri.macos.conf.json
+  // does for the first window); elsewhere the app draws its own buttons.
+  #[cfg(target_os = "macos")]
+  let b = b.decorations(true).title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true).traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0));
+  #[cfg(not(target_os = "macos"))]
+  let b = b.decorations(false);
+  b.build().map_err(|e| format!("Couldn't open a new window: {e}"))?;
   // The page shows the window after its first frame; this is the safety net.
   let (h, l) = (app.clone(), label.clone());
   std::thread::spawn(move || { std::thread::sleep(std::time::Duration::from_secs(4)); if let Some(w) = h.get_webview_window(&l) { let _ = w.show(); } });

@@ -247,3 +247,6 @@ html.ads-dc .ads-spec .ads-k-tag, html.ads-dc .ads-spec .ads-k-tag * { color: #8
 
 /* Read-only forms (ReadOnlyBox): edit controls look and act off; navigation buttons stay live. */
 .ads-ro :is(input, textarea, select, button:not([data-nav])) { pointer-events: none; opacity: 0.55; }
+
+/* Mac: the native traffic lights sit at the left of every top bar (tauri.macos.conf.json); keep clear of them. */
+.mac-titlebar header[data-tauri-drag-region] { padding-left: 84px; }
