@@ -144,7 +144,7 @@ Bug reports and ideas are welcome: [open an issue](https://github.com/Ashutosh-V
 - **VS Code:** `npm run build:vscode`, then see [vscode-extension/DEVELOPMENT.md](vscode-extension/DEVELOPMENT.md).
 - **Releasing:** [docs/RELEASING.md](docs/RELEASING.md).
 
-How it's built is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and the plan and every proof test in [docs/PLAN.md](docs/PLAN.md).
+How it's built, and the proof tests behind each choice, are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Credits
 

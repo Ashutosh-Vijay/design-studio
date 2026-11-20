@@ -1,6 +1,6 @@
 # Design Studio: architecture
 
-Status: **agreed design before M1** (2026-10-05). Built on the facts proven in M0 (PLAN.md sections 10.2 to 10.4). Where this document and the code disagree later, update this document in the same change.
+Status: **agreed design before M1** (2026-10-05). Built on the facts proven in M0 (the proof tests, sections M0.1 to M0.5 below). Where this document and the code disagree later, update this document in the same change.
 
 ---
 
@@ -58,7 +58,7 @@ design-studio/
   corpus/                 public specs (raml-org examples, small OAS)
   corpus-private/         git-ignored: private real-world specs, local tests only
   tests/golden/           expected diffs for edit operations on public corpus
-  docs/                   PLAN.md, ARCHITECTURE.md
+  docs/                   ARCHITECTURE.md, RELEASING.md, DESIGN-CENTER-FEATURES.md
   spikes/                 M0 throwaway code (kept for reference)
 ```
 
@@ -356,4 +356,4 @@ Each step ends usable and tested:
 6. **Edit operations:** rename type (Design Center's "Rename Symbol") and add response, end to end with a preview and golden tests. Then the Files menu: Set as root file, Rename (updates every `!include`), Duplicate As (copy, or RAML/OAS conversion through amf-server's `convert`), Delete.
 7. **Hardening:** the file watcher, recovery journal, failure banners, budgets checked on all three corpus specs.
 
-**Exit (from PLAN.md):** I do my real copy-paste-edit work in it faster than in Design Center, on the three corpus specs.
+**Exit:** I do my real copy-paste-edit work in it faster than in Design Center, on the three corpus specs.

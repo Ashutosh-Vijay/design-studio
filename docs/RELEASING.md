@@ -55,9 +55,9 @@ cd vscode-extension && npm run compile && npm run verify
 
 ## 6. Before the first public release only
 
-- The updater reads `latest.json` from this repo's releases, and the README links there: both need the repo public (PLAN 10.5 has the checklist, including the MIT licence and history scrub).
+- The updater reads `latest.json` from this repo's releases, and the README links there: both need the repo public (the open-source checklist, including the MIT licence and history scrub).
 - Secrets: `TAURI_SIGNING_PRIVATE_KEY` and its password are set; `VSCE_PAT` (Marketplace publisher `ashutosh-vijay`) is the developer's to add.
-- The Connected Apps: a trial org that expires soon breaks every sign-in through it. Check the dates (PLAN section 9) and rotate first if one is close.
+- The Connected Apps: a trial org that expires soon breaks every sign-in through it. Check the dates and rotate first (`scripts/rotate-org.mjs`) if one is close.
 
 ## 7. Commit, tag, push
 
