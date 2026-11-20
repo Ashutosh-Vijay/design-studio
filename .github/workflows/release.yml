@@ -254,7 +254,17 @@ jobs:
           if [ -z "$VSCE_PAT" ]; then echo "::notice::VSCE_PAT isn't set, so the .vsix wasn't published to the Marketplace."; exit 0; fi
           gh release download "$GITHUB_REF_NAME" --repo "${{ github.repository }}" --pattern '*.vsix'
           [ "$(ls *.vsix | wc -l)" = "4" ] || { echo "::error::Expected four .vsix on the release."; exit 1; }
-          for f in *.vsix; do npx --yes @vscode/vsce@3 publish --packagePath "$f" --pat "$VSCE_PAT"; done
+          # --skip-duplicate makes a rerun publish only the platforms that are missing.
+          for f in *.vsix; do npx --yes @vscode/vsce@3 publish --packagePath "$f" --skip-duplicate --pat "$VSCE_PAT"; done
+          # The Marketplace once said "Published" for all four on 0.1.0 and kept only one: check it lists every platform.
+          for i in $(seq 1 30); do
+            got=$(curl -s -X POST https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery -H 'Content-Type: application/json' -H 'Accept: application/json;api-version=7.2-preview.1' \
+              -d "{\"filters\":[{\"criteria\":[{\"filterType\":7,\"value\":\"ashutosh-vijay.design-studio-mulesoft\"}]}],\"flags\":17}" \
+              | jq -r --arg v "${GITHUB_REF_NAME#v}" '[.results[0].extensions[0].versions[] | select(.version == $v) | .targetPlatform] | sort | join(",")')
+            [ "$got" = "darwin-arm64,darwin-x64,linux-x64,win32-x64" ] && { echo "The Marketplace lists all four platforms."; exit 0; }
+            echo "The Marketplace lists: ${got:-nothing yet}"; sleep 60
+          done
+          echo "::error::The Marketplace doesn't list all four platforms after 30 minutes. Rerun this job to publish the missing ones."; exit 1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
