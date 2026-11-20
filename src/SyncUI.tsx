@@ -209,6 +209,9 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
         {usOnly && <div className="flex items-center gap-2 px-2.5 py-2 rounded-md border border-[color-mix(in_oklch,var(--warn)_45%,transparent)] bg-[color-mix(in_oklch,var(--warn)_8%,transparent)] text-[11.5px]">
           <span className="flex-1">Sign in with Anypoint isn't available for the {REGIONS.find(([, h]) => h === region)?.[0]} cloud yet (it works in {ourRegions.map((r) => REGIONS.find(([, h]) => code(h) === r)?.[0] ?? r).join(', ')}). Organizations there sign in with their own Connected App, made once by an admin in Access Management.</span>
           <button className={`${btn} !h-6 !text-[11.5px] shrink-0`} onClick={() => setWay('byok')}>Use my own Connected App</button></div>}
+        {/* Clouds without Design Center (anypoint.rs, no_design_center): said before signing in, not found out after. */}
+        {/gb1\.|in1\.|au1\./.test(region) && <div className="px-2.5 py-2 rounded-md border border-line bg-surface-2 text-[11.5px] text-content-secondary">
+          Design Center isn't offered in Anypoint's {REGIONS.find(([, h]) => h === region)?.[0]} cloud, so there are no projects there to pull or push. Exchange, the Dashboard and your projects on this computer all work.</div>}
         <label className="mt-1 flex items-start gap-2 cursor-pointer">
           <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
           <span><span className="block text-[12.5px]">Read only</span>

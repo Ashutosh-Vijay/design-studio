@@ -533,6 +533,11 @@ fn denied(rules: &[String], method: &str, path: &str) -> Option<String> {
 }
 
 fn call(app: &AppHandle, method: &str, path: &str, body: Option<&Value>) -> Result<Reply, String> { call_in(app, method, path, body, None, None) }
+// The clouds without Design Center (checked 2026-11-21 in a trial org of each: their APIs menu has only Exchange,
+// API Manager and API Governance, and the Design Center scope doesn't exist there). Their names as people say them.
+fn no_design_center(host: &str) -> Option<&'static str> {
+  [("gb1.platform", "United Kingdom"), ("in1.platform", "India"), ("au1.platform", "Australia")].iter().find(|(h, _)| host.contains(h)).map(|(_, n)| *n)
+}
 // org and env: Runtime Manager's calls name the business group and the environment in headers, not in the path.
 fn call_in(app: &AppHandle, method: &str, path: &str, body: Option<&Value>, org: Option<&str>, env: Option<&str>) -> Result<Reply, String> {
   if cfg!(debug_assertions) {
@@ -559,6 +564,7 @@ fn call_in(app: &AppHandle, method: &str, path: &str, body: Option<&Value>, org:
   if !ok { return Err(format!("Not an allowed Anypoint path: {path}")); }
   for attempt in 0..2 {
     let (token, me, host) = access(app)?;
+    if path.starts_with("/designcenter/") { if let Some(c) = no_design_center(&host) { return Err(format!("Design Center isn't offered in Anypoint's {c} cloud, so there are no Design Center projects to pull or push there. Exchange, the Dashboard and projects on this computer work as usual.")); } }
     if me.read_only && !is_read(method, path) {
       return Err("This connection is read only, so nothing that would change Design Center was sent. Turn read only off in settings to push.".into());
     }

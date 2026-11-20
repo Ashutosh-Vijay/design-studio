@@ -2,6 +2,10 @@
 
 New work collects under Unreleased and moves into a version when it ships. The same notes are in the app (About, What's new).
 
+## Unreleased
+
+- Anypoint doesn't offer Design Center in the United Kingdom, India and Australia clouds: the sign-in form says so when you pick one, and Design Center actions there explain it instead of failing with Anypoint's error.
+
 ## 0.1.1 (November 2026): fixes from the first week
 
 - **Indentation you can see**: a faint guide at each indent level shows what sits under what. Enter now indents where you are: one level deeper after a new key (`name:`), the same level after a value, and in line with the item inside a `- ` list.

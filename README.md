@@ -87,7 +87,7 @@ Design Studio is Design Center on your own computer, with the waiting taken out.
 
 ## Signing in to Anypoint
 
-- **Sign in with Anypoint** opens your browser and comes back to this computer. It works in the US, EU, Canada, UK, Japan, India and Australia clouds. In US Government, use your own Connected App.
+- **Sign in with Anypoint** opens your browser and comes back to this computer. It works in the US, EU, Canada, UK, Japan, India and Australia clouds. In US Government, use your own Connected App. Anypoint doesn't offer Design Center in the UK, India and Australia clouds, so there you get Exchange, the Dashboard and your local projects, but no Design Center projects to pull or push.
 - **Your own Connected App** works in every Anypoint cloud, with a browser sign-in or client credentials; its secret goes to the system keychain.
 - **Connections start read only.** Nothing in Design Center or Exchange changes until you turn read only off in Settings.
 

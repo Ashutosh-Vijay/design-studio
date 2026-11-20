@@ -219,6 +219,9 @@ async function call(method: string, p: string, body?: unknown, org?: string, env
   if (!(dashboard || p === GRAPH || p.startsWith('/designcenter/') || p.startsWith('/exchange/') || p === '/accounts/api/me')) throw new Error(`Not an allowed Anypoint path: ${p}`);
   for (let attempt = 0; attempt < 2; attempt++) {
     const { token, me, host } = await access();
+    // The clouds without Design Center (anypoint.rs, no_design_center).
+    const noDc = ([['gb1.platform', 'United Kingdom'], ['in1.platform', 'India'], ['au1.platform', 'Australia']] as const).find(([h]) => host.includes(h))?.[1];
+    if (noDc && p.startsWith('/designcenter/')) throw new Error(`Design Center isn't offered in Anypoint's ${noDc} cloud, so there are no Design Center projects to pull or push there. Exchange, the Dashboard and projects on this computer work as usual.`);
     if (me.read_only && !isRead(method, p)) throw new Error('This connection is read only, so nothing that would change Design Center was sent. Turn read only off in settings to push.');
     let r: Response;
     try {
