@@ -2,15 +2,14 @@
 
 New work collects under Unreleased and moves into a version when it ships. The same notes are in the app (About, What's new).
 
-## Unreleased
+## 0.1.1 (November 2026): fixes from the first week
 
-- **Indentation guides** in the editor: a faint line at each indent level, so you can see what sits under what.
-- **More of the Dashboard for AI agents**: three new read-only tools: what runs in each environment (`deployments`), a published API's endpoints (`api_endpoints`), and what changed between two versions with which changes break clients (`version_changes`).
-- **Enter indents where you are**: one level deeper after a new key (`name:`), the same level after a value, and at the item's level inside a `- ` list.
+- **Indentation you can see**: a faint guide at each indent level shows what sits under what. Enter now indents where you are: one level deeper after a new key (`name:`), the same level after a value, and in line with the item inside a `- ` list.
 - **Nested types in the Inspector**: a type's properties show as deep as they go, through objects and lists of lists, each with its own required box.
-- **A new type from JSON** in any file with types, including libraries: name it and paste the JSON. Replacing the type you're in is now a choice, not the default.
-- Fixed: an example file created from the editor couldn't be opened from its `!include` until the file was reopened.
-- Fixed: Review changes didn't scroll when several files were open; every file's changes now scroll in one list.
+- **A new type from JSON, anywhere**: name it and paste the JSON in any file with types, libraries included. Inside a type, replacing it is now a choice, never the default.
+- **More of the Dashboard for AI agents**: three new read-only tools: what runs in each environment (`deployments`), a published API's endpoints (`api_endpoints`), and what changed between two versions, with the changes that break clients (`version_changes`).
+- Fixed: an example file made from the editor couldn't be opened from its `!include` until the tab was reopened; F2 and Shift F12 also missed files created since the tab was opened.
+- Fixed: Review changes didn't scroll when several files were open.
 
 ## 0.1.0 (November 2026): the first beta
 

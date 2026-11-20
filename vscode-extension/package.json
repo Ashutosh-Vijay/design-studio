@@ -2,7 +2,7 @@
   "name": "design-studio-mulesoft",
   "displayName": "Design Studio for MuleSoft (BETA)",
   "description": "Design MuleSoft Anypoint API specs (RAML, OpenAPI, AsyncAPI) in VS Code with live AMF validation, forms, a local mock and governance. Syncs with Design Center and Exchange, works offline.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "preview": true,
   "publisher": "ashutosh-vijay",
   "license": "MIT",
