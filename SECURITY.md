@@ -44,7 +44,7 @@ The app's data folder is `%APPDATA%\com.designstudio.desktop` on Windows, `~/Lib
 
 ## Sign-in design
 
-Sign in with Anypoint uses a Connected App per Anypoint cloud that belongs to this project. A desktop app can't keep a secret, so those apps require PKCE (only the copy of the app that started a sign-in can finish it) and only send the login back to `localhost` ports 8765 to 8768. You can also use your own Connected App instead (authorization code or client credentials); its secret goes to the system keychain.
+Sign in with Anypoint uses a Connected App per Anypoint cloud that belongs to this project. A desktop app can't keep a secret (one shipped inside an app can always be read out of it), so their client IDs and secrets are published openly in `clients.json`, and the apps are set up so that knowing them isn't enough: every sign-in must use PKCE, so only the copy of the app that started a sign-in can finish it; the login only comes back to `localhost` ports 8765 to 8768, or to this project's sign-in service on `ashutosh-vijay.dev`, which also requires PKCE; and the apps can't sign in without a person (no client credentials). Your refresh token is the one thing that matters, and it stays in the system keychain. You can also use your own Connected App instead (authorization code or client credentials); its secret goes to the system keychain.
 
 ## Reporting a vulnerability
 
