@@ -1,5 +1,5 @@
 // CodeMirror 6 setup: theme from our CSS variables, RAML-aware highlighting, and the cursor's YAML path.
-import { EditorState, EditorSelection, StateEffect, StateField, type Extension, type Range } from '@codemirror/state';
+import { EditorState, EditorSelection, Prec, StateEffect, StateField, type Extension, type Range } from '@codemirror/state';
 import {
   EditorView, Decoration, WidgetType, MatchDecorator, ViewPlugin, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
   drawSelection, highlightSpecialChars, rectangularSelection, crosshairCursor, dropCursor, type DecorationSet, type ViewUpdate,
@@ -254,10 +254,29 @@ const indentGuides = ViewPlugin.fromClass(class {
   update(u: ViewUpdate) { if (u.docChanged || u.viewportChanged) this.decorations = guideDeco(u.view); }
 }, { decorations: (v) => v.decorations });
 
+// Enter in YAML keeps the line's indent, one level deeper after a key that opens a block (key:, key: | or >),
+// and at the item's content after "- key: value". The YAML parser can't tell on a half-written line (the
+// new key has no value yet), so it put the cursor at column 0.
+const yamlEnter = Prec.high(keymap.of([{ key: 'Enter', run: (v) => {
+  const st = v.state;
+  if (st.readOnly) return false;
+  const tr = st.changeByRange((r) => {
+    const line = st.doc.lineAt(r.from), before = line.text.slice(0, r.from - line.from);
+    let ind = before.match(/^ */)![0].length;
+    const item = before.match(/^ *- +(?=\S)/); if (item) ind = item[0].length;
+    if (/(^|[^:]):(\s*[|>][-+]?\d*)?\s*(#.*)?$/.test(before) && !/^\s*#/.test(before)) ind += 2;
+    const after = st.doc.sliceString(r.to, line.to), skip = after.match(/^ */)![0].length;
+    const insert = '\n' + ' '.repeat(ind);
+    return { changes: { from: r.from, to: r.to + skip, insert }, range: EditorSelection.cursor(r.from + insert.length) };
+  });
+  v.dispatch(st.update(tr, { scrollIntoView: true, userEvent: 'input' }));
+  return true;
+} }]));
+
 export function languageFor(path: string): Extension {
   const dc = EditorView.editorAttributes.of({ class: 'ads-spec' });
   if (/\.json$/i.test(path)) return [json(), dcJsonPlugin, dc];
-  if (/\.(raml|ya?ml)$/i.test(path)) return [yaml(), ramlPlugin, dcPlugin, dc];
+  if (/\.(raml|ya?ml)$/i.test(path)) return [yaml(), yamlEnter, ramlPlugin, dcPlugin, dc];
   return [];
 }
 
