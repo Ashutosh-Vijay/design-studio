@@ -2,11 +2,11 @@
 
 **Design Center, minus the waiting.** A fast, free, open-source API designer for MuleSoft Anypoint: RAML, OpenAPI and AsyncAPI, on your desktop or inside VS Code.
 
-> **TL;DR:** Design Studio for MuleSoft is a free, open-source (MIT) API designer for MuleSoft Anypoint Platform, as a VS Code extension and a desktop app for Windows, macOS and Linux. It edits RAML 1.0, OpenAPI (OAS 2.0, 3.0, 3.1) and AsyncAPI 2.x specs with live validation by AMF, the engine Anypoint Design Center uses, keeps visual forms and code in step both ways, and pulls, pushes and publishes with Design Center and Exchange. It adds what Design Center doesn't have: instant checks on big specs, offline work, refactorings, a review of every change before you push, a local mock, governance in the editor, an organization dashboard with an Excel export of every endpoint, 37 AI tools over MCP, and a 46-lesson course for the MuleSoft Developer I and II certifications. No account, no telemetry.
+> **TL;DR:** Design Studio for MuleSoft is a free, open-source (MIT) API designer for MuleSoft Anypoint Platform, as a VS Code extension and a desktop app for Windows, macOS and Linux. It edits RAML 1.0, OpenAPI (OAS 2.0, 3.0, 3.1) and AsyncAPI 2.x specs with live validation by AMF, the engine Anypoint Design Center uses, keeps visual forms and code in step both ways, and pulls, pushes and publishes with Design Center and Exchange. It adds what Design Center doesn't have: instant checks on big specs, offline work, refactorings, a review of every change before you push, a local mock, governance in the editor, an organization dashboard with an Excel export of every endpoint, 40 AI tools over MCP, and a 46-lesson course for the MuleSoft Developer I and II certifications. No account, no telemetry.
 
 **[Website](https://ashutosh-vijay.dev/design-studio/)** | **[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ashutosh-vijay.design-studio-mulesoft)** | **[Releases](https://github.com/Ashutosh-Vijay/design-studio/releases)** | **[Questions](#questions-people-ask)**
 
-`0.1 s checks after every edit` · `RAML · OAS 3.1 · AsyncAPI` · `7 Anypoint clouds` · `37 AI tools` · `46 lessons` · `MIT`
+`0.1 s checks after every edit` · `RAML · OAS 3.1 · AsyncAPI` · `7 Anypoint clouds` · `40 AI tools` · `46 lessons` · `MIT`
 
 ![Design Studio: the editor, the API tree and the Inspector's forms](docs/screenshots/02-editor-dark.png)
 
@@ -27,7 +27,7 @@ Design Studio is Design Center on your own computer, with the waiting taken out.
 - **See what you push.** Review changes shows every line a push will send to Design Center before it goes. The push holds the branch lock, and a merge shows both sides when you and Design Center changed the same lines.
 - **Your organization at a glance.** The Dashboard shows every API in Exchange with its versions, endpoints and what changed between them, API Governance conformance, what's deployed where, health checks, and an Excel export of every endpoint. It only reads.
 - **Works offline.** Pull once, then work anywhere. You only need a connection to pull, push and publish.
-- **Built for AI agents.** 37 tools over MCP let Copilot, Claude Code and Cursor open projects, edit specs, run AMF's checks and try the mock while you watch. Changes in Design Center and Exchange stay off until you allow them.
+- **Built for AI agents.** 40 tools over MCP let Copilot, Claude Code and Cursor open projects, edit specs, run AMF's checks and try the mock while you watch. Changes in Design Center and Exchange stay off until you allow them.
 - **Learn it properly.** The API Design Academy goes from how computers talk to all of RAML, Design Center, Exchange, APIkit and API Manager, with exam-style practice for the MuleSoft Developer I and II certifications. AMF checks every answer.
 
 ---
@@ -125,7 +125,7 @@ No. No telemetry, no analytics, no account of its own. Specs leave your computer
 Sign in with Anypoint works in the US, EU, Canada, UK, Japan, India and Australia clouds. Your own Connected App works in every cloud, US Government included.
 
 **Can AI agents use it?**
-Yes. It has 37 tools over MCP, so Copilot, Claude Code, Cursor and others can open projects, edit specs, run AMF's checks and governance, and try the mock while you watch. Changes in Design Center and Exchange stay off until you allow them.
+Yes. It has 40 tools over MCP, so Copilot, Claude Code, Cursor and others can open projects, edit specs, run AMF's checks and governance, and try the mock while you watch. Changes in Design Center and Exchange stay off until you allow them.
 
 **Is it free?**
 Yes, MIT licensed. It's independent and not made by MuleSoft or Salesforce.

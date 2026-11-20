@@ -5,6 +5,7 @@ New work collects under Unreleased and moves into a version when it ships. The s
 ## Unreleased
 
 - **Indentation guides** in the editor: a faint line at each indent level, so you can see what sits under what.
+- **More of the Dashboard for AI agents**: three new read-only tools: what runs in each environment (`deployments`), a published API's endpoints (`api_endpoints`), and what changed between two versions with which changes break clients (`version_changes`).
 - **Enter indents where you are**: one level deeper after a new key (`name:`), the same level after a value, and at the item's level inside a `- ` list.
 - **Nested types in the Inspector**: a type's properties show as deep as they go, through objects and lists of lists, each with its own required box.
 - **A new type from JSON** in any file with types, including libraries: name it and paste the JSON. Replacing the type you're in is now a choice, not the default.

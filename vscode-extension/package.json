@@ -1216,6 +1216,111 @@
         }
       },
       {
+        "name": "designStudio_deployments",
+        "toolReferenceName": "designStudio_deployments",
+        "displayName": "Design Studio: Deployments",
+        "modelDescription": "What runs where (the Dashboard's Deployments): each environment, the apps in Runtime Manager with their status, runtime and Mule version, and the APIs managed in API Manager with their version, status and endpoint. Read only.",
+        "userDescription": "What runs where (the Dashboard's Deployments): each environment, the apps in Runtime Manager with their status, runtime and Mule version, and the APIs managed in API Manager with their version, status and endpoint.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "org_id": {
+              "type": "string",
+              "description": "A business group id (default: the signed-in organization)"
+            },
+            "environment": {
+              "type": "string",
+              "description": "Only this environment, by name"
+            }
+          }
+        }
+      },
+      {
+        "name": "designStudio_api_endpoints",
+        "toolReferenceName": "designStudio_api_endpoints",
+        "displayName": "Design Studio: Api endpoints",
+        "modelDescription": "A published API's endpoints, read by AMF from its Exchange version (the Dashboard's endpoint list and Excel export): base URI, and each path with its methods and summary. Defaults to the latest version.",
+        "userDescription": "A published API's endpoints, read by AMF from its Exchange version (the Dashboard's endpoint list and Excel export): base URI, and each path with its methods and summary.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "group_id": {
+              "type": "string",
+              "description": "Group (organization) id; default the signed-in organization"
+            },
+            "asset_id": {
+              "type": "string",
+              "description": "Asset id, from org_dashboard"
+            },
+            "version": {
+              "type": "string",
+              "description": "A version (default the latest)"
+            }
+          },
+          "required": [
+            "asset_id"
+          ]
+        }
+      },
+      {
+        "name": "designStudio_version_changes",
+        "toolReferenceName": "designStudio_version_changes",
+        "displayName": "Design Studio: Version changes",
+        "modelDescription": "What changed between two published versions of an API (the Exchange panel's What changed): methods and types added, removed or changed, which changes break clients, and whether the version number says so. Defaults to the latest version against the one before.",
+        "userDescription": "What changed between two published versions of an API (the Exchange panel's What changed): methods and types added, removed or changed, which changes break clients, and whether the version number says so.",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-structure)",
+        "tags": [
+          "design-studio",
+          "mulesoft",
+          "raml",
+          "oas",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "group_id": {
+              "type": "string",
+              "description": "Group (organization) id; default the signed-in organization"
+            },
+            "asset_id": {
+              "type": "string",
+              "description": "Asset id"
+            },
+            "from": {
+              "type": "string",
+              "description": "The older version (default the one before to)"
+            },
+            "to": {
+              "type": "string",
+              "description": "The newer version (default the latest)"
+            }
+          },
+          "required": [
+            "asset_id"
+          ]
+        }
+      },
+      {
         "name": "designStudio_search_exchange",
         "toolReferenceName": "designStudio_search_exchange",
         "displayName": "Design Studio: Search exchange",

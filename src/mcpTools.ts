@@ -231,6 +231,49 @@ export const TOOLS: Tool[] = [
   { name: 'conformance_report', readOnly: true, description: "One governed API's API Governance report: each ruleset passed or failed, and each failing rule with its message and the place in the spec. Take the urn from org_dashboard.",
     props: { urn: str('The API\'s urn from org_dashboard') }, required: ['urn'],
     run: async (a) => D.report(String(a.urn)) },
+  { name: 'deployments', readOnly: true, description: "What runs where (the Dashboard's Deployments): each environment, the apps in Runtime Manager with their status, runtime and Mule version, and the APIs managed in API Manager with their version, status and endpoint. Read only.",
+    props: { org_id: str('A business group id (default: the signed-in organization)'), environment: str('Only this environment, by name') },
+    run: async (a) => {
+      const me = await invoke<Me | null>('anypoint_status'); if (!me) throw new Error('Not signed in to Anypoint.');
+      const id = a.org_id ? String(a.org_id) : me.org_id;
+      const r = await D.read({ id, name: id === me.org_id ? me.org_name : id });
+      const env = a.environment ? String(a.environment).toLowerCase() : null, keep = (e: string) => !env || e.toLowerCase() === env;
+      return { organization: r.org.name, access: { runtimeManager: r.access.runtime, apiManager: r.access.apimanager }, why: r.why,
+        environments: r.environments.filter((e) => keep(e.name)).map((e) => ({ name: e.name, type: e.type, production: e.production })),
+        apps: r.apps.filter((x) => keep(x.env)).map((x) => ({ environment: x.env, name: x.name, status: x.status, runningOk: x.health === 'up' ? true : x.health === 'down' ? false : null,
+          runtime: x.runtime, mule: x.mule, updated: x.updated ? new Date(x.updated).toISOString() : null, url: x.url || null })),
+        managedApis: r.instances.filter((x) => keep(x.env)).map((x) => ({ environment: x.env, name: x.name, groupId: x.groupId, assetId: x.assetId, version: x.version, label: x.label || null,
+          status: x.status, endpoint: x.endpoint || null, technology: x.technology })),
+        notes: r.notes };
+    } },
+  { name: 'api_endpoints', readOnly: true, description: "A published API's endpoints, read by AMF from its Exchange version (the Dashboard's endpoint list and Excel export): base URI, and each path with its methods and summary. Defaults to the latest version.",
+    props: { group_id: str('Group (organization) id; default the signed-in organization'), asset_id: str('Asset id, from org_dashboard'), version: str('A version (default the latest)') }, required: ['asset_id'],
+    run: async (a) => {
+      const me = await invoke<Me | null>('anypoint_status'); if (!me) throw new Error('Not signed in to Anypoint.');
+      const groupId = a.group_id ? String(a.group_id) : me.org_id, assetId = String(a.asset_id);
+      const vs = (await S.assetVersions(groupId, assetId))?.versions ?? [];
+      const v = a.version ? vs.find((x) => x.version === String(a.version)) : vs[0];
+      if (!v) throw new Error(a.version ? `${assetId} has no version ${a.version}.` : `${assetId} has no versions in Exchange.`);
+      const api = { groupId, assetId, name: assetId, version: v.version, stable: v.status !== 'development' } as D.Api;
+      const [x] = await D.readEndpoints([api], () => {}, () => true);
+      if (x.error) throw new Error(x.error);
+      return { assetId, version: v.version, stage: v.status === 'development' ? 'Development' : 'Stable', baseUri: x.base || null,
+        endpoints: new Set(x.ops.map((o) => o.path)).size, operations: x.ops.map((o) => ({ method: o.method, path: o.path, summary: o.summary || undefined })) };
+    } },
+  { name: 'version_changes', readOnly: true, description: "What changed between two published versions of an API (the Exchange panel's What changed): methods and types added, removed or changed, which changes break clients, and whether the version number says so. Defaults to the latest version against the one before.",
+    props: { group_id: str('Group (organization) id; default the signed-in organization'), asset_id: str('Asset id'), from: str('The older version (default the one before to)'), to: str('The newer version (default the latest)') }, required: ['asset_id'],
+    run: async (a) => {
+      const me = await invoke<Me | null>('anypoint_status'); if (!me) throw new Error('Not signed in to Anypoint.');
+      const groupId = a.group_id ? String(a.group_id) : me.org_id, assetId = String(a.asset_id);
+      const vs = (await S.assetVersions(groupId, assetId))?.versions ?? [];
+      const to = a.to ? vs.find((x) => x.version === String(a.to)) : vs[0];
+      if (!to) throw new Error(a.to ? `${assetId} has no version ${a.to}.` : `${assetId} has no versions in Exchange.`);
+      const from = a.from ? vs.find((x) => x.version === String(a.from)) : vs[vs.indexOf(to) + 1];
+      if (!from) throw new Error(a.from ? `${assetId} has no version ${a.from}.` : `${to.version} is ${assetId}'s first version: nothing to compare it with.`);
+      const r = await D.changes({ groupId, assetId }, from, to);
+      return { assetId, from: from.version, to: to.version, versionBump: r.bump, changeNeeds: r.needs ?? 'none', flagged: r.flagged ? `Breaking changes published as a ${r.bump} version.` : undefined,
+        changes: r.changes.map((c) => ({ change: c.kind === '+' ? 'added' : c.kind === '-' ? 'removed' : 'changed', what: c.what, method: c.method, name: c.name, detail: c.detail, breaking: c.breaking })) };
+    } },
   { name: 'search_exchange', readOnly: true, description: 'Search Exchange for assets to depend on: RAML fragments (libraries, types, traits), rulesets, or APIs.',
     props: { query: str('Search words'), types: { type: 'array', description: 'Asset types, like raml-fragment, rest-api, ruleset (default raml-fragment)' } as never }, required: ['query'],
     run: async (a) => S.searchAssets(String(a.query), (a.types as string[] | undefined) ?? ['raml-fragment']) },
