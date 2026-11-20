@@ -2,7 +2,8 @@
 // agrees, so a mistake shows here instead of halfway through a release. Exit code 1 lists what's wrong.
 // Run: npm run release:check   (in CI: node scripts/release-check.mjs v0.2.0, which also checks the tag)
 import { readFileSync } from 'node:fs';
-const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
+// Line endings as LF: Windows checks files out with CRLF, and the patterns below are written for LF.
+const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const bad = [];
 const want = JSON.parse(read('package.json')).version;
 
