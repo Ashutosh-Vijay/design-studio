@@ -33,13 +33,12 @@ const APP_NAME = 'Design Studio for MuleSoft';
 const ours = (a) => a.client_name === APP_NAME || a.client_name === 'API Designer Studio';
 
 // The Connected App every region gets (read from the US one with `inspect`, 2026-10-15).
-const BROKER_SITES = ['https://ashutosh-vijay.dev', 'https://ashutosh-vijay.pages.dev'];
 const TEMPLATE = {
   client_name: APP_NAME,
   client_uri: 'https://ashutosh-vijay.dev/design-studio/',
-  // The broker's callbacks, and the app's own: four loopback ports, so one busy port doesn't stop a sign-in.
-  // (The broker's old /api-designer-studio path was dropped on 2026-11-20, when every region got a new app.)
-  redirect_uris: [...BROKER_SITES.map((h) => `${h}/design-studio/auth/callback`), ...[8765, 8766, 8767, 8768].map((p) => `http://localhost:${p}/callback`)],
+  // Only the app's own loopback callbacks, four ports so one busy port doesn't stop a sign-in. The broker's
+  // callbacks were removed on 2026-11-21: every region signs in directly with clients.json, so they were unused.
+  redirect_uris: [8765, 8766, 8767, 8768].map((p) => `http://localhost:${p}/callback`),
   grant_types: ['authorization_code', 'refresh_token'],
   scopes: ['full', 'read:organization', 'openid', 'profile', 'email', 'offline_access', 'edit:design_center', 'edit:exchange'],
   audience: 'everyone',
