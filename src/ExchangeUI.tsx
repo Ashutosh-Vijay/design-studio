@@ -142,7 +142,7 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
           </div>
         ) : blocked && <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-[color-mix(in_oklch,var(--warn)_60%,transparent)] bg-[color-mix(in_oklch,var(--warn)_8%,transparent)] text-content">
           <span className="flex-1">{blocked}</span>
-          {me === null && <button className={btnPrimary} onClick={() => window.dispatchEvent(new Event('ads-connect'))}>Sign in…</button>}</div>}
+          {me === null && <button className={btnPrimary} onClick={() => window.dispatchEvent(new CustomEvent('ads-connect', { detail: 'signin' }))}>Sign in…</button>}</div>}
         <div className="flex gap-2.5">
           <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Asset version</span>
             <input value={v} onChange={(e) => setV(e.target.value)} spellCheck={false} className={`${field} font-mono`} />

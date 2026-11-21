@@ -44,7 +44,7 @@ export const depsNote = (d: { fetched: string[]; failed: string[] }) => d.failed
   ? `Some Exchange dependencies couldn't be fetched, so checking may report missing files: ${d.failed.join('; ')}.` : null;
 
 // Connect to Anypoint, then pick a project and where to put it. Opens on the project list when signed in.
-export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: string; onClose: () => void; onPulled: (root: string, note: string | null) => void }) {
+export function ConnectDialog({ openRoot, signInOnly, onClose, onPulled }: { openRoot?: string; signInOnly?: boolean; onClose: () => void; onPulled: (root: string, note: string | null) => void }) {
   const [me, setMe] = useState<Me | null>(null);
   const [step, setStep] = useState<'checking' | 'choose' | 'waiting' | 'projects'>('checking');
   const [way, setWay] = useState<'ours' | 'byok'>('ours');
@@ -116,7 +116,10 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
       // __ADS_BROKER and __ADS_HOST: a local broker and stand-in Anypoint for development tests (release builds ignore the broker one).
       const dev = window as unknown as { __ADS_BROKER?: string; __ADS_HOST?: string };
       const m = await invoke<Me>('anypoint_connect', { mode, clientId: clientId.trim(), clientSecret: secret.trim(), host: dev.__ADS_HOST ?? region, broker: dev.__ADS_BROKER ?? null, readOnly });
-      setMe(m); setSecret(''); window.dispatchEvent(new Event('ads-signed-in')); await loadProjects(m);
+      setMe(m); setSecret(''); window.dispatchEvent(new Event('ads-signed-in'));
+      // Signed in for Publish, or in a cloud with no Design Center projects to list: done here.
+      if (signInOnly || /\/\/(gb1|in1|au1)\.platform\./.test(m.host)) { onClose(); return; }
+      await loadProjects(m);
     } catch (e) { setErr(String(e)); setStep('choose'); }
   };
   const pull = async () => {

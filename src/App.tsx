@@ -106,7 +106,8 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState<false | '' | '@' | '>' | '#'>(false);
   const paletteRef = useRef<PaletteLent | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
-  const [connectOpen, setConnectOpen] = useState(false);
+  // 'signin': opened to sign in for something else (Publish), so it closes once signed in.
+  const [connectOpen, setConnectOpen] = useState<boolean | 'signin'>(false);
   const [creating, setCreating] = useState<'api' | 'fragment' | null>(null);
   // What the project view lends the title bar's sync controls: save everything, show a notice, reload.
   const syncRef = useRef<SyncHooks | null>(null);
@@ -121,7 +122,7 @@ export default function App() {
   const [dashboard, setDashboard] = useState(false);
   useEffect(() => { const f = () => { setAcademy(false); setDashboard(true); }; window.addEventListener('ads-dashboard', f); return () => window.removeEventListener('ads-dashboard', f); }, []);
   // Panels that need Anypoint (Dependencies' + when signed out) ask for the sign-in dialog.
-  useEffect(() => { const f = () => setConnectOpen(true); window.addEventListener('ads-connect', f); return () => window.removeEventListener('ads-connect', f); }, []);
+  useEffect(() => { const f = (e: Event) => setConnectOpen((e as CustomEvent).detail === 'signin' ? 'signin' : true); window.addEventListener('ads-connect', f); return () => window.removeEventListener('ads-connect', f); }, []);
   const mcp = useMcpStatus();
   useEffect(() => { if (isTauri) startDispatcher(); }, []);
   // Who is signed in to Anypoint, for the title bar: read at the start, when the window comes back, and after
@@ -340,7 +341,7 @@ export default function App() {
 
       {toast && !project && <div className="fixed bottom-10 right-4 z-50"><Toast key={toast} text={toast} onClose={() => setToast(null)} /></div>}
       <AskHost />
-      {connectOpen && <ConnectDialog openRoot={project?.root} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
+      {connectOpen && <ConnectDialog openRoot={project?.root} signInOnly={connectOpen === 'signin'} onClose={() => setConnectOpen(false)} onPulled={(root, note) => { setConnectOpen(false); if (note) setPendingNotice(note); openFolder(root); }} />}
       {creating && <CreateDialog what={creating} onClose={() => setCreating(null)} onCreated={(root) => { setCreating(null); openFolder(root); }} />}
       {zipAsk && <ZipDialog zip={zipAsk.zip} dest={zipAsk.dest} onCancel={() => setZipAsk(null)} onOk={unpack} />}
       {about && <About version={version} whatsNew={aboutNotes} onClose={() => { setAbout(false); setAboutNotes(false); }} onRestart={restartToUpdate} />}
