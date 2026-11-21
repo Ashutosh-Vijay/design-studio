@@ -519,7 +519,7 @@ const DASHBOARD: [&str; 8] = ["/governance/xapi/", "/apigovernance/", "/apimanag
 
 // Which product a path belongs to, for anypoint_dev_deny. "-write" in a rule denies only what isn't a read.
 fn denied(rules: &[String], method: &str, path: &str) -> Option<String> {
-  let product = if path.contains("/publish/exchange") { "publish" }
+  let product = if path.contains("/publish/exchange") || (method == "POST" && path.starts_with("/exchange/api/v2/organizations/")) { "publish" }
     else if path.starts_with("/designcenter/") { "designcenter" }
     else if path.starts_with("/exchange/") || path == GRAPH { "exchange" }
     else if path.starts_with("/governance/xapi/") || path.contains("/entitlements/apiGovernance") { "governance" }
@@ -532,14 +532,16 @@ fn denied(rules: &[String], method: &str, path: &str) -> Option<String> {
   rules.iter().find(|r| *r == product || (write && **r == format!("{product}-write")) || (product == "publish" && (*r == "designcenter" || *r == "designcenter-write"))).cloned()
 }
 
-fn call(app: &AppHandle, method: &str, path: &str, body: Option<&Value>) -> Result<Reply, String> { call_in(app, method, path, body, None, None) }
+fn call(app: &AppHandle, method: &str, path: &str, body: Option<&Value>) -> Result<Reply, String> { call_in(app, method, path, body, None, None, None) }
 // The clouds without Design Center (checked 2026-11-21 in a trial org of each: their APIs menu has only Exchange,
 // API Manager and API Governance, and the Design Center scope doesn't exist there). Their names as people say them.
 fn no_design_center(host: &str) -> Option<&'static str> {
   [("gb1.platform", "United Kingdom"), ("in1.platform", "India"), ("au1.platform", "Australia")].iter().find(|(h, _)| host.contains(h)).map(|(_, n)| *n)
 }
 // org and env: Runtime Manager's calls name the business group and the environment in headers, not in the path.
-fn call_in(app: &AppHandle, method: &str, path: &str, body: Option<&Value>, org: Option<&str>, env: Option<&str>) -> Result<Reply, String> {
+// form: a project published straight to Exchange (PLAN 10.17), {fields: [[name, value]], file: {field, name, b64}},
+// sent as multipart to Exchange's publication path only, and answered once the version exists (x-sync-publication).
+fn call_in(app: &AppHandle, method: &str, path: &str, body: Option<&Value>, org: Option<&str>, env: Option<&str>, form: Option<&Value>) -> Result<Reply, String> {
   if cfg!(debug_assertions) {
     if let Some(rule) = denied(&app.state::<Arc<Anypoint>>().deny.lock().unwrap(), method, path) {
       // As Anypoint answers an account without the permission: Exchange's search and Graph API give an empty
@@ -560,11 +562,12 @@ fn call_in(app: &AppHandle, method: &str, path: &str, body: Option<&Value>, org:
     let q = body.and_then(|b| b["query"].as_str()).unwrap_or("").to_lowercase();
     if method != "POST" || q.is_empty() || q.contains("mutation") || q.contains("subscription") { return Err("Only read queries go to Exchange's Graph API.".into()); }
   }
+  if form.is_some() && !(method == "POST" && path.starts_with("/exchange/api/v2/organizations/") && path.contains("/assets/")) { return Err(format!("Only a publication goes to Exchange as an upload: {method} {path} was not sent.")); }
   let ok = dashboard || path == GRAPH || path.starts_with("/designcenter/") || path.starts_with("/exchange/") || path == "/accounts/api/me";
   if !ok { return Err(format!("Not an allowed Anypoint path: {path}")); }
   for attempt in 0..2 {
     let (token, me, host) = access(app)?;
-    if path.starts_with("/designcenter/") { if let Some(c) = no_design_center(&host) { return Err(format!("Design Center isn't offered in Anypoint's {c} cloud, so there are no Design Center projects to pull or push there. Exchange, the Dashboard and projects on this computer work as usual.")); } }
+    if path.starts_with("/designcenter/") { if let Some(c) = no_design_center(&host) { return Err(format!("Design Center isn't offered in Anypoint's {c} cloud, so there are no Design Center projects to pull or push there. Exchange, the Dashboard, projects on this computer and publishing straight to Exchange work as usual.")); } }
     if me.read_only && !is_read(method, path) {
       return Err("This connection is read only, so nothing that would change Design Center was sent. Turn read only off in settings to push.".into());
     }
@@ -575,6 +578,16 @@ fn call_in(app: &AppHandle, method: &str, path: &str, body: Option<&Value>, org:
     if me.mode != "client" { rq = rq.header("x-owner-id", &me.user_id); }
     if let Some(e) = env { rq = rq.header("X-ANYPNT-ENV-ID", e).header("X-ANYPNT-ORG-ID", org.unwrap_or(&me.org_id)); }
     if let Some(b) = body { rq = rq.json(b); }
+    if let Some(f) = form {
+      use base64::Engine;
+      let mut mp = reqwest::blocking::multipart::Form::new();
+      for kv in f["fields"].as_array().cloned().unwrap_or_default() { mp = mp.text(kv[0].as_str().unwrap_or("").to_string(), kv[1].as_str().unwrap_or("").to_string()); }
+      let bytes = base64::engine::general_purpose::STANDARD.decode(f["file"]["b64"].as_str().unwrap_or("")).map_err(|e| e.to_string())?;
+      let part = reqwest::blocking::multipart::Part::bytes(bytes).file_name(f["file"]["name"].as_str().unwrap_or("api.zip").to_string()).mime_str("application/zip").map_err(|e| e.to_string())?;
+      mp = mp.part(f["file"]["field"].as_str().unwrap_or("").to_string(), part);
+      // Exchange checks the spec and builds its conversions before answering: 5 to 20 s on the trial orgs.
+      rq = rq.multipart(mp).header("x-sync-publication", "true").timeout(Duration::from_secs(300));
+    }
     let res = rq.send().map_err(|e| format!("Couldn't reach Anypoint: {e}"))?;
     let status = res.status().as_u16();
     if status == 401 && attempt == 0 {
@@ -592,8 +605,8 @@ fn call_in(app: &AppHandle, method: &str, path: &str, body: Option<&Value>, org:
 
 // One authorized Anypoint request (Design Center, Exchange, who-am-I), with the org and owner headers.
 #[tauri::command]
-pub async fn anypoint_api(app: AppHandle, method: String, path: String, body: Option<Value>, org: Option<String>, env: Option<String>) -> Result<Reply, String> {
-  tauri::async_runtime::spawn_blocking(move || call_in(&app, &method, &path, body.as_ref(), org.as_deref(), env.as_deref())).await.map_err(|e| e.to_string())?
+pub async fn anypoint_api(app: AppHandle, method: String, path: String, body: Option<Value>, org: Option<String>, env: Option<String>, form: Option<Value>) -> Result<Reply, String> {
+  tauri::async_runtime::spawn_blocking(move || call_in(&app, &method, &path, body.as_ref(), org.as_deref(), env.as_deref(), form.as_ref())).await.map_err(|e| e.to_string())?
 }
 
 // Development only: products to answer 403 (designcenter, designcenter-write, publish, exchange, exchange-write,

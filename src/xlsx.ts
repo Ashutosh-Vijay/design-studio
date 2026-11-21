@@ -114,15 +114,15 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 
-// ---------- The zip (stored entries) ----------
+// ---------- The zip (stored entries): the workbook, and a project published straight to Exchange (sync.ts) ----------
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
-function zip(files: [string, string][]) {
+export function zip(files: [string, string | Uint8Array][]) {
   const enc = new TextEncoder(), parts: Uint8Array[] = [], central: Uint8Array[] = [];
   let at = 0;
   // A fixed time (1 Jan 2026) keeps two exports of the same data byte-identical.
   const time = 0, date = ((2026 - 1980) << 9) | (1 << 5) | 1;
   for (const [path, text] of files) {
-    const name = enc.encode(path), data = enc.encode(text);
+    const name = enc.encode(path), data = typeof text === 'string' ? enc.encode(text) : text;
     let crc = 0xffffffff; for (const b of data) crc = CRC[(crc ^ b) & 0xff] ^ (crc >>> 8); crc = (crc ^ 0xffffffff) >>> 0;
     const head = new Uint8Array(30 + name.length), h = new DataView(head.buffer);
     h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);

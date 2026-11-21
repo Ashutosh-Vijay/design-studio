@@ -31,6 +31,9 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
 }) {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [linked, setLinked] = useState<boolean | null>(null);
+  const [kind, setKind] = useState<{ main: string; classifier: string } | null>(null);
+  // A project linked to Design Center publishes through it (as Design Center does); anything else goes straight to Exchange.
+  const direct = linked === false;
   const [d, setD] = useState<S.Descriptor | null>(null);
   const [versions, setVersions] = useState<S.Version[] | null>(null);
   const [v, setV] = useState(version ?? '');
@@ -45,35 +48,45 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
   useEffect(() => { if (!busy) return; const t0 = Date.now(); setSecs(0); const t = setInterval(() => setSecs(Math.round((Date.now() - t0) / 1000)), 1000); return () => clearInterval(t); }, [busy]);
 
   useEffect(() => {
-    (async () => {
+    // Read again after signing in from here (the sign-in window opens over this one).
+    const f = () => { setMe(undefined); setVersions(null); setErr(null); load(); };
+    const load = async () => {
       const m = await status(); setMe(m);
       setLinked(!!(await S.readLink(root)));
-      const x = await S.readDescriptor(root); if (!x) { setVersions([]); return; }
-      setD(x.d); setGroup(x.d.groupId); setName(x.d.name); setAssetId(x.d.assetId);
-      if (!m) return;
+      // What it publishes as: exchange.json, or for a project never published, its folder's name in the
+      // signed-in organization, with the kind and root file found as Put in Design Center finds them.
+      const k = await S.dcKind(root), x = k.x; setKind({ main: k.main, classifier: k.classifier });
+      const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? 'api';
+      const dd = x?.d ?? (m ? { groupId: m.org_id, assetId: folder.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'api', name: model?.title?.v || folder, version: undefined } : null);
+      if (x) setD(x.d);
+      if (dd) { setGroup(dd.groupId); setName(dd.name); setAssetId(dd.assetId); }
+      if (!m || !dd) { if (!x) setVersions([]); return; }
       // Business groups this user can publish to, from who-am-I.
       invoke<{ json: { user?: { memberOfOrganizations?: { id: string; name: string }[] } } }>('anypoint_api', { method: 'GET', path: '/accounts/api/me' })
         .then((r) => setGroups(r.json?.user?.memberOfOrganizations ?? []), () => {});
       try {
-        const a = await S.assetVersions(x.d.groupId, x.d.assetId, x.d.version);
+        const a = await S.assetVersions(dd.groupId, dd.assetId, dd.version);
         const vs = a?.versions ?? []; setVersions(vs);
         // Design Center's rule: the last published version plus a patch, or the project's version the first time.
-        if (!version) setV(vs[0] ? S.bump(vs[0].version, 'patch') : x.d.version || '1.0.0');
-      } catch (e) { setErr(String(e)); setVersions([]); if (!version) setV(x.d.version || '1.0.0'); }
-    })();
+        if (!version) setV(vs[0] ? S.bump(vs[0].version, 'patch') : dd.version || '1.0.0');
+      } catch (e) { setErr(String(e)); setVersions([]); if (!version) setV(dd.version || '1.0.0'); }
+    };
+    load(); window.addEventListener('ads-signed-in', f); return () => window.removeEventListener('ads-signed-in', f);
   }, []);
 
   const taken = versions?.find((x) => x.version === v.trim());
   const bad = !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(v.trim()) ? 'Use a version like 1.2.0.' : taken?.status === 'published' ? `${v.trim()} is already in Exchange as Stable. Stable versions can't be published again.` : null;
   const blocked = me === null ? 'Sign in to Anypoint to publish.' : me?.read_only ? 'read only'
-    : linked === false ? "Publishing goes through Design Center, and this project is only on this computer. Choose Put in Design Center from the project menu (the … next to its name), then publish." : !d ? 'This project has no exchange.json, so it has no Exchange asset to publish as.' : null;
+    : linked && !d ? 'This project has no exchange.json, so it has no Exchange asset to publish as.' : direct && !(main || kind?.main) ? 'This project has no root file to publish. Set one with Set as root file.' : null;
   const go = async () => {
     setErr(null); setStep(0);
     window.dispatchEvent(new CustomEvent('ads-publishing', { detail: true }));
     try {
-      // Exchange gets what Design Center has, so unsaved edits are saved here first, then pushed by publish.
+      // Exchange gets what you see, so unsaved edits are saved here first (and pushed by publish when linked).
       await saveAll();
-      const r = await S.publish(root, await paths(), { name: name.trim(), assetId: assetId.trim(), groupId: group, version: v.trim(), apiVersion: apiVersion.trim() || 'v1', main: main ?? d!.main ?? '', classifier: d!.classifier ?? 'raml', development: dev }, setStep);
+      const o = { name: name.trim(), assetId: assetId.trim(), groupId: group, version: v.trim(), apiVersion: apiVersion.trim() || 'v1', development: dev };
+      const r = direct ? (await S.publishDirect(root, await paths(), { ...o, main: main ?? kind!.main, classifier: kind!.classifier }, setStep), { pushed: 0 })
+        : await S.publish(root, await paths(), { ...o, main: main ?? d!.main ?? '', classifier: d!.classifier ?? 'raml' }, setStep);
       setDone({ text: `Published ${v.trim()} to Exchange${dev ? ' as Development' : ''}.${r.pushed ? ` Your ${r.pushed} ${r.pushed === 1 ? 'change was' : 'changes were'} pushed first.` : ''}`, pushed: r.pushed });
     } catch (e) { setErr(String(e).replace(/^Error: /, '')); setStep(null); }
     finally { window.dispatchEvent(new CustomEvent('ads-publishing', { detail: false })); }
@@ -83,7 +96,7 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
   const last = versions?.[0];
   return (
     // While publishing there's nothing to cancel (Design Center has the request); once done, closing reloads the project.
-    <Modal title="Publish to Exchange" sub={d ? `${d.name}` : undefined} onCancel={done ? () => onDone(done.text) : busy ? () => {} : onClose} width={520}
+    <Modal title="Publish to Exchange" sub={d?.name ?? (name || undefined)} onCancel={done ? () => onDone(done.text) : busy ? () => {} : onClose} width={520}
       footer={done ? <>
         <button className={btn} onClick={() => openUrl(exchangeUrl(me ?? null, group, assetId.trim()) + v.trim() + '/')}>Open in Exchange</button>
         <button className={btnPrimary} onClick={() => onDone(done.text)}>Done</button></>
@@ -101,7 +114,8 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
       ) : busy ? (
         <div className="flex flex-col gap-2.5 py-2 text-[12.5px]">
           <div className="text-content-secondary mb-1">Publishing {v.trim()}{dev ? ' as Development' : ''}. This can take a minute, so keep this window open. <span className="tabular-nums text-content-faint">{secs} s</span></div>
-          {['Saving your changes to Design Center', 'Publishing to Exchange', "Pulling the updated exchange.json while Exchange lists the version"].map((t, i) => (
+          {(direct ? ['Packing the project', 'Publishing to Exchange (it checks the spec and builds its files)', 'Recording the version in exchange.json']
+            : ['Saving your changes to Design Center', 'Publishing to Exchange', "Pulling the updated exchange.json while Exchange lists the version"]).map((t, i) => (
             <div key={t} className={`flex items-center gap-2.5 ${i > step! ? 'text-content-faint' : i === step ? 'text-content font-medium' : 'text-content-secondary'}`}>
               {i < step! ? <span className="w-3.5 h-3.5 shrink-0 flex items-center justify-center text-ok"><Icons.Check size={14} /></span> : i === step ? spin : <span className="w-3.5 h-3.5 shrink-0 rounded-full border-2 border-line" />}{t}
             </div>
@@ -113,7 +127,8 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
       <div className="flex flex-col gap-3 text-[12.5px]">
         {!!errors && <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[color-mix(in_oklch,var(--err)_30%,transparent)] bg-[color-mix(in_oklch,var(--err)_8%,transparent)]">
           <span className="flex-1">{errors} {errors === 1 ? 'error' : 'errors'} to fix first. Exchange won't accept a spec with errors.</span><button className={btn} onClick={onShowErrors}>Show</button></div>}
-        {!!unsaved && !blocked && <div className="px-3 py-2 rounded-lg border border-accent-border bg-accent-dim text-content-secondary">{unsaved} unsaved {unsaved === 1 ? 'file' : 'files'}: {unsaved === 1 ? "it's" : "they're"} saved and sent to Design Center first, so Exchange gets what you see.</div>}
+        {direct && !blocked && <div className="text-content-secondary">Publishes from this computer straight to Exchange.{!d && ' This project has never been published, so check its name and asset ID below.'}</div>}
+        {!!unsaved && !blocked && <div className="px-3 py-2 rounded-lg border border-accent-border bg-accent-dim text-content-secondary">{unsaved} unsaved {unsaved === 1 ? 'file' : 'files'}: {unsaved === 1 ? "it's" : "they're"} saved {direct ? '' : 'and sent to Design Center '}first, so Exchange gets what you see.</div>}
         {blocked === 'read only' ? (
           <div className="px-3 py-2.5 rounded-lg border-2 border-err bg-[color-mix(in_oklch,var(--err)_10%,transparent)]">
             <div className="flex items-center gap-2 font-semibold text-err"><Icons.Lock size={14} />Can't publish: this connection is read only</div>
@@ -125,7 +140,9 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
               <li>Click Publish again.</li>
             </ol>
           </div>
-        ) : blocked && <div className="px-3 py-2.5 rounded-lg border-2 border-[color-mix(in_oklch,var(--warn)_60%,transparent)] bg-[color-mix(in_oklch,var(--warn)_8%,transparent)] text-content">{blocked}</div>}
+        ) : blocked && <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 border-[color-mix(in_oklch,var(--warn)_60%,transparent)] bg-[color-mix(in_oklch,var(--warn)_8%,transparent)] text-content">
+          <span className="flex-1">{blocked}</span>
+          {me === null && <button className={btnPrimary} onClick={() => window.dispatchEvent(new Event('ads-connect'))}>Sign in…</button>}</div>}
         <div className="flex gap-2.5">
           <label className="flex-1 flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Asset version</span>
             <input value={v} onChange={(e) => setV(e.target.value)} spellCheck={false} className={`${field} font-mono`} />
@@ -140,7 +157,7 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
             ))}
           </div>
           <span className="text-[11.5px] text-content-faint">{dev ? 'A Development version can be published again with changes.' : "A Stable version can't be changed once published."}</span></div>
-        <details>
+        <details open={direct && !d}>
           <summary className="cursor-pointer text-[12px] text-content-muted">Advanced</summary>
           <div className="mt-2.5 flex flex-col gap-2.5">
             <label className="flex flex-col gap-1"><span className="text-[11.5px] text-content-faint">Business group</span>

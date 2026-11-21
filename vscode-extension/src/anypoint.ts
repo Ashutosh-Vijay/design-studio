@@ -208,7 +208,9 @@ async function brokerSignIn(first: string, region: string): Promise<[any, string
 const GRAPH = '/graph/api/v2/graphql';
 // Exchange's Graph API takes its queries as POST; call refuses a mutation there before this is asked (anypoint.rs).
 const isRead = (m: string, p: string) => m === 'GET' || (m === 'POST' && p.startsWith('/designcenter/') && p.endsWith('/status')) || (m === 'POST' && p === GRAPH);
-async function call(method: string, p: string, body?: unknown, org?: string, env?: string) {
+// form: a project published straight to Exchange (anypoint.rs, call_in), sent as multipart to the publication path only.
+type Form = { fields: [string, string][]; file: { field: string; name: string; b64: string } };
+async function call(method: string, p: string, body?: unknown, org?: string, env?: string, form?: Form) {
   // The Dashboard's calls (anypoint.rs, DASHBOARD): read only, always.
   const dashboard = ['/governance/xapi/', '/apigovernance/', '/apimanager/', '/accounts/api/organizations/', '/hybrid/', '/cloudhub/', '/amc/', '/armui/'].some((x) => p.startsWith(x));
   if (dashboard && method !== 'GET') throw new Error(`The Dashboard only reads: ${method} ${p} was not sent.`);
@@ -216,17 +218,20 @@ async function call(method: string, p: string, body?: unknown, org?: string, env
     const q = String((body as { query?: unknown } | undefined)?.query ?? '').toLowerCase();
     if (method !== 'POST' || !q || q.includes('mutation') || q.includes('subscription')) throw new Error("Only read queries go to Exchange's Graph API.");
   }
+  if (form && !(method === 'POST' && p.startsWith('/exchange/api/v2/organizations/') && p.includes('/assets/'))) throw new Error(`Only a publication goes to Exchange as an upload: ${method} ${p} was not sent.`);
   if (!(dashboard || p === GRAPH || p.startsWith('/designcenter/') || p.startsWith('/exchange/') || p === '/accounts/api/me')) throw new Error(`Not an allowed Anypoint path: ${p}`);
   for (let attempt = 0; attempt < 2; attempt++) {
     const { token, me, host } = await access();
     // The clouds without Design Center (anypoint.rs, no_design_center).
     const noDc = ([['gb1.platform', 'United Kingdom'], ['in1.platform', 'India'], ['au1.platform', 'Australia']] as const).find(([h]) => host.includes(h))?.[1];
-    if (noDc && p.startsWith('/designcenter/')) throw new Error(`Design Center isn't offered in Anypoint's ${noDc} cloud, so there are no Design Center projects to pull or push there. Exchange, the Dashboard and projects on this computer work as usual.`);
+    if (noDc && p.startsWith('/designcenter/')) throw new Error(`Design Center isn't offered in Anypoint's ${noDc} cloud, so there are no Design Center projects to pull or push there. Exchange, the Dashboard, projects on this computer and publishing straight to Exchange work as usual.`);
     if (me.read_only && !isRead(method, p)) throw new Error('This connection is read only, so nothing that would change Design Center was sent. Turn read only off in settings to push.');
     let r: Response;
     try {
       // org and env: Runtime Manager's calls name the business group and the environment in headers (anypoint.rs, call_in).
-      r = await send(host + p, () => ({ method, headers: { authorization: `Bearer ${token}`, 'x-organization-id': org ?? me.org_id, ...(me.mode === 'client' ? {} : { 'x-owner-id': me.user_id }), accept: 'application/json', ...(env ? { 'X-ANYPNT-ENV-ID': env, 'X-ANYPNT-ORG-ID': org ?? me.org_id } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      const fd = () => { const f = new FormData(); for (const [k, v] of form!.fields) f.append(k, v); f.append(form!.file.field, new Blob([Buffer.from(form!.file.b64, 'base64')], { type: 'application/zip' }), form!.file.name); return f; };
+      r = form ? await send(host + p, () => ({ method, headers: { authorization: `Bearer ${token}`, 'x-organization-id': org ?? me.org_id, ...(me.mode === 'client' ? {} : { 'x-owner-id': me.user_id }), accept: 'application/json', 'x-sync-publication': 'true' },
+        body: fd(), signal: AbortSignal.timeout(300000) }), false) : await send(host + p, () => ({ method, headers: { authorization: `Bearer ${token}`, 'x-organization-id': org ?? me.org_id, ...(me.mode === 'client' ? {} : { 'x-owner-id': me.user_id }), accept: 'application/json', ...(env ? { 'X-ANYPNT-ENV-ID': env, 'X-ANYPNT-ORG-ID': org ?? me.org_id } : {}), ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
         body: body !== undefined ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60000) }), method === 'GET');
     } catch (e) { throw new Error(`Couldn't reach Anypoint: ${why(e)}`); }
     if (r.status === 401 && attempt === 0) { if (session) session.expires = 0; continue; }
@@ -311,7 +316,7 @@ export async function anypointCommand(cmd: string, a: Record<string, any>, tab =
       writeConn(conn);
       return null;
     }
-    case 'anypoint_api': return call(a.method, a.path, a.body ?? undefined, a.org ?? undefined, a.env ?? undefined);
+    case 'anypoint_api': return call(a.method, a.path, a.body ?? undefined, a.org ?? undefined, a.env ?? undefined, a.form ?? undefined);
     case 'anypoint_fetch_dependency': {
       const safe = (s: string) => !!s && s !== '.' && s !== '..' && /^[A-Za-z0-9._-]+$/.test(s);
       const { root, group, asset, version } = a; const published = !!a.published;

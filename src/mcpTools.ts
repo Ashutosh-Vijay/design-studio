@@ -204,16 +204,22 @@ export const TOOLS: Tool[] = [
     } },
 
   // Exchange
-  { name: 'publish_to_exchange', remote: true, description: "Publish the project to Exchange (Design Center's Publish): pushes unsent changes first, holds the lock, publishes, pulls back exchange.json. A Stable version can't be published twice; use development for a version you will republish.",
-    props: { version: str('Asset version, like 1.0.1'), development: bool('Publish as a Development version (default false: Stable)'), api_version: str('API version, like v1 (default from the spec)'), name: str('Asset name (default from exchange.json)') }, required: ['version'],
+  { name: 'publish_to_exchange', remote: true, description: "Publish the project to Exchange. A project linked to Design Center publishes through it (Design Center's Publish: pushes unsent changes first, holds the lock, publishes, pulls back exchange.json); any other project goes straight to Exchange from this computer and exchange.json records the version (made if missing). A Stable version can't be published twice; use development for a version you will republish.",
+    props: { version: str('Asset version, like 1.0.1'), development: bool('Publish as a Development version (default false: Stable)'), api_version: str('API version, like v1 (default from the spec)'), name: str('Asset name (default from exchange.json, or the folder name)'), asset_id: str('Asset ID for a project never published (default from exchange.json, or the folder name)') }, required: ['version'],
     run: async (a) => {
-      const { p } = await linked(); await p.saveAll();
-      const x = await S.readDescriptor(p.root); if (!x) throw new Error('This project has no exchange.json.');
-      const d = x.d, main = p.main ?? d.main ?? '';
+      const p = proj(); await p.saveAll();
+      const l = await S.readLink(p.root), k = await S.dcKind(p.root), x = k.x;
+      if (l && !x) throw new Error('This project has no exchange.json.');
+      const me = await invoke<Me | null>('anypoint_status'); if (!me) throw new Error('Not signed in to Anypoint.');
+      const folder = p.root.split(/[\\/]/).filter(Boolean).pop() ?? 'api';
+      const d = x?.d ?? { groupId: me.org_id, assetId: folder.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'api', name: folder };
+      const main = p.main ?? d.main ?? k.main;
       const apiVersion = String(a.api_version ?? ((await p.read(main).catch(() => '')).match(/^version:\s*(\S+)/m)?.[1] ?? 'v1'));
-      const r = await S.publish(p.root, await filesNow(p.root), { name: String(a.name ?? d.name), assetId: d.assetId, groupId: d.groupId, version: String(a.version), apiVersion, main, classifier: d.classifier ?? 'raml', development: a.development === true });
+      const o = { name: String(a.name ?? d.name), assetId: String(a.asset_id ?? d.assetId), groupId: d.groupId, version: String(a.version), apiVersion, main, development: a.development === true };
+      const r = l ? await S.publish(p.root, await filesNow(p.root), { ...o, classifier: d.classifier ?? 'raml' })
+        : (await S.publishDirect(p.root, await filesNow(p.root), { ...o, classifier: k.classifier }), { pushed: 0 });
       await p.reload();
-      return `Published ${d.assetId} ${a.version}${a.development ? ' as Development' : ''}.${r.pushed ? ` ${r.pushed} changes were pushed first.` : ''}`;
+      return `Published ${o.assetId} ${a.version}${a.development ? ' as Development' : ''}${l ? '' : ' straight to Exchange'}.${r.pushed ? ` ${r.pushed} changes were pushed first.` : ''}`;
     } },
   { name: 'org_dashboard', readOnly: true, description: "The signed-in organization's APIs at a glance (the Dashboard): every Exchange asset with its latest version, who published it and when, whether API Governance is on, and each governed API's conformance (rulesets passing and failing). Read only.",
     props: { org_id: str('A business group id (default: the signed-in organization)') },

@@ -19,7 +19,7 @@ Big specs open in seconds, and every edit is checked as you type by AMF, the sam
 - **Forms and code in step**: build an API from forms (like Design Center's Guide me through it) or from code, and switch any time; a form changes only the lines it must.
 - **Refactorings**: rename a type everywhere, find references, extract to a library, delete with cascade.
 - **Design Center sync**: sign in, pull projects, review every change before you push, push with the branch lock, branches, and merge with conflict help.
-- **Exchange**: publish with a suggested version, add and update dependencies, and see what changed since the last version.
+- **Exchange**: publish with a suggested version (through Design Center, or straight to Exchange for a project that isn't there), add and update dependencies, and see what changed since the last version.
 - **Governance**: check your API against the rulesets it depends on.
 - **A local mock**: try every method with Design Center's MS2 headers, unsaved edits included.
 - **Dashboard**: every API in your Anypoint organization in one place: versions and endpoints, what changed between versions, API Governance conformance, what's managed and deployed in each environment, a health check of the addresses you choose, and an Excel export of every endpoint. It only reads.

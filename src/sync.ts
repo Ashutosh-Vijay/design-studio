@@ -4,6 +4,7 @@
 // three-way merge needs when both sides changed a file.
 import { invoke } from '@tauri-apps/api/core';
 import { homeDir } from '@tauri-apps/api/path';
+import { zip } from './xlsx';
 
 const DC = '/designcenter/api-designer';
 const LINK = '.apidesigner/link.json', BASE = '.apidesigner/base/';
@@ -428,6 +429,39 @@ export async function publish(root: string, paths: string[], o: { name: string; 
   return { pushed, pulled: after };
 }
 
+// Publish straight to Exchange (PLAN 10.17, proven 2026-11-21 in the US and UK trial orgs): for a project that
+// isn't in Design Center, and in the clouds that have none. The project's files go up as one zip, Exchange checks
+// the spec and builds its conversions and fat zip, and answers once the version exists. exchange.json then
+// records what was published (made if the project had none), as Design Center's publish does on its side.
+export async function publishDirect(root: string, paths: string[], o: { name: string; assetId: string; groupId: string; version: string; apiVersion: string; main: string; classifier: string; development: boolean }, step: (n: number) => void = () => {}) {
+  step(0);
+  const files: [string, string | Uint8Array][] = [];
+  // Never .apidesigner/ (sync's base copies), .git/ or any other dot-folder or dot-file.
+  for (const p of paths.filter((x) => !x.split('/').some((s) => s.startsWith('.')))) {
+    const t = await readLocal(root, p); if (t == null) continue;
+    files.push([p, t.startsWith('\u0000b64:') ? Uint8Array.from(atob(t.slice(5)), (c) => c.charCodeAt(0)) : t]);
+  }
+  const bytes = zip(files);
+  let b64 = ''; for (let i = 0; i < bytes.length; i += 0x8000) b64 += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const x = await readDescriptor(root);
+  const deps = (x?.d.dependencies ?? []).map((d) => `${d.groupId}:${d.assetId}:${d.version}`).join(',');
+  const main = o.main.replace(/^\//, '');
+  const fields: [string, string][] = [['name', o.name], ['properties.mainFile', main],
+    ...(o.classifier === 'raml-fragment' ? [] : [['properties.apiVersion', o.apiVersion] as [string, string]]),
+    ...(o.development ? [['status', 'development'] as [string, string]] : []), ...(deps ? [['dependencies', deps] as [string, string]] : [])];
+  step(1);
+  const r = await invoke<Reply>('anypoint_api', { method: 'POST', path: `/exchange/api/v2/organizations/${o.groupId}/assets/${o.groupId}/${o.assetId}/${o.version}`,
+    form: { fields, file: { field: `files.${o.classifier}.zip`, name: `${o.assetId}-${o.version}.zip`, b64: btoa(b64) } } });
+  if (r.status === 409) throw new Error(`Version ${o.version} is already in Exchange as Stable, and a Stable version can't be published again. Pick a new version.`);
+  // A spec Exchange won't take: its own messages, with line and column ("Unresolved reference 'X' (line:9, column:18)").
+  if (r.status === 400) throw new Error(`Exchange didn't accept the spec: ${(r.json?.details?.errors as string[] | undefined)?.join('; ') || r.json?.message || r.text}`);
+  must(r, 'Publishing');
+  step(2);
+  const now = { main, name: o.name, classifier: o.classifier, groupId: o.groupId, assetId: o.assetId, version: o.version, ...(o.classifier === 'raml-fragment' ? {} : { apiVersion: o.apiVersion }) };
+  if (x) await writeDescriptor(root, x.text, (d) => Object.assign(d, now));
+  else await invoke('write_file_exact', { root, path: 'exchange.json', text: JSON.stringify({ ...now, tags: [], dependencies: [] }, null, 2) + '\n' });
+}
+
 // ---------- What changed between two AMF models (the Exchange panel) ----------
 // Endpoints and methods by "METHOD /path", types by file and name. Removing something, a new required
 // parameter, or a changed type is breaking (major); only additions is minor; anything else is a patch.
@@ -549,7 +583,7 @@ export async function saveShare(id: string, shared: { id: string; role: string; 
 // Duplicate project: a new Design Center project of the same kind, with this one's files (Exchange
 // dependencies come with exchange.json), pulled into its own folder and pushed.
 // What Design Center calls a project's kind, from its exchange.json and root file (Duplicate project, Put in Design Center).
-async function dcKind(root: string) {
+export async function dcKind(root: string) {
   const x = await readDescriptor(root);
   // No exchange.json (a folder made on this computer): the root file the app itself opens, else a top-level
   // RAML fragment (a library, a data type). Without this, Design Center's starter name stayed the root.

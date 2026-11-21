@@ -211,7 +211,7 @@ export function ConnectDialog({ openRoot, onClose, onPulled }: { openRoot?: stri
           <button className={`${btn} !h-6 !text-[11.5px] shrink-0`} onClick={() => setWay('byok')}>Use my own Connected App</button></div>}
         {/* Clouds without Design Center (anypoint.rs, no_design_center): said before signing in, not found out after. */}
         {/gb1\.|in1\.|au1\./.test(region) && <div className="px-2.5 py-2 rounded-md border border-line bg-surface-2 text-[11.5px] text-content-secondary">
-          Design Center isn't offered in Anypoint's {REGIONS.find(([, h]) => h === region)?.[0]} cloud, so there are no projects there to pull or push. Exchange, the Dashboard and your projects on this computer all work.</div>}
+          Design Center isn't offered in Anypoint's {REGIONS.find(([, h]) => h === region)?.[0]} cloud, so there are no projects there to pull or push. Exchange, the Dashboard and your projects on this computer all work, and Publish sends a project straight to Exchange.</div>}
         <label className="mt-1 flex items-start gap-2 cursor-pointer">
           <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
           <span><span className="block text-[12.5px]">Read only</span>
@@ -406,10 +406,23 @@ export function SyncBar({ root, dirty, listFiles, saveAll, onNotice, onChanged, 
     });
     return () => { un.then((f) => f()); };
   }, []);
-  // Only on this computer: one quiet button says so and offers the way into Design Center (the project menu holds its dialog).
+  // The UK, India and Australia clouds have no Design Center (anypoint.rs, no_design_center): no way in to offer there.
+  const [noDc, setNoDc] = useState(false);
+  useEffect(() => {
+    const f = () => invoke<Me | null>('anypoint_status').then((m) => setNoDc(/\/\/(gb1|in1|au1)\.platform\./.test(m?.host ?? '')), () => {});
+    f(); window.addEventListener('ads-signed-in', f); return () => window.removeEventListener('ads-signed-in', f);
+  }, []);
+  // Only on this computer: a quiet button offers the way into Design Center (the project menu holds its dialog), and
+  // Publish goes straight to Exchange.
   if (!link) return (
-    <button onClick={() => window.dispatchEvent(new Event('ads-put-in-dc'))} title="This project is only on this computer. Give it a Design Center project of its own, linked to this folder."
-      className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[12px] text-content-faint hover:bg-surface-2 hover:text-content"><Icons.DesignCenter size={14} />Put in Design Center…</button>
+    <>
+      {!noDc && <button onClick={() => window.dispatchEvent(new Event('ads-put-in-dc'))} title="This project is only on this computer. Give it a Design Center project of its own, linked to this folder."
+        className="h-7 px-2.5 rounded-md flex items-center gap-1.5 text-[12px] text-content-faint hover:bg-surface-2 hover:text-content"><Icons.DesignCenter size={14} />Put in Design Center…</button>}
+      <button onClick={onPublish} title="Publish this project straight to Exchange"
+        className="h-7 px-2.5 shrink-0 whitespace-nowrap rounded-md flex items-center gap-1.5 text-[12px] text-accent border border-accent-border hover:bg-accent-dim">
+        <Icons.Exchange size={14} />Publish
+      </button>
+    </>
   );
 
   const run = async (label: string, fn: () => Promise<void>) => {

@@ -4,6 +4,8 @@ New work collects under Unreleased and moves into a version when it ships. The s
 
 ## Unreleased
 
+- **Publish without Design Center**: a project that isn't in Design Center (a folder, a Git checkout, or any project in the United Kingdom, India and Australia clouds) now publishes straight to Exchange. Exchange checks the spec and builds its RAML and OAS versions as usual, and exchange.json records what was published. Linked projects still publish through Design Center.
+- Publish has a Sign in button when you aren't signed in, and carries on once you are.
 - Anypoint doesn't offer Design Center in the United Kingdom, India and Australia clouds: the sign-in form says so when you pick one, and Design Center actions there explain it instead of failing with Anypoint's error.
 
 ## 0.1.1 (November 2026): fixes from the first week

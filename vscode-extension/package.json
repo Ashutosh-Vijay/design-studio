@@ -1126,8 +1126,8 @@
         "name": "designStudio_publish_to_exchange",
         "toolReferenceName": "designStudio_publish_to_exchange",
         "displayName": "Design Studio: Publish to exchange",
-        "modelDescription": "Publish the project to Exchange (Design Center's Publish): pushes unsent changes first, holds the lock, publishes, pulls back exchange.json. A Stable version can't be published twice; use development for a version you will republish.",
-        "userDescription": "Publish the project to Exchange (Design Center's Publish): pushes unsent changes first, holds the lock, publishes, pulls back exchange.json.",
+        "modelDescription": "Publish the project to Exchange. A project linked to Design Center publishes through it (Design Center's Publish: pushes unsent changes first, holds the lock, publishes, pulls back exchange.json); any other project goes straight to Exchange from this computer and exchange.json records the version (made if missing). A Stable version can't be published twice; use development for a version you will republish.",
+        "userDescription": "Publish the project to Exchange.",
         "canBeReferencedInPrompt": true,
         "icon": "$(symbol-structure)",
         "tags": [
@@ -1154,7 +1154,11 @@
             },
             "name": {
               "type": "string",
-              "description": "Asset name (default from exchange.json)"
+              "description": "Asset name (default from exchange.json, or the folder name)"
+            },
+            "asset_id": {
+              "type": "string",
+              "description": "Asset ID for a project never published (default from exchange.json, or the folder name)"
             }
           },
           "required": [
