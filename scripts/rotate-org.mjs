@@ -3,9 +3,7 @@
  *
  *   node scripts/rotate-org.mjs inspect [region]   read the Connected App's settings in that region's org
  *   node scripts/rotate-org.mjs app [region]       make the org's Connected App match the template: create it if
- *                                                  missing, or add what's missing (redirect URIs, scopes), then
- *                                                  give its client ID and secret to the broker for that region
- *        --broker   put them into the broker (Cloudflare) as that region's encrypted settings
+ *                                                  missing, or add what's missing (redirect URIs, scopes)
  *        --publish  put them into clients.json in Ashutosh-Vijay/design-studio-auth (public), which the app reads
  *
  * A browser window (Google Chrome) opens on the region's Anypoint; you sign in yourself, and the script
@@ -48,8 +46,6 @@ const TEMPLATE = {
   pkce_enforcement: 'required', // the client is public (clients.json): every sign-in must carry PKCE
 };
 
-// Puts a value into the broker's Cloudflare Pages project as an encrypted variable, on stdin (never in a
-// command line or the output). Same as scripts/set-broker-secrets.mjs.
 import { spawnSync } from 'node:child_process';
 // Writes a region's client into clients.json in the public design-studio-auth repo, through the GitHub API
 // (gh, signed in). The new file goes in on stdin, so the secret never appears in a command line or output.
@@ -70,13 +66,6 @@ function publishClient(region, id, secret) {
   const r = gh(`api -X PUT repos/${AUTH_REPO}/contents/clients.json --input -`, body);
   if (!r.ok) throw new Error(`Writing clients.json failed: ${r.out.split(secret).join('<hidden>').slice(0, 300)}`);
   console.log(`Published: clients.json now has ${region}.`);
-}
-
-function brokerSecret(name, value) {
-  const cmd = `npx --yes wrangler@4 pages secret put ${name} --project-name ashutosh-vijay`;
-  const r = process.platform === 'win32' ? spawnSync('cmd.exe', ['/d', '/s', '/c', cmd], { input: value, encoding: 'utf8' }) : spawnSync('sh', ['-c', cmd], { input: value, encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`Setting ${name} failed:\n${`${r.stdout}${r.stderr}`.split(value).join('<hidden>').slice(-600)}`);
-  console.log(`Broker: ${name} set.`);
 }
 
 // Opens Chrome on the region's login (its kept profile) and waits until you're signed in. Then Anypoint's API is called from
@@ -200,7 +189,7 @@ if (cmd === 'app') {
         }).join('; ')}.`);
       } else console.log('The Connected App already matches.');
     }
-    // Read it back: what Anypoint now has, and the secret for the broker.
+    // Read it back: what Anypoint now has, and the secret for clients.json.
     const now = (await s.call('GET', '/accounts/api/connectedApplications')).json;
     app = (now?.data ?? now ?? []).find(ours);
     const off = ['client_name', 'client_uri', 'redirect_uris', 'scopes', 'grant_types', 'pkce_enforcement'].filter((k) => Array.isArray(TEMPLATE[k])
@@ -210,12 +199,6 @@ if (cmd === 'app') {
     if (process.argv.includes('--publish')) {
       if (!app.client_secret) throw new Error("Anypoint didn't return the secret, so clients.json wasn't changed.");
       publishClient(region, app.client_id, app.client_secret);
-    }
-    if (process.argv.includes('--broker')) {
-      if (!app.client_secret) throw new Error("Anypoint didn't return the secret, so the broker wasn't changed.");
-      const suffix = region === 'us' ? '' : `_${region.toUpperCase()}`;
-      brokerSecret(`ANYPOINT_CLIENT_ID${suffix}`, app.client_id);
-      brokerSecret(`ANYPOINT_CLIENT_SECRET${suffix}`, app.client_secret);
     }
   } finally { await s.browser.close(); }
 }

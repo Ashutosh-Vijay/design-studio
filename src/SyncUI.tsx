@@ -51,9 +51,9 @@ export function ConnectDialog({ openRoot, signInOnly, onClose, onPulled }: { ope
   const [readOnly, setReadOnly] = useState(true);
   const [acts, setActs] = useState<'user' | 'app'>('user');
   const [region, setRegion] = useState(REGIONS[0][1]);
-  // Clouds where Sign in with Anypoint works: asked of the broker, so a new one needs no app update.
+  // Clouds where Sign in with Anypoint works: those in clients.json, read fresh, so a new one needs no app update.
   const [ourRegions, setOurRegions] = useState<string[]>(['us']);
-  useEffect(() => { invoke<string[]>('anypoint_broker_regions').then(setOurRegions, () => {}); }, []);
+  useEffect(() => { invoke<string[]>('anypoint_regions').then(setOurRegions, () => {}); }, []);
   const code = (h: string) => (h.match(/\/\/(eu|ca|gb|jp|in|au)1\./)?.[1] ?? 'us');
   const [clientId, setClientId] = useState(''); const [secret, setSecret] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -113,9 +113,9 @@ export function ConnectDialog({ openRoot, signInOnly, onClose, onPulled }: { ope
     setErr(null); if (way === 'ours' || acts === 'user') setStep('waiting');
     try {
       const mode = way === 'ours' ? 'anypoint' : acts === 'user' ? 'code' : 'client';
-      // __ADS_BROKER and __ADS_HOST: a local broker and stand-in Anypoint for development tests (release builds ignore the broker one).
-      const dev = window as unknown as { __ADS_BROKER?: string; __ADS_HOST?: string };
-      const m = await invoke<Me>('anypoint_connect', { mode, clientId: clientId.trim(), clientSecret: secret.trim(), host: dev.__ADS_HOST ?? region, broker: dev.__ADS_BROKER ?? null, readOnly });
+      // __ADS_HOST: a stand-in Anypoint for development tests.
+      const dev = window as unknown as { __ADS_HOST?: string };
+      const m = await invoke<Me>('anypoint_connect', { mode, clientId: clientId.trim(), clientSecret: secret.trim(), host: dev.__ADS_HOST ?? region, readOnly });
       setMe(m); setSecret(''); window.dispatchEvent(new Event('ads-signed-in'));
       // Signed in for Publish, or in a cloud with no Design Center projects to list: done here.
       if (signInOnly || /\/\/(gb1|in1|au1)\.platform\./.test(m.host)) { onClose(); return; }
@@ -323,10 +323,7 @@ export function ConnectDialog({ openRoot, signInOnly, onClose, onPulled }: { ope
   return (
     <Modal title={title} sub={sub} onCancel={onClose} width={600} footer={foot}>
       {body}
-      {err && <div className="mt-3 text-[12px] text-err select-text">{err}
-        {/* Blocked networks: the way out is the user's own Connected App, which talks only to Anypoint. */}
-        {/Couldn't reach the sign-in service/.test(err) && way === 'ours' && <button className={`${btn} ml-2 !h-6 !text-[11.5px]`} onClick={() => { setWay('byok'); setErr(null); setStep('choose'); }}>Use my own Connected App</button>}
-      </div>}
+      {err && <div className="mt-3 text-[12px] text-err select-text">{err}</div>}
     </Modal>
   );
 }

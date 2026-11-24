@@ -455,7 +455,7 @@ pub fn run() {
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![open_project, read_text_file, read_file_exact, save_text_file, write_file_exact, rename_file, delete_file, create_dir, export_zip, import_zip, import_into, fetch_url, amf::amf, watch::watch_project, watch::write_recovery, watch::clear_recovery, watch::list_recovery,
-      anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only, anypoint::anypoint_set_org, anypoint::anypoint_broker_regions, anypoint::health_check, anypoint::health_secret,
+      anypoint::anypoint_connect, anypoint::anypoint_status, anypoint::anypoint_disconnect, anypoint::anypoint_api, anypoint::anypoint_hold_lock, anypoint::anypoint_release_lock, anypoint::anypoint_fetch_dependency, anypoint::anypoint_set_read_only, anypoint::anypoint_set_org, anypoint::anypoint_regions, anypoint::health_check, anypoint::health_secret,
       anypoint::anypoint_dev_session, anypoint::anypoint_dev_deny, remember_theme, prefs_load, prefs_save, open_window, project_window, claim_project, mcp::mcp_start, mcp::mcp_stop, mcp::mcp_status, mcp::mcp_reply])
     .on_window_event(|w, e| match e {
       // AI tools work in the window used last.

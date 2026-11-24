@@ -10,11 +10,9 @@ import * as vscode from 'vscode';
 import { unzipBuffer } from './files';
 
 const PORTS = [8765, 8766, 8767, 8768];
-const BROKERS = ['https://ashutosh-vijay.dev/design-studio/auth', 'https://ashutosh-vijay.pages.dev/design-studio/auth'];
-const UNREACHABLE = "Couldn't reach the sign-in service";
 const CLIENTS_URLS = ['https://raw.githubusercontent.com/Ashutosh-Vijay/design-studio-auth/main/clients.json', 'https://cdn.jsdelivr.net/gh/Ashutosh-Vijay/design-studio-auth@main/clients.json'];
 
-type Connection = { mode: string; client_id: string; host: string; broker?: string; via?: string; read_only?: boolean; org_id?: string; org_name?: string };
+type Connection = { mode: string; client_id: string; host: string; via?: string; read_only?: boolean; org_id?: string; org_name?: string };
 type Me = { username: string; user_id: string; org_id: string; org_name: string; host: string; mode: string; read_only: boolean };
 let ctx: vscode.ExtensionContext;
 let session: { conn: Connection; access: string; expires: number; me: Me } | null = null;
@@ -72,22 +70,6 @@ async function startSession(conn: Connection, tokens: any) {
   return me;
 }
 
-async function brokerPost(broker: string, action: string, body: unknown) {
-  let r: Response;
-  try { r = await post(`${broker}/${action}`, body); } catch (e) { throw new Error(`${UNREACHABLE}: ${e instanceof Error ? e.message : e}`); }
-  let v: any; try { v = await r.json(); } catch { if (!r.ok) throw new Error(`${UNREACHABLE} (${r.status}).`); v = {}; }
-  if (r.ok) return v;
-  const e = v.error ?? '';
-  throw new Error(e === 'not_configured' ? "Sign in with Anypoint isn't available yet. Use your own Connected App for now." : e === 'region_unavailable' ? "Sign in with Anypoint isn't set up for this region yet. Use your own Connected App."
-    : e === 'invalid_grant' ? 'The sign-in has expired. Sign in again.' : e === 'expired' ? 'The sign-in took too long. Try again.' : `The sign-in service answered ${r.status}${e ? ': ' + e : ''}.`);
-}
-async function brokerAny(first: string, action: string, body: unknown): Promise<[any, string]> {
-  for (const b of [first, ...BROKERS.filter((x) => x !== first)]) {
-    try { return [await brokerPost(b, action, body), b]; } catch (e) { if (!String(e instanceof Error ? e.message : e).startsWith(UNREACHABLE)) throw e; }
-  }
-  throw new Error(`${UNREACHABLE}. Your network may block it. Use your own Connected App instead: it talks only to Anypoint.`);
-}
-
 // Our public per-cloud clients (clients.json in design-studio-auth), the last good copy, or the one packaged in.
 async function clients(fresh: boolean): Promise<any> {
   const cache = path.join(store(), 'clients.json');
@@ -126,8 +108,8 @@ async function renew(): Promise<{ token: string; me: Me; host: string }> {
     // A rotated client shows up as invalid_client: read the current one and try once more.
     try { tokens = await go(false); } catch (e) { if (String(e).includes('client ID or secret')) tokens = await go(true); else throw e; }
   } else if (conn.mode === 'anypoint') {
-    if (!refresh) throw new Error('Sign in again to continue.');
-    tokens = (await brokerAny(conn.broker || BROKERS[0], 'refresh', { refresh_token: refresh, region: regionOf(conn.host) }))[0];
+    // Signed in through the sign-in broker, retired in 0.1.2 (anypoint.rs, access).
+    throw new Error('Sign in again to continue: Design Studio now signs in with Anypoint directly.');
   } else if (conn.mode === 'client') {
     if (!secret) throw new Error("The Connected App secret isn't in the keychain any more. Sign in again.");
     tokens = await tokenRequest(conn.host, { grant_type: 'client_credentials', client_id: conn.client_id, client_secret: secret });
@@ -186,25 +168,6 @@ async function browserSignIn(host: string, clientId: string, secret: string, por
   await vscode.env.openExternal(vscode.Uri.parse(url, true));
   return done;
 }
-async function brokerSignIn(first: string, region: string): Promise<[any, string]> {
-  const verifier = crypto.randomBytes(32).toString('hex');
-  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
-  let broker = first;
-  const { port, done } = await loopback([0], async (url, reply) => {
-    if (!url.pathname.startsWith('/done')) { reply(''); return 'wait'; }
-    const q = url.searchParams, err = q.get('error');
-    if (err) { reply(page('err', "The sign-in didn't finish", 'Go back to Design Studio to see why and try again.')); throw new Error(err === 'access_denied' ? 'The sign-in was cancelled.' : `Anypoint said: ${err} ${q.get('error_description') ?? ''}`); }
-    const ticket = q.get('ticket'); if (!ticket) throw new Error('The sign-in came back without a ticket.');
-    try { const t = await brokerPost(broker, 'collect', { ticket, verifier }); reply(page('ok', "You're signed in", 'Design Studio is connected to Anypoint. You can close this tab.')); return t; }
-    catch (e) { reply(page('err', "The sign-in didn't finish", 'Go back to Design Studio to see why and try again.')); throw e; }
-  });
-  const [start, b] = await brokerAny(first, 'start', { challenge, port, region });
-  broker = b;
-  if (!start.url) throw new Error('The sign-in service sent no link.');
-  await vscode.env.openExternal(vscode.Uri.parse(start.url, true));
-  return [await done, broker];
-}
-
 const GRAPH = '/graph/api/v2/graphql';
 // Exchange's Graph API takes its queries as POST; call refuses a mutation there before this is asked (anypoint.rs).
 const isRead = (m: string, p: string) => m === 'GET' || (m === 'POST' && p.startsWith('/designcenter/') && p.endsWith('/status')) || (m === 'POST' && p === GRAPH);
@@ -256,20 +219,20 @@ export const releaseOnExit = (tab?: string) => Promise.race([Promise.all([...loc
 
 export async function anypointCommand(cmd: string, a: Record<string, any>, tab = '', emit: (event: string, payload: unknown) => void = () => {}): Promise<unknown> {
   switch (cmd) {
-    case 'anypoint_broker_regions': {
+    case 'anypoint_regions': {
       const out: string[] = Object.keys((await clients(true)).regions ?? {});
-      for (const b of BROKERS) { try { const v = await (await fetch(`${b}/regions`, { signal: AbortSignal.timeout(5000) })).json() as any; for (const r of v.regions ?? []) if (!out.includes(r)) out.push(r); break; } catch { /* the next */ } }
       return out.length ? out : ['us'];
     }
     case 'anypoint_connect': {
       const host = String(a.host).replace(/\/+$/, ''), mode: string = a.mode;
-      let tokens: any, via = '', broker = BROKERS[0];
-      const direct = mode === 'anypoint' ? await ourClient(regionOf(host), true) : null;
-      if (direct) { via = 'direct'; tokens = await browserSignIn(host, direct[0], direct[1], PORTS); }
-      else if (mode === 'anypoint') { [tokens, broker] = await brokerSignIn(BROKERS[0], regionOf(host)); }
-      else if (mode === 'client') tokens = await tokenRequest(host, { grant_type: 'client_credentials', client_id: a.clientId, client_secret: a.clientSecret });
+      let tokens: any, via = '';
+      if (mode === 'anypoint') {
+        const c = await ourClient(regionOf(host), true);
+        if (!c) throw new Error("Sign in with Anypoint isn't set up for this cloud. Use your own Connected App.");
+        via = 'direct'; tokens = await browserSignIn(host, c[0], c[1], PORTS);
+      } else if (mode === 'client') tokens = await tokenRequest(host, { grant_type: 'client_credentials', client_id: a.clientId, client_secret: a.clientSecret });
       else tokens = await browserSignIn(host, a.clientId, a.clientSecret, PORTS.slice(0, 1));
-      const conn: Connection = { mode, client_id: a.clientId ?? '', host, broker: mode === 'anypoint' && !via ? broker : '', via, read_only: a.readOnly ?? true };
+      const conn: Connection = { mode, client_id: a.clientId ?? '', host, via, read_only: a.readOnly ?? true };
       const me = await startSession(conn, tokens);
       if (mode !== 'anypoint') await ctx.secrets.store('client-secret', a.clientSecret);
       writeConn(conn);

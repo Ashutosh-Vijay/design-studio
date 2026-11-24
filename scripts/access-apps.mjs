@@ -179,7 +179,7 @@ if (cmd === 'ui') {
       console.log(`\n=== ${mix.label}`);
       await page.goto('http://localhost:1420/'); await page.waitForTimeout(1500);
       // The secret goes from .env straight into the app's sign-in (it keeps it in the system keychain); never printed.
-      try { await inv('anypoint_connect', { mode: 'client', clientId: id, clientSecret: secret, host: HOST, broker: null, readOnly: true }); }
+      try { await inv('anypoint_connect', { mode: 'client', clientId: id, clientSecret: secret, host: HOST, readOnly: true }); }
       catch (e) { console.log(`  sign-in: ${String(e).slice(0, 200)}`); seen[key] = { signIn: String(e).slice(0, 200) }; continue; }
       await page.goto('http://localhost:1420/'); await page.waitForTimeout(1500);
       await page.getByText('Dashboard', { exact: true }).first().click();
