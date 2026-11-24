@@ -1,6 +1,6 @@
 [package]
 name = "design-studio"
-version = "0.1.1"
+version = "0.1.2"
 description = "A fast desktop designer for Anypoint Design Center specs"
 authors = ["Ashutosh Vijay"]
 license = "MIT"

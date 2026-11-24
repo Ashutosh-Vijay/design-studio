@@ -1,5 +1,35 @@
 [
   {
+    "version": "0.1.2",
+    "date": "November 2026",
+    "headline": "Publish without Design Center, and a safer Publish",
+    "highlights": [
+      {
+        "title": "Publish without Design Center",
+        "tag": "NEW",
+        "desc": "A project that isn't in Design Center, like a folder or a Git checkout, now publishes straight to Exchange. That includes every project in the United Kingdom, India and Australia clouds, which have no Design Center. Exchange checks the spec and builds its RAML and OAS versions as usual, and exchange.json records what was published. Projects linked to Design Center still publish through it."
+      },
+      {
+        "title": "Publish checks before it sends",
+        "tag": "NEW",
+        "desc": "Publish now runs a full check of the spec first and stops on any error, even one you typed a moment ago. This matters because Design Center's publish lets a spec with a wrong example into Exchange. The AI tools' publish checks the same way."
+      },
+      {
+        "title": "Sign in from Publish",
+        "tag": "NEW",
+        "desc": "Signed out? Publish has a Sign in button, and carries on once you're in."
+      },
+      {
+        "title": "Clouds without Design Center",
+        "desc": "Anypoint doesn't offer Design Center in the United Kingdom, India and Australia clouds. The sign-in form says so when you pick one, and Design Center actions there explain it instead of failing with Anypoint's error."
+      },
+      {
+        "title": "Sign in goes straight to Anypoint",
+        "desc": "Sign in with Anypoint no longer has a fallback sign-in service in between. If Design Studio asks you to sign in again, it's only once."
+      }
+    ]
+  },
+  {
     "version": "0.1.1",
     "date": "November 2026",
     "headline": "Fixes from the first week, and a clearer editor",

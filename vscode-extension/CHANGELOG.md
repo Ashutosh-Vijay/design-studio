@@ -4,6 +4,8 @@ New work collects under Unreleased and moves into a version when it ships. The s
 
 ## Unreleased
 
+## 0.1.2 (November 2026): publish without Design Center, and a safer Publish
+
 - **Publish without Design Center**: a project that isn't in Design Center (a folder, a Git checkout, or any project in the United Kingdom, India and Australia clouds) now publishes straight to Exchange. Exchange checks the spec and builds its RAML and OAS versions as usual, and exchange.json records what was published. Linked projects still publish through Design Center.
 - Fixed: Publish could go ahead with an error the last check hadn't seen yet (an edit just before publishing, or a big spec still being checked), and Design Center's publish lets a spec with a wrong example into Exchange. Publish now checks the spec in full first and stops on any error; so does the AI tools' publish.
 - Publish has a Sign in button when you aren't signed in, and carries on once you are.
