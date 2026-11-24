@@ -25,8 +25,9 @@ const MULESOFT = '68ef9520-24e9-4cf2-b2f5-620025690913'; // MuleSoft's own organ
 const Note = ({ children }: { children: ReactNode }) => <div className="text-[12px] text-content-faint leading-relaxed">{children}</div>;
 
 // ---------- Publish to Exchange ----------
-export function PublishDialog({ root, main, paths, errors, model, version, unsaved, saveAll, onClose, onDone, onShowErrors }: {
+export function PublishDialog({ root, main, paths, errors, model, version, unsaved, saveAll, check, onClose, onDone, onShowErrors }: {
   root: string; main: string | null; paths: () => Promise<string[]>; errors: number; model: AmfModel | null; version?: string; unsaved: number; saveAll: () => Promise<void>;
+  check: () => Promise<{ severity: string }[] | undefined>;
   onClose: () => void; onDone: (text: string) => void; onShowErrors: () => void;
 }) {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -84,6 +85,10 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
     try {
       // Exchange gets what you see, so unsaved edits are saved here first (and pushed by publish when linked).
       await saveAll();
+      // A full check of exactly what goes out: the last one can be older than the latest edit (checks wait for a
+      // pause in typing) or not done yet on a big spec.
+      const n = (await check())?.filter((p) => p.severity === 'error').length ?? 0;
+      if (n) throw new Error(`The check just found ${n} ${n === 1 ? 'error' : 'errors'}, so nothing was published. Fix ${n === 1 ? 'it' : 'them'} first: Exchange and Mule both need a spec without errors.`);
       const o = { name: name.trim(), assetId: assetId.trim(), groupId: group, version: v.trim(), apiVersion: apiVersion.trim() || 'v1', development: dev };
       const r = direct ? (await S.publishDirect(root, await paths(), { ...o, main: main ?? kind!.main, classifier: kind!.classifier }, setStep), { pushed: 0 })
         : await S.publish(root, await paths(), { ...o, main: main ?? d!.main ?? '', classifier: d!.classifier ?? 'raml' }, setStep);
@@ -126,7 +131,7 @@ export function PublishDialog({ root, main, paths, errors, model, version, unsav
       ) : (
       <div className="flex flex-col gap-3 text-[12.5px]">
         {!!errors && <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[color-mix(in_oklch,var(--err)_30%,transparent)] bg-[color-mix(in_oklch,var(--err)_8%,transparent)]">
-          <span className="flex-1">{errors} {errors === 1 ? 'error' : 'errors'} to fix first. Exchange won't accept a spec with errors.</span><button className={btn} onClick={onShowErrors}>Show</button></div>}
+          <span className="flex-1">{errors} {errors === 1 ? 'error' : 'errors'} to fix first: a spec with errors can fail in Mule, even when Exchange takes it.</span><button className={btn} onClick={onShowErrors}>Show</button></div>}
         {direct && !blocked && <div className="text-content-secondary">Publishes from this computer straight to Exchange.{!d && ' This project has never been published, so check its name and asset ID below.'}</div>}
         {!!unsaved && !blocked && <div className="px-3 py-2 rounded-lg border border-accent-border bg-accent-dim text-content-secondary">{unsaved} unsaved {unsaved === 1 ? 'file' : 'files'}: {unsaved === 1 ? "it's" : "they're"} saved {direct ? '' : 'and sent to Design Center '}first, so Exchange gets what you see.</div>}
         {blocked === 'read only' ? (

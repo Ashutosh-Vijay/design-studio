@@ -208,6 +208,8 @@ export const TOOLS: Tool[] = [
     props: { version: str('Asset version, like 1.0.1'), development: bool('Publish as a Development version (default false: Stable)'), api_version: str('API version, like v1 (default from the spec)'), name: str('Asset name (default from exchange.json, or the folder name)'), asset_id: str('Asset ID for a project never published (default from exchange.json, or the folder name)') }, required: ['version'],
     run: async (a) => {
       const p = proj(); await p.saveAll();
+      const errs = (await p.check())?.filter((x) => x.severity === 'error') ?? [];
+      if (errs.length) throw new Error(`Not published: the spec has ${errs.length} ${errs.length === 1 ? 'error' : 'errors'}. Fix them first (check_spec lists them):\n${errs.slice(0, 10).map((x) => `${x.file}:${x.line}:${x.col + 1} ${x.message}`).join('\n')}`);
       const l = await S.readLink(p.root), k = await S.dcKind(p.root), x = k.x;
       if (l && !x) throw new Error('This project has no exchange.json.');
       const me = await invoke<Me | null>('anypoint_status'); if (!me) throw new Error('Not signed in to Anypoint.');

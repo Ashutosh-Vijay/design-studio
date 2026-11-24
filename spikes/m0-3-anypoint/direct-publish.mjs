@@ -186,4 +186,20 @@ else if (cmd === 'publish') {
 } else if (cmd === 'delete') {
   const s = S(), asset = `ds-proof-${a2}`;
   await show('DELETE', await api(s, 'DELETE', `/exchange/api/v2/assets/${s.org}/${asset}/${a3}`, undefined, { 'x-delete-type': 'hard-delete' }));
-} else console.log('signin | publish | read | delete');
+} else if (cmd === 'dcbad') {
+  // Design Center's publish with a wrong example: a throwaway Design Center project, saved, published as Development.
+  const s = S(), me = await (await api(s, 'GET', '/accounts/api/me')).json();
+  const dc = (method, path, body) => api(s, method, '/designcenter/api-designer/projects' + path, body === undefined ? undefined : JSON.stringify(body), { 'content-type': 'application/json', 'x-organization-id': s.org, 'x-owner-id': me.user.id });
+  const c = await dc('POST', '', { name: 'ds-proof-badex-dc', classifier: 'raml' }); const cj = await c.json(); console.log('create', c.status);
+  const B = `/${cj.id}/branches/master`;
+  console.log('lock', (await dc('POST', `${B}/acquireLock`, {})).status);
+  const files = await (await dc('GET', `${B}/files`)).json();
+  const main = files.find((f) => /\.raml$/.test(f.path))?.path ?? 'api.raml';
+  const raml = '#%RAML 1.0\ntitle: DS proof bad example DC\nversion: v1\ntypes:\n  Item:\n    properties:\n      id: integer\n/items:\n  get:\n    responses:\n      200:\n        body:\n          application/json:\n            type: Item\n            example: { id: "abc" }\n';
+  console.log('save', (await dc('POST', `${B}/save`, [{ path: main, type: 'FILE', content: raml }])).status, main);
+  const t0 = Date.now();
+  await show(`publish (${main})`, await dc('POST', `${B}/publish/exchange`, { name: 'DS proof bad example DC', apiVersion: 'v1', version: '1.0.0', main, assetId: 'ds-proof-badex-dc', groupId: s.org, classifier: 'raml', status: 'development' }));
+  console.log(`took ${Date.now() - t0} ms`);
+  await dc('POST', `${B}/releaseLock`, {});
+  for (let i = 0; i < 10; i++) { const a = await api(s, 'GET', `/exchange/api/v2/assets/${s.org}/ds-proof-badex-dc/1.0.0`); if (a.status === 200) { const j = await a.json(); console.log('in Exchange:', j.status, JSON.stringify(j.files.map((f) => f.classifier))); break; } await new Promise((r) => setTimeout(r, 2000)); if (i === 9) console.log('not in Exchange after 20 s'); }
+} else console.log('signin | publish | read | delete | dcbad');

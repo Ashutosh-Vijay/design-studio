@@ -856,6 +856,8 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
   };
   // What the AI tools (mcp.tsx) can do in this project: the same functions the UI uses.
   const declFor = (name: string, file?: string) => findDecl(file ?? project.main ?? '', name);
+  // A full check now, unsaved edits included (the AI tools' check_spec, and Publish before it sends anything).
+  const checkNow = async () => { if (!checkable) return undefined; for (let i = 0; i < 6; i++) { const r = await runCheck('validate'); if (r) return r; await new Promise((ok) => setTimeout(ok, 300)); } throw new Error(engine.state === 'failed' ? `The AMF engine isn't running: ${engine.detail}` : "The check didn't finish; try again."); };
   const lent: typeof mcpHost.project = {
     root: project.root, name: project.name, main: project.main, files: project.files.map((f) => f.path), open: tabs, active, unsaved: [...dirty], viewOnly,
     read: readAny,
@@ -877,7 +879,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
     setRoot: async (path) => { if (viewerOnly) throw new Error('This project is view only.'); await setRootFile(path); },
     saveAll: async () => { for (const p of [...dirty]) if (!(await save(p))) throw new Error(`${p} couldn't be saved.`); },
     // A check started meanwhile (typing, a save) can supersede this one: then it asks again.
-    check: async () => { if (!checkable) return undefined; for (let i = 0; i < 6; i++) { const r = await runCheck('validate'); if (r) return r; await new Promise((ok) => setTimeout(ok, 300)); } throw new Error(engine.state === 'failed' ? `The AMF engine isn't running: ${engine.detail}` : "The check didn't finish; try again."); },
+    check: checkNow,
     // A run already going (the one after each check) answers for this one too.
     governance: async () => { const r = await runGovernance(); if (r !== undefined) return r; while (govBusy.current) await new Promise((ok) => setTimeout(ok, 300)); return govLast.current; },
     outline: () => outlineRef.current,
@@ -1920,7 +1922,7 @@ function ProjectView({ project, initialNotice, onDirtyCount, onRefresh, openFile
             gov={gov} onGovRun={() => runGovernance()} onGovGo={(f) => f.file && f.r && revealAt({ file: f.file, r: f.r })}
             onAddRuleset={() => setRail('deps')} />}
           {publishing != null && <PublishDialog root={project.root} main={project.main} paths={listPaths} model={amfModel} version={publishing || undefined}
-            unsaved={dirty.size} saveAll={async () => { await syncRef.current?.saveAll(); }}
+            unsaved={dirty.size} saveAll={async () => { await syncRef.current?.saveAll(); }} check={checkNow}
             errors={problems.filter((x) => x.severity === 'error').length}
             onClose={() => setPublishing(null)} onShowErrors={() => { setPublishing(null); setProblemsOpen(true); }}
             onDone={async (text) => { setPublishing(null); await syncRef.current?.reload(); setPublished((n) => n + 1); setNotice({ text, err: false, ok: true }); }} />}
